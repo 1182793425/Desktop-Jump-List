@@ -80,6 +80,8 @@ desktop-jump-list/
 - .NET 8 SDK
 - Visual Studio 2022 或 JetBrains Rider（可选）
 
+可从微软官方下载 Windows 版 [.NET 8 SDK](https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0)。安装完成后，在 PowerShell 执行 `dotnet --version`，如能显示版本号即表示环境已就绪。
+
 创建应用后可使用以下命令运行：
 
 ```powershell
