@@ -1,5 +1,5 @@
 #define MyAppName "Desktop Jump List"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Desktop Jump List"
 #define MyAppURL "https://github.com/1182793425/Desktop-Jump-List"
 #define MyAppExeName "DesktopJumpList.exe"
@@ -17,7 +17,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\artifacts\installer
-OutputBaseFilename=DesktopJumpList-Setup-v1.0.0
+OutputBaseFilename=DesktopJumpList-Setup-v1.0.1
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -46,11 +46,28 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-function HasDesktopRuntime(): Boolean;
+function HasNet8DesktopRuntimeAt(const RuntimeRoot: String): Boolean;
 var
-  Versions: TArrayOfString;
+  FindRec: TFindRec;
 begin
-  Result := RegGetSubkeyNames(HKLM64, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App', Versions) and (GetArrayLength(Versions) > 0);
+  Result := False;
+  if FindFirst(AddBackslash(RuntimeRoot) + '8.*', FindRec) then
+  try
+    repeat
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
+        Result := True;
+        Exit;
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+function HasDesktopRuntime(): Boolean;
+begin
+  Result := HasNet8DesktopRuntimeAt(ExpandConstant('{commonpf}\dotnet\shared\Microsoft.WindowsDesktop.App')) or
+            HasNet8DesktopRuntimeAt(ExpandConstant('{localappdata}\Microsoft\dotnet\shared\Microsoft.WindowsDesktop.App'));
 end;
 
 function InitializeSetup(): Boolean;

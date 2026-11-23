@@ -1,6 +1,6 @@
-# Desktop Jump List v1.0.0
+# Desktop Jump List v1.0.1
 
-首个正式版本发布。
+修复安装器对已安装 .NET 8 Desktop Runtime 的误判。
 
 ## 功能
 
