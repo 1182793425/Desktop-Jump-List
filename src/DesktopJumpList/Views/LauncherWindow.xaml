@@ -77,14 +77,6 @@
             <Setter Property="Focusable" Value="False" />
             <EventSetter Event="Loaded" Handler="OnTileLoaded" />
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
-            <Setter Property="RenderTransform">
-                <Setter.Value>
-                    <TransformGroup>
-                        <ScaleTransform />
-                        <TranslateTransform />
-                    </TransformGroup>
-                </Setter.Value>
-            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">

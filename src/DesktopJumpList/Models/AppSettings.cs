@@ -6,6 +6,14 @@ public enum DockEdge
     Right
 }
 
+public enum AppTheme
+{
+    /// <summary>Follow the Windows app theme.</summary>
+    System,
+    Light,
+    Dark
+}
+
 /// <summary>Persisted to settings.json. Everything here is local-only.</summary>
 public sealed class AppSettings
 {
@@ -21,6 +29,9 @@ public sealed class AppSettings
     /// <summary>Global toggle hotkey, stored as "Ctrl+Alt+J" style text.</summary>
     public string Hotkey { get; set; } = "Ctrl+Alt+J";
 
+    /// <summary>Colour mode: follow system, or force light/dark.</summary>
+    public AppTheme Theme { get; set; } = AppTheme.System;
+
     public bool FirstRunDone { get; set; }
 
     public AppSettings Clone() => new()
@@ -29,6 +40,7 @@ public sealed class AppSettings
         EdgeRatio = EdgeRatio,
         PeekDelayMs = PeekDelayMs,
         Hotkey = Hotkey,
+        Theme = Theme,
         FirstRunDone = FirstRunDone
     };
 }

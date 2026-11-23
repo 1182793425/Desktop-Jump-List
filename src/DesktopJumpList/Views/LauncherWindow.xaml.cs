@@ -194,13 +194,31 @@ public partial class LauncherWindow : Window
         Panel.To(HeightProperty, target, 220, Motion.Out);
     }
 
+    /// <summary>
+    /// Returns a per-item Scale+Translate transform group. The transform must be created
+    /// fresh for each tile: a Style-setter RenderTransform is shared and frozen, which throws
+    /// "Cannot animate ... sealed or frozen" on every click.
+    /// </summary>
+    private static TransformGroup EnsureTransforms(FrameworkElement container)
+    {
+        if (container.RenderTransform is TransformGroup g && g.Children.Count == 2 && !g.IsFrozen)
+            return g;
+
+        var group = new TransformGroup();
+        group.Children.Add(new ScaleTransform());
+        group.Children.Add(new TranslateTransform());
+        container.RenderTransform = group;
+        container.RenderTransformOrigin = new Point(0.5, 0.5);
+        return group;
+    }
+
     /// <summary>Tiles fade/rise in. On open they ripple in quickly; on filter they just fade.</summary>
     private void OnTileLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is not ListBoxItem container) return;
         var index = Tiles.ItemContainerGenerator.IndexFromContainer(container);
         var delay = _staggerNext ? Math.Min(index, 12) * 11 + 40 : 0;
-        var shift = (TranslateTransform)((TransformGroup)container.RenderTransform).Children[1];
+        var shift = (TranslateTransform)EnsureTransforms(container).Children[1];
 
         container.FromTo(OpacityProperty, 0, 1, _staggerNext ? 200 : 130, Motion.Out, delay);
         if (_staggerNext)
@@ -228,7 +246,7 @@ public partial class LauncherWindow : Window
     private void OnTileDown(object sender, MouseButtonEventArgs e)
     {
         if (ContainerFrom(e.OriginalSource) is not { } c) return;
-        var scale = (ScaleTransform)((TransformGroup)c.RenderTransform).Children[0];
+        var scale = (ScaleTransform)EnsureTransforms(c).Children[0];
         scale.To(ScaleTransform.ScaleXProperty, 0.94, 90);
         scale.To(ScaleTransform.ScaleYProperty, 0.94, 90);
         e.Handled = true;
@@ -237,7 +255,7 @@ public partial class LauncherWindow : Window
     private void OnTileUp(object sender, MouseButtonEventArgs e)
     {
         if (ContainerFrom(e.OriginalSource) is not { } c) return;
-        var scale = (ScaleTransform)((TransformGroup)c.RenderTransform).Children[0];
+        var scale = (ScaleTransform)EnsureTransforms(c).Children[0];
         scale.To(ScaleTransform.ScaleXProperty, 1, 180, Motion.OutStrong);
         scale.To(ScaleTransform.ScaleYProperty, 1, 180, Motion.OutStrong);
         e.Handled = true;
@@ -250,7 +268,7 @@ public partial class LauncherWindow : Window
         switch (data)
         {
             case ShortcutItem item: OpenItem(item); break;
-            case AddTile: ShowAddMenu(anchor); break;
+            case AddTile: AddViaDialog(folder: false); break;
         }
     }
 
@@ -357,9 +375,22 @@ public partial class LauncherWindow : Window
                 if (Tiles.SelectedItem is ShortcutItem d) { Remove(d); e.Handled = true; }
                 break;
 
-            case Key.V when ctrl && Query.Text.Length == 0:
-                if (TryPasteAdd()) e.Handled = true;
+            case Key.V when ctrl:
+            {
+                // Empty search box → Ctrl+V adds from clipboard. Otherwise, only an
+                // Explorer file copy (unambiguous) is intercepted; plain text pastes normally.
+                bool tryAdd = Query.Text.Length == 0;
+                if (!tryAdd)
+                {
+                    try { tryAdd = Clipboard.ContainsFileDropList(); } catch { tryAdd = false; }
+                }
+                if (tryAdd)
+                {
+                    if (TryPasteAdd(out var msg)) e.Handled = true;
+                    else if (Query.Text.Length == 0 && msg is not null) { ShowMessage(msg); e.Handled = true; }
+                }
                 break;
+            }
 
             case Key.Z when ctrl && Query.Text.Length == 0:
                 Undo();
@@ -388,11 +419,21 @@ public partial class LauncherWindow : Window
 
     private void OnTileRightClick(object sender, MouseButtonEventArgs e)
     {
-        if (ContainerFrom(e.OriginalSource) is not { } c || c.DataContext is not ShortcutItem item) return;
+        if (ContainerFrom(e.OriginalSource) is not { } c) return;
         e.Handled = true;
+
+        switch (c.DataContext)
+        {
+            case ShortcutItem item: ShowShortcutMenu(item, c); break;
+            case AddTile: ShowAddMenu(c); break;
+        }
+    }
+
+    private void ShowShortcutMenu(ShortcutItem item, FrameworkElement anchor)
+    {
         Tiles.SelectedItem = item;
 
-        var menu = new ContextMenu { PlacementTarget = c, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
         menu.Items.Add(Item("打开", () => OpenItem(item), "Enter"));
         if (item.Kind != ShortcutKind.Url)
             menu.Items.Add(Item("打开所在位置", () => { ShellLauncher.Reveal(item); Close(animated: true); }));
@@ -494,12 +535,13 @@ public partial class LauncherWindow : Window
         var menu = new ContextMenu
         {
             PlacementTarget = anchor ?? (FrameworkElement)Panel,
-            Placement = anchor is null ? System.Windows.Controls.Primitives.PlacementMode.Center : System.Windows.Controls.Primitives.PlacementMode.Bottom
+            Placement = anchor is null
+                ? System.Windows.Controls.Primitives.PlacementMode.Center
+                : System.Windows.Controls.Primitives.PlacementMode.MousePoint
         };
         menu.Items.Add(Item("选择文件或应用…", () => AddViaDialog(folder: false)));
         menu.Items.Add(Item("选择文件夹…", () => AddViaDialog(folder: true)));
-        var paste = Item("粘贴路径或网址", () => { if (!TryPasteAdd()) ShowMessage("剪贴板里没有可添加的路径或网址"); }, "Ctrl+V");
-        menu.Items.Add(paste);
+        menu.Items.Add(Item("粘贴路径或网址", () => { if (!TryPasteAdd(out _)) ShowMessage("剪贴板里没有可添加的路径或网址"); }, "Ctrl+V"));
         menu.Closed += (_, _) => { if (IsOpen) Keyboard.Focus(Query); };
         menu.IsOpen = true;
     }
@@ -537,8 +579,9 @@ public partial class LauncherWindow : Window
         }
     }
 
-    private bool TryPasteAdd()
+    private bool TryPasteAdd(out string? message)
     {
+        message = null;
         try
         {
             if (Clipboard.ContainsFileDropList())
@@ -550,12 +593,20 @@ public partial class LauncherWindow : Window
             {
                 var lines = Clipboard.GetText().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var items = lines.Select(ShellLauncher.FromInput).OfType<ShortcutItem>().ToList();
-                if (items.Count == 0) return false;
+                if (items.Count == 0)
+                {
+                    message = "剪贴板里没有可添加的路径或网址";
+                    return false;
+                }
                 Commit(items);
                 return true;
             }
+            message = "剪贴板里没有可添加的路径或网址";
         }
-        catch { }
+        catch
+        {
+            message = "无法读取剪贴板";
+        }
         return false;
     }
 

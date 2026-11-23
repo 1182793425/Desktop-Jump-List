@@ -277,8 +277,18 @@ public partial class DockWindow : Window
         var open = new MenuItem { Header = "打开面板", InputGestureText = _settings.Hotkey };
         open.Click += (_, _) => App.Current.ShowLauncher();
 
+        // 外观 → 主题模式
+        var themeSys = ThemeItem("跟随系统", AppTheme.System);
+        var themeLight = ThemeItem("浅色", AppTheme.Light);
+        var themeDark = ThemeItem("深色", AppTheme.Dark);
+        var appearance = new MenuItem { Header = "外观" };
+        appearance.Items.Add(themeSys);
+        appearance.Items.Add(themeLight);
+        appearance.Items.Add(themeDark);
+
         menu.Items.Add(open);
         menu.Items.Add(new Separator());
+        menu.Items.Add(appearance);
         menu.Items.Add(autostart);
         menu.Items.Add(data);
         menu.Items.Add(new Separator());
@@ -290,6 +300,19 @@ public partial class DockWindow : Window
         Root.ContextMenu = menu;
         menu.PlacementTarget = Root;
         menu.IsOpen = true;
+    }
+
+    private static MenuItem ThemeItem(string header, AppTheme mode)
+    {
+        var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = App.Current.Settings.Theme == mode };
+        item.Click += (_, _) =>
+        {
+            App.Current.SetTheme(mode);
+            if (item.Parent is MenuItem parent)
+                foreach (var child in parent.Items.OfType<MenuItem>())
+                    child.IsChecked = child == item;
+        };
+        return item;
     }
 
     private void FadeOutAndQuit()

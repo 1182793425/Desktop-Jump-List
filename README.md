@@ -7,6 +7,11 @@
 1. 圆球贴在屏幕边缘，悬停片刻后会自动吸进边缘、只留一小条；鼠标移过去它会自己滑出来。
 2. 单击圆球（或按全局快捷键 `Ctrl+Alt+J`），屏幕中间展开面板；输入关键字即筛，点选条目立即打开，点击面板外或 `Esc` 收起。
 3. 把文件、文件夹直接拖进面板即可添加；在条目上右键可以打开所在位置、固定、重命名或移除。
+4. 右键圆球可切换外观（跟随系统 / 浅色 / 深色）、开机自启、打开数据目录或退出。
+
+## 安装
+
+下载 Release 中的 `Jump-*-setup.exe` 安装包，一路下一步即可；会创建桌面快捷方式和开始菜单快捷方式（可右键固定到任务栏）。也可用 `Jump-*-win-x64-portable.zip` 免安装运行。
 
 ## 数据
 
@@ -15,7 +20,7 @@
 ```text
 %LocalAppData%\DesktopJumpList\
 ├── shortcuts.json   # 快捷项（含使用次数、最近打开时间）
-└── settings.json    # 贴边方向、位置、自动隐藏延时、全局快捷键
+└── settings.json    # 贴边方向、位置、自动隐藏延时、主题、全局快捷键
 ```
 
 ## 开发
@@ -27,10 +32,11 @@ dotnet build   .\src\DesktopJumpList\DesktopJumpList.csproj
 dotnet run     --project .\src\DesktopJumpList\DesktopJumpList.csproj
 ```
 
-发布单文件自包含版本：
+发布自包含版本（安装包 / 便携版）：
 
 ```powershell
-dotnet publish .\src\DesktopJumpList\DesktopJumpList.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish .\src\DesktopJumpList\DesktopJumpList.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\publish
+# 然后用 Inno Setup 6 编译 installer\DesktopJumpList.iss
 ```
 
 ## 许可

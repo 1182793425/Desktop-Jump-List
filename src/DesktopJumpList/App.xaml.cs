@@ -50,9 +50,9 @@ public partial class App : Application
 
     private void Boot()
     {
-        ThemeService.Initialize();
         Storage = new Storage();
         Settings = Storage.LoadSettings();
+        ThemeService.Initialize(Settings.Theme);
         Library = new ShortcutLibrary(Storage);
 
         Launcher = new LauncherWindow(Library);
@@ -101,6 +101,13 @@ public partial class App : Application
     {
         try { Storage.SaveSettings(Settings); }
         catch (Exception ex) { Log(ex); }
+    }
+
+    public void SetTheme(AppTheme mode)
+    {
+        Settings.Theme = mode;
+        ThemeService.SetMode(mode);
+        SaveSettings();
     }
 
     public void Quit()
