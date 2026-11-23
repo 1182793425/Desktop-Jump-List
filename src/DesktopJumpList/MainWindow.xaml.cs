@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _trayIcon;
     private bool _isExpanded;
     private bool _isDragging;
-    private Point _dragStart;
+    private System.Windows.Point _dragStart;
     private bool _orbPressed;
 
     public MainWindow()
@@ -82,7 +82,7 @@ public partial class MainWindow : Window
         Orb.CaptureMouse();
     }
 
-    private void Orb_MouseMove(object sender, MouseEventArgs e)
+    private void Orb_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_orbPressed || e.LeftButton != MouseButtonState.Pressed) return;
         var position = e.GetPosition(this);
@@ -186,9 +186,9 @@ public partial class MainWindow : Window
 
     private void OpenShortcut_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as Button)?.Tag is not ShortcutItem shortcut) return;
+        if ((sender as System.Windows.Controls.Button)?.Tag is not ShortcutItem shortcut) return;
         try { ShellLauncher.Open(shortcut); HidePanel(); }
-        catch (Exception ex) { MessageBox.Show($"无法打开“{shortcut.Name}”。\n\n{ex.Message}", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception ex) { System.Windows.MessageBox.Show($"无法打开“{shortcut.Name}”。\n\n{ex.Message}", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
     private async void AddShortcut_Click(object sender, RoutedEventArgs e)
@@ -202,7 +202,7 @@ public partial class MainWindow : Window
 
     private void ShortcutMenu_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as Button)?.Tag is not ShortcutItem shortcut) return;
+        if ((sender as System.Windows.Controls.Button)?.Tag is not ShortcutItem shortcut) return;
         var menu = new ContextMenu();
         var edit = new MenuItem { Header = "编辑" };
         edit.Click += async (_, _) =>
@@ -219,7 +219,7 @@ public partial class MainWindow : Window
         var delete = new MenuItem { Header = "删除" };
         delete.Click += async (_, _) =>
         {
-            if (MessageBox.Show($"删除“{shortcut.Name}”？", "Desktop Jump List", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (System.Windows.MessageBox.Show($"删除“{shortcut.Name}”？", "Desktop Jump List", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             _shortcuts.Remove(shortcut);
             await SaveAsync();
         };

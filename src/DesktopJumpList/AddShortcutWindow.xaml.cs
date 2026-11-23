@@ -46,7 +46,7 @@ public partial class AddShortcutWindow : Window
                 break;
             case ShortcutType.File:
             case ShortcutType.Application:
-                var picker = new OpenFileDialog { Title = SelectedType == ShortcutType.Application ? "选择应用程序" : "选择文件" };
+                var picker = new Microsoft.Win32.OpenFileDialog { Title = SelectedType == ShortcutType.Application ? "选择应用程序" : "选择文件" };
                 if (picker.ShowDialog() == true) TargetBox.Text = picker.FileName;
                 break;
         }
@@ -58,12 +58,12 @@ public partial class AddShortcutWindow : Window
         var target = TargetBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(target))
         {
-            MessageBox.Show("请填写名称和目标位置。", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.MessageBox.Show("请填写名称和目标位置。", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (SelectedType == ShortcutType.Url && !Uri.TryCreate(target, UriKind.Absolute, out _))
         {
-            MessageBox.Show("请输入有效的网址，例如 https://example.com。", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.MessageBox.Show("请输入有效的网址，例如 https://example.com。", "Desktop Jump List", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         Shortcut = new ShortcutItem
