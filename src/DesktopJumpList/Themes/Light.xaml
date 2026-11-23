@@ -36,7 +36,7 @@
   <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource AmberColor}" />
   <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
   <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
-  <SolidColorBrush x:Key="ScrimBrush" Color="#66101828" />
+  <SolidColorBrush x:Key="ScrimBrush" Color="#E6101828" />
   <SolidColorBrush x:Key="AccentOnBrush" Color="#FFFFFFFF" />
   <SolidColorBrush x:Key="PanelBorderBrush" Color="#FFE9EDF4" />
   <SolidColorBrush x:Key="PanelHighlightBrush" Color="#B3FFFFFF" />

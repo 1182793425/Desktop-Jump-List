@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using DesktopJumpList.Models;
 using DesktopJumpList.Services;
 using DesktopJumpList.ViewModels;
+using DesktopJumpList.Views;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 
@@ -18,11 +19,14 @@ namespace DesktopJumpList;
 
 public partial class MainWindow : Window
 {
-    private const double DockSize = 60;
-    private const double PanelWidth = 432;
-    private const double PanelHeight = 648;
+    private const double DockWindowSize = 52;
+    private const double DockVisualSize = 40;
+    private const double PanelWidth = 400;
+    private const double PanelHeight = 560;
     private const double ShadowMargin = 32;
-    private const double EdgeInset = 12;
+    private const double EdgeInset = 8;
+    private const double MorphStartWidth = 100;
+    private const double MorphStartHeight = 44;
 
     private readonly MainViewModel _viewModel;
     private readonly AppSettings _settings;
@@ -32,12 +36,15 @@ public partial class MainWindow : Window
 
     private Forms.NotifyIcon? _tray;
     private Drawing.Icon? _trayIcon;
+    private DispatcherTimer? _morphTimer;
     private bool _initialized;
     private bool _panelOpen;
     private bool _dragPressed;
     private bool _dragMoved;
+    private bool _isMorphing;
     private int _modalDepth;
     private bool _anchorRight = true;
+    private double _dockTop;
     private Drawing.Point _dragStartCursor;
     private double _dragStartLeft;
     private double _dragStartTop;
@@ -57,127 +64,260 @@ public partial class MainWindow : Window
         _viewModel.CloseRequested += HidePanel;
         _viewModel.ExitRequested += ExitApplication;
 
-        Width = DockSize;
-        Height = DockSize;
+        Width = DockWindowSize;
+        Height = DockWindowSize;
         var area = SystemParameters.WorkArea;
         _anchorRight = !string.Equals(_settings.Edge, "Left", StringComparison.OrdinalIgnoreCase);
-        Left = _anchorRight ? area.Right - DockSize - EdgeInset : area.Left + EdgeInset;
-        Top = area.Top + Math.Max(0, area.Height - DockSize) * _settings.TopRatio;
+        Left = _anchorRight ? area.Right - DockWindowSize - EdgeInset : area.Left + EdgeInset;
+        Top = area.Top + Math.Max(0, area.Height - DockWindowSize) * _settings.TopRatio;
+        _dockTop = Top;
 
         Loaded += OnLoaded;
         Deactivated += OnDeactivated;
         PreviewKeyDown += OnPreviewKeyDown;
         Closing += OnClosing;
-        Dock.MouseEnter += (_, _) => AnimateDockScale(1.035);
+        Dock.MouseEnter += (_, _) => SetDockHover(true);
         Dock.MouseLeave += (_, _) =>
         {
-            if (!_dragPressed) AnimateDockScale(1);
+            if (!_dragPressed) SetDockHover(false);
         };
     }
 
-    public void ShowPanel() => ShowPanel(center: false, animate: true);
+    public void ShowPanel() => ShowPanel(animate: true);
 
-    public void ShowPanel(bool center, bool animate)
+    public void ShowPanel(bool animate)
     {
-        App.Log($"ShowPanel requested open={_panelOpen} center={center}");
+        App.Log($"ShowPanel requested open={_panelOpen} morphing={_isMorphing}");
         if (_panelOpen)
         {
             Activate();
-            if (_viewModel.IsEditorOpen) Panel.FocusEditor();
-            else if (_viewModel.IsSettingsOpen) Panel.FocusSettings();
-            else if (!_viewModel.IsInsightsOpen) Panel.FocusSearch();
+            FocusPanelPrimary();
             return;
         }
+
+        if (_isMorphing) return;
+
         var area = GetWorkArea();
-        var panelWidth = Math.Min(PanelWidth, Math.Max(320, area.Width - 24));
-        var panelHeight = Math.Min(PanelHeight, Math.Max(420, area.Height - 24));
-        var dockRect = new Rect(Left, Top, DockSize, DockSize);
-        double panelLeft;
-        double panelTop;
-        if (center)
-        {
-            panelLeft = area.Left + (area.Width - panelWidth) / 2;
-            panelTop = area.Top + (area.Height - panelHeight) / 2;
-        }
-        else
-        {
-            _anchorRight = dockRect.Left + dockRect.Width / 2 >= area.Left + area.Width / 2;
-            panelLeft = _anchorRight ? dockRect.Right - panelWidth : dockRect.Left;
-            panelTop = Math.Clamp(dockRect.Top + dockRect.Height / 2 - panelHeight / 2,
-                area.Top + 8, area.Bottom - panelHeight - 8);
-        }
+        var panelWidth = Math.Min(PanelWidth, Math.Max(320, area.Width - 80));
+        var panelHeight = Math.Min(PanelHeight, Math.Max(420, area.Height - 80));
+        var windowWidth = panelWidth + ShadowMargin * 2;
+        var windowHeight = panelHeight + ShadowMargin * 2;
+        var finalLeft = area.Left + (area.Width - windowWidth) / 2;
+        var finalTop = area.Top + (area.Height - windowHeight) / 2;
+
+        _dockTop = Top;
 
         _panelOpen = true;
         Dock.Visibility = Visibility.Collapsed;
-        Width = panelWidth + ShadowMargin * 2;
-        Height = panelHeight + ShadowMargin * 2;
-        Left = panelLeft - ShadowMargin;
-        Top = panelTop - ShadowMargin;
+        DockHalo.Visibility = Visibility.Collapsed;
+        Width = windowWidth;
+        Height = windowHeight;
+        Left = finalLeft;
+        Top = finalTop;
 
         PanelHost.Visibility = Visibility.Visible;
+        PanelHost.BeginAnimation(FrameworkElement.WidthProperty, null);
+        PanelHost.BeginAnimation(FrameworkElement.HeightProperty, null);
         PanelHost.BeginAnimation(OpacityProperty, null);
-        PanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        PanelScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        if (!animate)
-        {
-            PanelHost.Opacity = 1;
-            PanelScale.ScaleX = PanelScale.ScaleY = 1;
-        }
-        else
-        {
-            PanelHost.Opacity = 0;
-            PanelScale.ScaleX = PanelScale.ScaleY = 0.975;
-            PanelHost.BeginAnimation(OpacityProperty,
-                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            PanelScale.BeginAnimation(ScaleTransform.ScaleXProperty,
-                new DoubleAnimation(0.975, 1, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
-            PanelScale.BeginAnimation(ScaleTransform.ScaleYProperty,
-                new DoubleAnimation(0.975, 1, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
-        }
+        PanelHost.Width = MorphStartWidth;
+        PanelHost.Height = MorphStartHeight;
+        PanelHost.Opacity = 1;
+        Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty, null);
+        Panel.ContentOpacity = 0;
+        MorphGlyph.BeginAnimation(OpacityProperty, null);
+        MorphGlyph.Opacity = animate ? 1 : 0;
 
         Activate();
-        if (_viewModel.IsEditorOpen) Panel.FocusEditor();
-        else if (_viewModel.IsSettingsOpen) Panel.FocusSettings();
-        else if (!_viewModel.IsInsightsOpen) Panel.FocusSearch();
+        if (_shotPath is null && !_viewModel.IsEditorOpen && !_viewModel.IsSettingsOpen && !_viewModel.IsInsightsOpen)
+            Panel.FocusSearch();
+
+        if (!animate)
+        {
+            BeginAnimation(LeftProperty, null);
+            BeginAnimation(TopProperty, null);
+            Left = finalLeft;
+            Top = finalTop;
+            PanelHost.Width = panelWidth;
+            PanelHost.Height = panelHeight;
+            Panel.ContentOpacity = 1;
+            if (_shotPath is null) FocusPanelPrimary();
+            return;
+        }
+
+        _isMorphing = true;
+        PanelHost.Opacity = 0;
+        PanelHost.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(110))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+
+        var sizeEase = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.05 };
+        PanelHost.BeginAnimation(FrameworkElement.WidthProperty,
+            new DoubleAnimation(MorphStartWidth, panelWidth, TimeSpan.FromMilliseconds(370)) { EasingFunction = sizeEase });
+        var heightAnimation = new DoubleAnimation(MorphStartHeight, panelHeight, TimeSpan.FromMilliseconds(440))
+        {
+            EasingFunction = sizeEase
+        };
+        PanelHost.BeginAnimation(FrameworkElement.HeightProperty, heightAnimation);
+        Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(130),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+        MorphGlyph.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(200))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(100),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+
+        ScheduleMorphCompletion(TimeSpan.FromMilliseconds(480), () =>
+        {
+            if (!_panelOpen) return;
+            Left = finalLeft;
+            Top = finalTop;
+            PanelHost.BeginAnimation(FrameworkElement.WidthProperty, null);
+            PanelHost.BeginAnimation(FrameworkElement.HeightProperty, null);
+            PanelHost.Width = panelWidth;
+            PanelHost.Height = panelHeight;
+            PanelHost.BeginAnimation(OpacityProperty, null);
+            PanelHost.Opacity = 1;
+            Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty, null);
+            Panel.ContentOpacity = 1;
+            MorphGlyph.BeginAnimation(OpacityProperty, null);
+            MorphGlyph.Opacity = 0;
+            _isMorphing = false;
+            if (_shotPath is null && Keyboard.FocusedElement is not TextBox) FocusPanelPrimary();
+        });
     }
 
     public void HidePanel()
     {
-        App.Log($"HidePanel requested open={_panelOpen}");
+        App.Log($"HidePanel requested open={_panelOpen} morphing={_isMorphing}");
         if (!_panelOpen) return;
+        if (_isMorphing) StopMorphAnimations();
+
         _panelOpen = false;
         _viewModel.SearchText = string.Empty;
         if (_viewModel.IsInsightsOpen || _viewModel.IsEditorOpen || _viewModel.IsSettingsOpen)
             _viewModel.CloseOverlaysCommand.Execute(null);
         Panel.ResetState();
-        var area = GetWorkArea();
-        var contentRect = new Rect(Left + ShadowMargin, Top + ShadowMargin, Width - ShadowMargin * 2, Height - ShadowMargin * 2);
-        var dockTop = Math.Clamp(contentRect.Top + contentRect.Height / 2 - DockSize / 2,
-            area.Top + 8, area.Bottom - DockSize - 8);
-        var targetLeft = _anchorRight ? area.Right - DockSize - EdgeInset : area.Left + EdgeInset;
 
-        var fade = new DoubleAnimation(PanelHost.Opacity, 0, TimeSpan.FromMilliseconds(140))
+        var area = GetWorkArea();
+        var dockLeft = _anchorRight ? area.Right - DockWindowSize - EdgeInset : area.Left + EdgeInset;
+        var dockTop = Math.Clamp(_dockTop, area.Top + 8, area.Bottom - DockWindowSize - 8);
+
+        _isMorphing = true;
+        PanelHost.BeginAnimation(OpacityProperty, null);
+        PanelHost.Opacity = 1;
+        MorphGlyph.BeginAnimation(OpacityProperty, null);
+        MorphGlyph.Opacity = 0;
+        MorphGlyph.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(90),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+        Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty,
+            new DoubleAnimation(Panel.ContentOpacity, 0, TimeSpan.FromMilliseconds(100))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            });
+
+        var sizeEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        PanelHost.BeginAnimation(FrameworkElement.WidthProperty,
+            new DoubleAnimation(PanelHost.ActualWidth, MorphStartWidth, TimeSpan.FromMilliseconds(280)) { EasingFunction = sizeEase });
+        var heightAnimation = new DoubleAnimation(PanelHost.ActualHeight, MorphStartHeight, TimeSpan.FromMilliseconds(280))
         {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            EasingFunction = sizeEase
         };
-        fade.Completed += (_, _) =>
+        PanelHost.BeginAnimation(FrameworkElement.HeightProperty, heightAnimation);
+
+        ScheduleMorphCompletion(TimeSpan.FromMilliseconds(330), () =>
         {
             if (_panelOpen) return;
+            PanelHost.BeginAnimation(FrameworkElement.WidthProperty, null);
+            PanelHost.BeginAnimation(FrameworkElement.HeightProperty, null);
+            PanelHost.Width = MorphStartWidth;
+            PanelHost.Height = MorphStartHeight;
+            Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty, null);
+            Panel.ContentOpacity = 0;
+            MorphGlyph.BeginAnimation(OpacityProperty, null);
+            MorphGlyph.Opacity = 0;
             PanelHost.Visibility = Visibility.Collapsed;
-            Dock.Visibility = Visibility.Visible;
-            Width = DockSize;
-            Height = DockSize;
-            Left = targetLeft;
+
+            Width = DockWindowSize;
+            Height = DockWindowSize;
+            Left = dockLeft;
             Top = dockTop;
+            _dockTop = dockTop;
+            _isMorphing = false;
+
+            DockHalo.Visibility = Visibility.Visible;
+            Dock.Visibility = Visibility.Visible;
             Dock.BeginAnimation(OpacityProperty, null);
             Dock.Opacity = 0;
             Dock.BeginAnimation(OpacityProperty,
                 new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-            AnimateDockScale(1, 170, fromCurrent: true);
-            SavePlacement(_anchorRight ? "Right" : "Left", (dockTop - area.Top) / Math.Max(1, area.Height - DockSize));
+            AnimateDockScale(1, 180, fromCurrent: true);
+            AnimateDockHalo(0.12, 0, 180);
+            SavePlacement(_anchorRight ? "Right" : "Left", (dockTop - area.Top) / Math.Max(1, area.Height - DockWindowSize));
+        });
+    }
+
+    private void ScheduleMorphCompletion(TimeSpan delay, Action action)
+    {
+        _morphTimer?.Stop();
+        _morphTimer = new DispatcherTimer { Interval = delay };
+        _morphTimer.Tick += (_, _) =>
+        {
+            _morphTimer?.Stop();
+            _morphTimer = null;
+            action();
         };
-        PanelHost.BeginAnimation(OpacityProperty, fade);
+        _morphTimer.Start();
+    }
+
+    private void Root_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_panelOpen || PanelHost.IsMouseOver) return;
+        HidePanel();
+    }
+
+    private void FocusPanelPrimary()
+    {
+        if (_viewModel.IsEditorOpen) Panel.FocusEditor();
+        else if (_viewModel.IsSettingsOpen) Panel.FocusSettings();
+        else if (!_viewModel.IsInsightsOpen) Panel.FocusSearch();
+    }
+
+    private void StopMorphAnimations()
+    {
+        _morphTimer?.Stop();
+        _morphTimer = null;
+        var left = Left;
+        var top = Top;
+        var width = PanelHost.ActualWidth;
+        var height = PanelHost.ActualHeight;
+        var opacity = Panel.ContentOpacity;
+
+        BeginAnimation(LeftProperty, null);
+        BeginAnimation(TopProperty, null);
+        PanelHost.BeginAnimation(FrameworkElement.WidthProperty, null);
+        PanelHost.BeginAnimation(FrameworkElement.HeightProperty, null);
+        PanelHost.BeginAnimation(OpacityProperty, null);
+        Panel.BeginAnimation(LauncherPanel.ContentOpacityProperty, null);
+        MorphGlyph.BeginAnimation(OpacityProperty, null);
+
+        Left = left;
+        Top = top;
+        PanelHost.Width = width;
+        PanelHost.Height = height;
+        Panel.ContentOpacity = opacity;
+        MorphGlyph.Opacity = 0;
+        _isMorphing = false;
     }
 
     public void BeginModal() => _modalDepth++;
@@ -223,20 +363,22 @@ public partial class MainWindow : Window
 
     private void ToggleFromHotkey()
     {
-        App.Log($"Hotkey toggled open={_panelOpen}");
+        App.Log($"Hotkey toggled open={_panelOpen} morphing={_isMorphing}");
+        if (_isMorphing) return;
         if (_panelOpen) HidePanel();
         else ShowPanel();
     }
 
     private void PlaceDock(Rect area)
     {
-        Width = DockSize;
-        Height = DockSize;
+        Width = DockWindowSize;
+        Height = DockWindowSize;
         _anchorRight = !string.Equals(_settings.Edge, "Left", StringComparison.OrdinalIgnoreCase);
         var ratio = _settings.HasPlacedWindow ? Math.Clamp(_settings.TopRatio, 0, 1) : 0.36;
-        var top = area.Top + (area.Height - DockSize) * ratio;
-        Left = _anchorRight ? area.Right - DockSize - EdgeInset : area.Left + EdgeInset;
-        Top = Math.Clamp(top, area.Top + 8, area.Bottom - DockSize - 8);
+        var top = area.Top + (area.Height - DockWindowSize) * ratio;
+        Left = _anchorRight ? area.Right - DockWindowSize - EdgeInset : area.Left + EdgeInset;
+        Top = Math.Clamp(top, area.Top + 8, area.Bottom - DockWindowSize - 8);
+        _dockTop = Top;
     }
 
     private Rect GetWorkArea()
@@ -263,7 +405,8 @@ public partial class MainWindow : Window
         _dragStartLeft = Left;
         _dragStartTop = Top;
         Dock.CaptureMouse();
-        AnimateDockScale(0.96, 90);
+        AnimateDockScale(0.95, 90);
+        AnimateDockHalo(0.6, 1.03, 100);
         e.Handled = true;
     }
 
@@ -280,10 +423,10 @@ public partial class MainWindow : Window
         {
             _dragMoved = true;
             Dock.Cursor = Cursors.SizeAll;
-            AnimateDockScale(1.02, 100);
+            AnimateDockScale(1.01, 100);
         }
 
-        var minLeft = SystemParameters.VirtualScreenLeft - DockSize + 24;
+        var minLeft = SystemParameters.VirtualScreenLeft - DockWindowSize + 24;
         var maxLeft = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 24;
         var minTop = SystemParameters.VirtualScreenTop - 8;
         var maxTop = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 24;
@@ -299,9 +442,17 @@ public partial class MainWindow : Window
         _dragPressed = false;
         Dock.ReleaseMouseCapture();
         Dock.Cursor = Cursors.Hand;
-        AnimateDockScale(1.035, 120);
-        if (_dragMoved) SnapDockToEdge();
-        else ShowPanel();
+        if (_dragMoved)
+        {
+            SetDockHover(false);
+            SnapDockToEdge();
+        }
+        else
+        {
+            SetDockHover(Dock.IsMouseOver);
+            ShowPanel();
+        }
+
         _dragMoved = false;
         e.Handled = true;
     }
@@ -311,16 +462,16 @@ public partial class MainWindow : Window
         if (!_dragPressed) return;
         _dragPressed = false;
         Dock.Cursor = Cursors.Hand;
-        AnimateDockScale(1, 120);
+        SetDockHover(Dock.IsMouseOver);
     }
 
     private void SnapDockToEdge()
     {
         var area = GetWorkArea();
-        var center = Left + DockSize / 2;
+        var center = Left + DockWindowSize / 2;
         _anchorRight = center >= area.Left + area.Width / 2;
-        var targetLeft = _anchorRight ? area.Right - DockSize - EdgeInset : area.Left + EdgeInset;
-        var targetTop = Math.Clamp(Top, area.Top + 8, area.Bottom - DockSize - 8);
+        var targetLeft = _anchorRight ? area.Right - DockWindowSize - EdgeInset : area.Left + EdgeInset;
+        var targetTop = Math.Clamp(Top, area.Top + 8, area.Bottom - DockWindowSize - 8);
 
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         var leftAnimation = new DoubleAnimation(Left, targetLeft, TimeSpan.FromMilliseconds(180)) { EasingFunction = ease };
@@ -339,7 +490,14 @@ public partial class MainWindow : Window
         };
         BeginAnimation(TopProperty, topAnimation);
 
-        SavePlacement(_anchorRight ? "Right" : "Left", (targetTop - area.Top) / Math.Max(1, area.Height - DockSize));
+        _dockTop = targetTop;
+        SavePlacement(_anchorRight ? "Right" : "Left", (targetTop - area.Top) / Math.Max(1, area.Height - DockWindowSize));
+    }
+
+    private void SetDockHover(bool hovering)
+    {
+        AnimateDockScale(hovering ? 1.06 : 1, hovering ? 160 : 190);
+        AnimateDockHalo(hovering ? 0.48 : 0.12, hovering ? 1.04 : 1, hovering ? 180 : 210);
     }
 
     private void AnimateDockScale(double target, double milliseconds = 150, bool fromCurrent = false)
@@ -350,6 +508,17 @@ public partial class MainWindow : Window
             new DoubleAnimation(DockScale.ScaleX, target, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = ease });
         DockScale.BeginAnimation(ScaleTransform.ScaleYProperty,
             new DoubleAnimation(DockScale.ScaleY, target, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = ease });
+    }
+
+    private void AnimateDockHalo(double opacity, double scale, double milliseconds)
+    {
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        DockHalo.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(DockHalo.Opacity, opacity, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = ease });
+        DockHaloScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(DockHaloScale.ScaleX, scale, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = ease });
+        DockHaloScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(DockHaloScale.ScaleY, scale, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = ease });
     }
 
     private void WindowFadeIn()
@@ -454,7 +623,11 @@ public partial class MainWindow : Window
 
         _trayIcon?.Dispose();
         _trayIcon = null;
-        _viewModel.SavePlacementNow(_anchorRight ? "Right" : "Left", _settings.TopRatio);
+        var area = GetWorkArea();
+        var ratio = area.Height > DockWindowSize
+            ? Math.Clamp((_dockTop - area.Top) / (area.Height - DockWindowSize), 0, 1)
+            : _settings.TopRatio;
+        _viewModel.SavePlacementNow(_anchorRight ? "Right" : "Left", ratio);
     }
 
     private void CreateTrayIcon()
@@ -543,9 +716,9 @@ public partial class MainWindow : Window
         if (_previewView == "dock")
         {
             var area = GetWorkArea();
-            Width = DockSize;
-            Height = DockSize;
-            Left = area.Right - DockSize - 24;
+            Width = DockWindowSize;
+            Height = DockWindowSize;
+            Left = area.Right - DockWindowSize - 24;
             Top = area.Top + area.Height * 0.34;
             await Task.Delay(500);
             if (_shotPath is not null) RenderShot(_shotPath, 4);
@@ -553,7 +726,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        ShowPanel(center: true, animate: false);
+        ShowPanel(animate: false);
         switch (_previewView)
         {
             case "insights":

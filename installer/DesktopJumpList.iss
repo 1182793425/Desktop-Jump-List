@@ -1,5 +1,5 @@
 #define MyAppName "Desktop Jump List"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.0.1"
 #define MyAppPublisher "Desktop Jump List"
 #define MyAppURL "https://github.com/1182793425/Desktop-Jump-List"
 #define MyAppExeName "DesktopJumpList.exe"
@@ -17,7 +17,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\artifacts\installer
-OutputBaseFilename=DesktopJumpList-Setup-v2.0.0
+OutputBaseFilename=DesktopJumpList-Setup-v2.0.1
 SetupIconFile=..\src\DesktopJumpList\Assets\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -35,7 +35,7 @@ Name: "startup"; Description: "登录 Windows 时自动启动 Desktop Jump List"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他选项："; Flags: unchecked
 
 [Files]
-Source: "..\artifacts\DesktopJumpList-v2.0.0-runtime\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "..\artifacts\DesktopJumpList-v2.0.1-runtime\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

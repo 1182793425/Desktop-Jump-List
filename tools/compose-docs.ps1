@@ -153,7 +153,7 @@ function RenderHero([string]$panelFile, [string]$outFile, [bool]$dark, [string[]
   }
   $fSmall = Font 'Segoe UI' 11
   $foot = if ($dark) { HexColor '#6D7684' } else { HexColor '#8A93A3' }
-  DrawText $g 'Windows 10 / 11   ·   .NET 8   ·   v2.0.0' $fSmall $foot 110 900
+  DrawText $g 'Windows 10 / 11   ·   .NET 8   ·   v2.0.1' $fSmall $foot 110 900
   AddPanel $g (Join-Path $preview $panelFile) 1032 138 0.5 | Out-Null
   SavePng $c.Bitmap $outFile
   $fHead.Dispose(); $fSub.Dispose(); $fSmall.Dispose()
@@ -202,7 +202,7 @@ $ink = HexColor '#141821'
 $muted = HexColor '#5C6472'
 $tertiary = HexColor '#8A93A3'
 DrawText $bg 'Jump' $fBrand $ink 144 64
-DrawText $bg '桌面快捷启动器 · 设计系统 v2.0' $fBody $muted 144 106
+DrawText $bg '桌面快捷启动器 · 设计系统 v2.0.1' $fBody $muted 144 106
 
 # palette
 DrawText $bg '01  色彩' $fTitle $ink 64 178
@@ -284,13 +284,13 @@ DrawText $bg '04  交互原则' $fTitle $ink 64 1004
 DrawText $bg '拖动贴边  ·  单击打开  ·  Ctrl K 搜索  ·  Ctrl Alt J 呼出  ·  拖入文件即添加  ·  删除可撤销' $fBody $muted 64 1044
 
 # screenshots
-$p1 = AddPanel $bg (Join-Path $preview 'final-shortcuts-light.png') 800 96 0.45
-$p2 = AddPanel $bg (Join-Path $preview 'final-insights-light.png') 1260 96 0.45
-DrawText $bg '快捷面板 / 搜索与分组' $fBody $muted 824 760
-DrawText $bg '使用概览 / 数据图表' $fBody $muted 1284 760
+$p1 = AddPanel $bg (Join-Path $preview 'final-shortcuts-light.png') 800 96 0.5
+$p2 = AddPanel $bg (Join-Path $preview 'final-insights-light.png') 1294 96 0.5
+DrawText $bg '快捷面板 / 搜索与分组' $fBody $muted 824 744
+DrawText $bg '使用概览 / 数据图表' $fBody $muted 1318 744
 $fNote = Font 'Microsoft YaHei UI' 10
-DrawText $bg '拖动即贴边，单击即展开；面板内完成全部编辑。' $fNote $tertiary 824 788
-DrawText $bg '近 7 天趋势、类型构成与常用排行。' $fNote $tertiary 1284 788
+DrawText $bg '中央展开，面板内完成全部编辑。' $fNote $tertiary 824 772
+DrawText $bg '近 7 天趋势、类型构成与常用排行。' $fNote $tertiary 1318 772
 
 $board.Save((Join-Path $docs 'design-board.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $bg.Dispose(); $board.Dispose()

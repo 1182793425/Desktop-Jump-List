@@ -131,7 +131,7 @@ public sealed class MainViewModel : ObservableObject
 
     public string DataDirectory { get; }
     public bool IsPreview { get; }
-    public string VersionText { get; } = $"Desktop Jump List · 2.0.0";
+    public string VersionText { get; } = $"Desktop Jump List · 2.0.1";
     public string HotkeyDisplay => string.Join(" + ", _settings.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     public string DataFolderDisplay => DataDirectory;
 

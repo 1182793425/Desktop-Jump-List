@@ -68,7 +68,7 @@
 
     <DataTemplate x:Key="ShortcutCardTemplate" DataType="{x:Type models:ShortcutItem}">
       <Grid Margin="5,3">
-        <Border x:Name="Card" Height="74" Padding="11,9" MouseRightButtonUp="Card_MouseRightButtonUp"
+        <Border x:Name="Card" Height="72" Padding="10,8" MouseRightButtonUp="Card_MouseRightButtonUp"
                 AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding Target}">
           <Border.Style>
             <Style TargetType="{x:Type Border}">
@@ -115,13 +115,13 @@
             <StackPanel Grid.Column="1" Margin="9,0,4,0" VerticalAlignment="Center">
               <StackPanel Orientation="Horizontal">
                 <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                           MaxWidth="112" VerticalAlignment="Center" />
+                           VerticalAlignment="Center" />
                 <Path Data="M12 2.6 L14.7 8.4 L21 9.3 L16.5 13.7 L17.6 20 L12 16.9 L6.4 20 L7.5 13.7 L3 9.3 L9.3 8.4 Z"
                       Fill="{DynamicResource AmberBrush}" Width="9" Height="9" Stretch="Uniform" Margin="5,1,0,0"
                       VerticalAlignment="Center" Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisibility}}" />
               </StackPanel>
               <TextBlock Text="{Binding UsageHint}" FontSize="9.8" Foreground="{DynamicResource InkTertiaryBrush}"
-                         TextTrimming="CharacterEllipsis" Margin="0,3,0,0" MaxWidth="112" />
+                         TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
             </StackPanel>
 
             <Button x:Name="MoreButton" Grid.Column="2" Width="24" Height="24" Style="{StaticResource IconButton}"
@@ -162,13 +162,13 @@
             BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1" />
     <Border Background="{DynamicResource PanelGlowBrush}" CornerRadius="26" IsHitTestVisible="False" />
 
-    <Grid Margin="16,0,16,0">
+    <Grid x:Name="ContentLayer" Margin="16,0,16,0">
       <Grid.RowDefinitions>
-        <RowDefinition Height="62" />
+        <RowDefinition Height="58" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
-        <RowDefinition Height="64" />
+        <RowDefinition Height="60" />
       </Grid.RowDefinitions>
 
       <!-- Brand header -->
@@ -223,7 +223,7 @@
 
       <!-- Search -->
       <Border Grid.Row="1" Height="42" CornerRadius="13" Background="{DynamicResource InputBrush}"
-              BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Margin="0,4,0,10">
+              BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Margin="0,2,0,8">
         <Border.Style>
           <Style TargetType="{x:Type Border}">
             <Style.Triggers>
@@ -275,7 +275,7 @@
 
       <!-- Groups -->
       <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
-                    Margin="0,0,0,10" PanningMode="HorizontalOnly">
+                    Margin="0,0,0,8" PanningMode="HorizontalOnly">
         <ItemsControl ItemsSource="{Binding Groups}">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
@@ -302,7 +302,7 @@
                 </Button.Style>
                 <StackPanel Orientation="Horizontal">
                   <TextBlock Text="{Binding DisplayName}" />
-                  <TextBlock Text="{Binding Count}" FontSize="9.5" Margin="5,0,0,0" Opacity="0.62" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Count}" FontSize="9" Margin="3,0,0,0" Opacity="0.62" VerticalAlignment="Center" />
                 </StackPanel>
               </Button>
             </DataTemplate>
@@ -330,7 +330,7 @@
 
         <ListBox x:Name="ShortcutList" Grid.Row="1" ItemsSource="{Binding ShortcutsView}"
                  ItemTemplate="{StaticResource ShortcutCardTemplate}" ItemContainerStyle="{StaticResource ShortcutListItem}"
-                 Style="{StaticResource ShortcutList}" SelectionMode="Single" Margin="-3,0,-3,0"
+                 Style="{StaticResource ShortcutList}" SelectionMode="Single" Margin="-3,0,-3,14"
                  MouseLeftButtonUp="ShortcutList_MouseLeftButtonUp"
                  Visibility="{Binding HasVisibleShortcuts, Converter={StaticResource BoolToVisibility}}" />
 
@@ -519,7 +519,7 @@
       </Grid>
 
       <!-- Footer -->
-      <Grid Grid.Row="4" Margin="0,6,0,10">
+      <Grid Grid.Row="4" Margin="0,2,0,6">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
@@ -552,7 +552,7 @@
       <Border Background="{DynamicResource ScrimBrush}" CornerRadius="26" />
       <Border x:Name="SettingsCard" Margin="14" Background="{DynamicResource OverlayCardBrush}" CornerRadius="22"
               BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Padding="18" RenderTransformOrigin="0.5,0.5"
-              VerticalAlignment="Center" MaxHeight="592">
+              VerticalAlignment="Center" MaxHeight="540">
         <Border.Effect>
           <DropShadowEffect BlurRadius="28" ShadowDepth="8" Opacity="0.24" Color="#FF000000" />
         </Border.Effect>
@@ -579,7 +579,7 @@
             </Button>
           </Grid>
 
-          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-2,0,-6,0">
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Margin="-2,0,-6,0">
             <StackPanel Margin="2,0,6,0">
               <TextBlock Text="外观" Style="{StaticResource SectionTitle}" Margin="2,0,0,8" />
               <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="12" Padding="4" Margin="0,0,0,16">

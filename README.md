@@ -2,7 +2,7 @@
 
 一个安静、快速、可拖动的 Windows 桌面快捷启动器。常驻屏幕边缘的一枚悬浮按钮，单击展开快捷面板，把常用文件夹、文件、应用和网页收进两次点击之内。
 
-> v2.0.0 · 全量重写：重做拖动交互、视觉系统、面板内编辑与使用数据图表。
+> v2.0.1 · 灵动岛式中央面板：更小的侧边胶囊、不裁切的悬停动效、400×560 居中面板。
 
 ![Jump 快捷面板（浅色）](docs/screenshots/shortcuts-light.png)
 
@@ -63,9 +63,9 @@ v2 将交互、视觉和数据层一起重做：手动实现逐帧拖动与阈�
 
 ## 使用
 
-1. 启动程序后，屏幕右缘会出现 60 × 60 的悬浮按钮。
-2. 按住悬浮球上下拖动可以调整位置，松手会自动贴边。
-3. 单击悬浮球展开面板；搜索或点击分组找到目标。
+1. 启动程序后，屏幕边缘会出现 40 × 40 的轻量悬浮胶囊。
+2. 按住胶囊上下拖动可以调整位置，松手会自动贴边。
+3. 单击胶囊后，它会从中央的 100 × 44 胶囊流体展开为 400 × 560 的居中面板；搜索或点击分组找到目标。
 4. 点击“添加快捷项”，或在编辑器中填写名称、目标和分组。
 5. 也可以从资源管理器把文件、文件夹直接拖进面板。
 6. 点击“使用概览”查看最近 7 天启动次数、类型构成和常用排行。
@@ -100,17 +100,17 @@ dotnet run --project .\src\DesktopJumpList\DesktopJumpList.csproj
 ```powershell
 dotnet publish .\src\DesktopJumpList\DesktopJumpList.csproj `
   -c Release -r win-x64 --self-contained false `
-  -o .\artifacts\DesktopJumpList-v2.0.0-runtime
+  -o .\artifacts\DesktopJumpList-v2.0.1-runtime
 ```
 
 安装器脚本位于 `installer\DesktopJumpList.iss`，使用 Inno Setup 6 编译。本次发布已生成：
 
 ```text
 artifacts\
-├── DesktopJumpList-v2.0.0-runtime\   # 精简运行版（需 .NET 8 Desktop Runtime）
-├── DesktopJumpList-v2.0.0-single\    # 单文件版（需 .NET 8 Desktop Runtime）
+├── DesktopJumpList-v2.0.1-runtime\   # 精简运行版（需 .NET 8 Desktop Runtime）
+├── DesktopJumpList-v2.0.1-single\    # 单文件版（需 .NET 8 Desktop Runtime）
 └── installer\
-    └── DesktopJumpList-Setup-v2.0.0.exe
+    └── DesktopJumpList-Setup-v2.0.1.exe
 ```
 
 ### 预览与截图

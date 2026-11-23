@@ -15,7 +15,23 @@ namespace DesktopJumpList.Views;
 
 public partial class LauncherPanel : UserControl
 {
+    public static readonly DependencyProperty ContentOpacityProperty = DependencyProperty.Register(
+        nameof(ContentOpacity), typeof(double), typeof(LauncherPanel),
+        new PropertyMetadata(1.0, (d, e) =>
+        {
+            var panel = (LauncherPanel)d;
+            var value = (double)e.NewValue;
+            panel.ContentLayer.Opacity = value;
+            panel.ContentLayer.IsHitTestVisible = value > 0.55;
+        }));
+
     private MainViewModel? _viewModel;
+
+    public double ContentOpacity
+    {
+        get => (double)GetValue(ContentOpacityProperty);
+        set => SetValue(ContentOpacityProperty, value);
+    }
 
     public LauncherPanel()
     {

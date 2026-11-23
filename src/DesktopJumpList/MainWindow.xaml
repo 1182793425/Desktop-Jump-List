@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:DesktopJumpList.Views"
         Title="Jump — 快捷启动"
-        Width="60" Height="60"
+        Width="52" Height="52"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" Topmost="True" Opacity="0" Foreground="{DynamicResource InkBrush}"
         WindowStartupLocation="Manual"
@@ -13,15 +13,28 @@
     <DropShadowEffect x:Key="PanelShadow" BlurRadius="30" ShadowDepth="8" Direction="270" Opacity="0.26" Color="#FF0A1322" />
   </Window.Resources>
 
-  <Grid x:Name="Root" Background="Transparent">
-    <Grid x:Name="PanelHost" Margin="32" Visibility="Collapsed" Opacity="0" RenderTransformOrigin="0.5,0.5">
-      <Grid.RenderTransform>
-        <ScaleTransform x:Name="PanelScale" ScaleX="1" ScaleY="1" />
-      </Grid.RenderTransform>
+  <Grid x:Name="Root" Background="Transparent" MouseLeftButtonDown="Root_MouseLeftButtonDown">
+    <Grid x:Name="PanelHost" Width="100" Height="44" Visibility="Collapsed"
+          HorizontalAlignment="Center" VerticalAlignment="Center">
       <views:LauncherPanel x:Name="Panel" Effect="{StaticResource PanelShadow}" />
+      <Path x:Name="MorphGlyph" Data="M13.6 2.6 L5.4 13.5 L10.6 13.5 L9.6 21.4 L18.6 10.5 L13.4 10.5 Z"
+            Fill="White" Width="21" Height="21" Stretch="Uniform" Opacity="0" IsHitTestVisible="False"
+            HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Path.Effect>
+          <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.2" Color="#FF1A1440" />
+        </Path.Effect>
+      </Path>
     </Grid>
 
-    <Border x:Name="Dock" Width="60" Height="60" CornerRadius="20" Cursor="Hand"
+    <Border x:Name="DockHalo" Width="48" Height="48" CornerRadius="17" Background="#103D74FF"
+            BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" Opacity="0.12"
+            HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+      <Border.RenderTransform>
+        <ScaleTransform x:Name="DockHaloScale" ScaleX="1" ScaleY="1" />
+      </Border.RenderTransform>
+    </Border>
+
+    <Border x:Name="Dock" Width="40" Height="40" CornerRadius="13" Cursor="Hand"
             Background="{DynamicResource BrandGradientBrush}"
             PreviewMouseLeftButtonDown="Dock_MouseLeftButtonDown"
             PreviewMouseMove="Dock_MouseMove"
@@ -31,34 +44,23 @@
       <Border.RenderTransform>
         <ScaleTransform x:Name="DockScale" ScaleX="1" ScaleY="1" />
       </Border.RenderTransform>
-      <Border.Style>
-        <Style TargetType="{x:Type Border}">
-          <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-              <Setter Property="Cursor" Value="Hand" />
-            </Trigger>
-          </Style.Triggers>
-        </Style>
-      </Border.Style>
       <Grid>
-        <Border CornerRadius="20" BorderBrush="#2EFFFFFF" BorderThickness="1" />
-        <Ellipse Width="34" Height="34" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,4,0,0"
-                 IsHitTestVisible="False">
-          <Ellipse.Fill>
-            <RadialGradientBrush Center="0.3,0.25" GradientOrigin="0.3,0.25" RadiusX="0.8" RadiusY="0.8">
-              <GradientStop Color="#52FFFFFF" Offset="0" />
+        <Border CornerRadius="13">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0.7,1">
+              <GradientStop Color="#3DFFFFFF" Offset="0" />
+              <GradientStop Color="#0AFFFFFF" Offset="0.52" />
               <GradientStop Color="#00FFFFFF" Offset="1" />
-            </RadialGradientBrush>
-          </Ellipse.Fill>
-        </Ellipse>
+            </LinearGradientBrush>
+          </Border.Background>
+        </Border>
+        <Border CornerRadius="13" BorderBrush="#30FFFFFF" BorderThickness="1" />
         <Path Data="M13.6 2.6 L5.4 13.5 L10.6 13.5 L9.6 21.4 L18.6 10.5 L13.4 10.5 Z" Fill="White"
-              Width="27" Height="27" Stretch="Uniform" IsHitTestVisible="False">
+              Width="19" Height="19" Stretch="Uniform" IsHitTestVisible="False">
           <Path.Effect>
-            <DropShadowEffect BlurRadius="8" ShadowDepth="1" Opacity="0.22" Color="#FF1A1440" />
+            <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.2" Color="#FF1A1440" />
           </Path.Effect>
         </Path>
-        <Border Width="14" Height="2.5" CornerRadius="1.25" Background="#42FFFFFF" VerticalAlignment="Bottom"
-                Margin="0,0,0,7" IsHitTestVisible="False" />
       </Grid>
     </Border>
   </Grid>
