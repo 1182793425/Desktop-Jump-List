@@ -1,5 +1,5 @@
 #define MyAppName "Desktop Jump List"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Desktop Jump List"
 #define MyAppURL "https://github.com/1182793425/Desktop-Jump-List"
 #define MyAppExeName "DesktopJumpList.exe"
@@ -17,13 +17,15 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\artifacts\installer
-OutputBaseFilename=DesktopJumpList-Setup-v1.0.1
+OutputBaseFilename=DesktopJumpList-Setup-v2.0.0
+SetupIconFile=..\src\DesktopJumpList\Assets\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName} {#MyAppVersion}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -33,14 +35,14 @@ Name: "startup"; Description: "登录 Windows 时自动启动 Desktop Jump List"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他选项："; Flags: unchecked
 
 [Files]
-Source: "..\artifacts\DesktopJumpList-v1.0.0-runtime\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "..\artifacts\DesktopJumpList-v2.0.0-runtime\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "DesktopJumpList"; ValueData: "{app}\{#MyAppExeName}"; Tasks: startup; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "DesktopJumpList"; ValueData: """{app}\{#MyAppExeName}"" --autostart"; Tasks: startup; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
