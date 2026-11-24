@@ -180,9 +180,6 @@
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
-
-                <TextBlock Grid.Row="1" Text="添加" Style="{StaticResource TileLabel}"
-                           Foreground="{DynamicResource InkSubBrush}" />
             </Grid>
         </DataTemplate>
 
