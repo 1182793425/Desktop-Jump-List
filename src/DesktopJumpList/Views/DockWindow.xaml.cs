@@ -387,7 +387,7 @@ public partial class DockWindow : Window
         BallShift.To(TranslateTransform.XProperty, x, main, Motion.Pop, pre);
         BallShift.To(TranslateTransform.YProperty, y, main, Motion.Pop, pre);
         SquashBall(1, 1, main, Motion.Pop, pre);
-        AnimateGeometry(BarRect(), BarWidth / 2, main, Motion.Pop, pre);
+        AnimateGeometry(BarRect(), BarWidth / 2, main, Motion.OutStrong, pre);
     }
 
     private void Untuck(double ms = 260)
@@ -407,7 +407,7 @@ public partial class DockWindow : Window
 
         BallShift.To(TranslateTransform.XProperty, 0, main, Motion.Pop, pre);
         BallShift.To(TranslateTransform.YProperty, 0, main, Motion.Pop, pre);
-        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, main, Motion.Pop, pre);
+        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, main, Motion.OutStrong, pre);
         var hoverScale = Root.IsMouseOver ? 1.07 : 1;
         SquashBall(hoverScale, hoverScale, main, Motion.Pop, pre);
     }
