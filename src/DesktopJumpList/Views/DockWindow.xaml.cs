@@ -41,6 +41,7 @@ public partial class DockWindow : Window
     private readonly DispatcherTimer _fullscreenTimer;
 
     private double _ballSize;
+    private double _ballRadius;
     private double _windowSize;
     private RectangleGeometry _ballGeometry = null!;
 
@@ -125,6 +126,7 @@ public partial class DockWindow : Window
     private void ApplyVisualSettings()
     {
         _ballSize = Math.Max(0, _settings.DockSize);
+        _ballRadius = Math.Max(0, _settings.DockRadius);
         _windowSize = _ballSize + ShadowMargin * 2;
 
         Width = _windowSize;
@@ -137,12 +139,13 @@ public partial class DockWindow : Window
         var restRect = new Rect(0, 0, _ballSize, _ballSize);
         _ballGeometry = new RectangleGeometry(
             _tucked ? BarRect() : restRect,
-            _tucked ? BarWidth / 2 : _ballSize / 2,
-            _tucked ? BarWidth / 2 : _ballSize / 2);
+            _tucked ? BarWidth / 2 : _ballRadius,
+            _tucked ? BarWidth / 2 : _ballRadius);
         BallShape.Data = _ballGeometry;
 
         var color = ParseColor(_settings.DockColor);
-        BallShape.Fill = new SolidColorBrush(color);
+        var alpha = (byte)Math.Round(Math.Clamp(_settings.DockOpacity, 0, 1) * 255);
+        BallShape.Fill = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
         BallShape.Stroke = new SolidColorBrush(ContrastBorder(color));
     }
 
@@ -314,7 +317,7 @@ public partial class DockWindow : Window
         BallShift.Set(TranslateTransform.YProperty, tucked ? y : 0);
 
         var rect = tucked ? BarRect() : new Rect(0, 0, _ballSize, _ballSize);
-        SetGeometryInstant(rect, tucked ? BarWidth / 2 : _ballSize / 2);
+        SetGeometryInstant(rect, tucked ? BarWidth / 2 : _ballRadius);
     }
 
     private void SetGeometryInstant(Rect rect, double radius)
@@ -407,7 +410,7 @@ public partial class DockWindow : Window
 
         BallShift.To(TranslateTransform.XProperty, 0, main, Motion.Pop, pre);
         BallShift.To(TranslateTransform.YProperty, 0, main, Motion.Pop, pre);
-        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, main, Motion.OutStrong, pre);
+        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballRadius, main, Motion.OutStrong, pre);
         var hoverScale = Root.IsMouseOver ? 1.07 : 1;
         SquashBall(hoverScale, hoverScale, main, Motion.Pop, pre);
     }

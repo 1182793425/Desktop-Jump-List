@@ -56,6 +56,12 @@ public sealed class AppSettings
     /// <summary>Fill colour of the floating circle, as "#RRGGBB".</summary>
     public string DockColor { get; set; } = "#FFFFFF";
 
+    /// <summary>Fill opacity of the floating circle (0..1).</summary>
+    public double DockOpacity { get; set; } = 1.0;
+
+    /// <summary>Corner radius of the resting circle in px; half the size gives a circle.</summary>
+    public double DockRadius { get; set; } = 24;
+
     /// <summary>Tile icon size in DIPs (32..48).</summary>
     public int PanelIconSize { get; set; } = 40;
 
@@ -95,6 +101,8 @@ public sealed class AppSettings
         ShowDock = ShowDock,
         DockSize = DockSize,
         DockColor = DockColor,
+        DockOpacity = DockOpacity,
+        DockRadius = DockRadius,
         PanelIconSize = PanelIconSize,
         PanelFontSize = PanelFontSize,
         PanelGap = PanelGap,

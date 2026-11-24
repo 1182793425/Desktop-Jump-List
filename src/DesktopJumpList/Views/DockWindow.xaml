@@ -36,12 +36,7 @@
                  the circle into a capsule bar instead of cross-fading two separate shapes. -->
             <Path x:Name="BallShape" Width="48" Height="48" Stretch="None"
                   HorizontalAlignment="Left" VerticalAlignment="Top"
-                  Fill="White" Stroke="#24000000" StrokeThickness="1">
-                <Path.Effect>
-                    <DropShadowEffect x:Name="BallShadow" BlurRadius="14" ShadowDepth="3" Direction="270"
-                                      Color="#000000" Opacity="0.30" />
-                </Path.Effect>
-            </Path>
+                  Fill="White" Stroke="#24000000" StrokeThickness="1" />
         </Grid>
     </Grid>
 </Window>

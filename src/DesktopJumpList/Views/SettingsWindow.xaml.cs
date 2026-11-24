@@ -89,6 +89,9 @@ public partial class SettingsWindow : Window
 
         DockVisibleSwitch.IsChecked = s.ShowDock;
         DockSizeBox.Text = s.DockSize.ToString();
+        DockOpacityBox.Text = $"{Math.Round(s.DockOpacity * 100)}";
+        DockRadiusBox.Text = s.DockRadius.ToString("0.##");
+        CustomColorSwatch.Background = new SolidColorBrush(ParseColor(s.DockColor));
 
         PeekBox.Text = (s.PeekDelayMs / 1000.0).ToString("0.##");
 
@@ -153,6 +156,14 @@ public partial class SettingsWindow : Window
             case nameof(GapBox): ApplyInt(box, v => App.Current.SetPanelGap(v)); break;
             case nameof(RecentBox): ApplyInt(box, v => App.Current.SetRecentCount(v)); break;
             case nameof(DockSizeBox): ApplyInt(box, v => App.Current.SetDockSize(v)); break;
+            case nameof(DockOpacityBox):
+                if (int.TryParse(box.Text.Trim(), out var opacity))
+                    App.Current.SetDockOpacity(opacity / 100.0);
+                break;
+            case nameof(DockRadiusBox):
+                if (double.TryParse(box.Text.Trim(), out var radius))
+                    App.Current.SetDockRadius(radius);
+                break;
             case nameof(SnapBox): ApplyInt(box, v => App.Current.SetSnapDistance(v)); break;
             case nameof(PeekBox):
                 if (double.TryParse(box.Text.Trim(), out var seconds))
@@ -186,6 +197,38 @@ public partial class SettingsWindow : Window
             App.Current.SetDockColor(color);
             RefreshSettings();
         }
+    }
+
+    private void OnCustomColorClick(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new System.Windows.Forms.ColorDialog
+        {
+            FullOpen = true,
+            AnyColor = true,
+            Color = ToDrawingColor(ParseColor(App.Current.Settings.DockColor))
+        };
+
+        var owner = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (dialog.ShowDialog(new Win32Window(owner)) != System.Windows.Forms.DialogResult.OK) return;
+
+        var chosen = dialog.Color;
+        App.Current.SetDockColor($"#{chosen.R:X2}{chosen.G:X2}{chosen.B:X2}");
+        RefreshSettings();
+    }
+
+    private static Color ParseColor(string value)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(value); }
+        catch { return Colors.White; }
+    }
+
+    private static System.Drawing.Color ToDrawingColor(Color color) =>
+        System.Drawing.Color.FromArgb(color.R, color.G, color.B);
+
+    private sealed class Win32Window : System.Windows.Forms.IWin32Window
+    {
+        public Win32Window(IntPtr handle) => Handle = handle;
+        public IntPtr Handle { get; }
     }
 
     private void OnAutostartClick(object sender, RoutedEventArgs e)

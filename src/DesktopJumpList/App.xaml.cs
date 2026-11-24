@@ -230,6 +230,20 @@ public partial class App : Application
         Dock.ApplySettings();
     }
 
+    public void SetDockOpacity(double opacity)
+    {
+        Settings.DockOpacity = Math.Clamp(opacity, 0.0, 1.0);
+        SaveSettings();
+        Dock.ApplySettings();
+    }
+
+    public void SetDockRadius(double radius)
+    {
+        Settings.DockRadius = Math.Max(0, radius);
+        SaveSettings();
+        Dock.ApplySettings();
+    }
+
     public void SetPanelIconSize(int size)
     {
         Settings.PanelIconSize = size;
