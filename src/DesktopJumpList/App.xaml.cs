@@ -451,6 +451,7 @@ public partial class App : Application
                 settingsWindow.Show();
                 await Task.Delay(500);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+                DumpSettingsLayout(directory, settingsWindow);
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
             }
@@ -607,6 +608,22 @@ public partial class App : Application
     private void CaptureLauncher(string path, double scale) => RenderElement(Launcher, path, scale);
 
     private void CaptureDock(string path, double scale) => RenderElement(Dock.Root, path, scale);
+
+    /// <summary>Settings metrics: how tall the card stack really is versus the window it sits in.</summary>
+    private static void DumpSettingsLayout(string directory, SettingsWindow window)
+    {
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"window={window.ActualWidth:0.##}x{window.ActualHeight:0.##}");
+            sb.AppendLine($"viewport={window.SettingsScroll.ActualHeight:0.##} extent={window.SettingsScroll.ExtentHeight:0.##}");
+            sb.AppendLine($"chrome={window.ActualHeight - window.SettingsScroll.ActualHeight:0.##}");
+            if (window.SettingsScroll.Content is FrameworkElement content)
+                sb.AppendLine($"content={content.ActualWidth:0.##}x{content.ActualHeight:0.##}");
+            File.WriteAllText(Path.Combine(directory, "settings-layout.txt"), sb.ToString());
+        }
+        catch { }
+    }
 
     private static void RenderElement(FrameworkElement element, string path, double scale)
     {

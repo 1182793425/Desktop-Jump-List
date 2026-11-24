@@ -14,7 +14,7 @@ namespace DesktopJumpList.Views;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    private const string HotkeyHintDefault = "点击后按下新的组合键，Esc 取消";
+    private const string HotkeyHintDefault = "点击可改组合键";
 
     private bool _capturingHotkey;
     private bool _settingsRefreshing;
@@ -36,6 +36,12 @@ public partial class SettingsWindow : Window
     private void CenterOnScreen()
     {
         var area = ScreenGeometry.WorkAreaAtCursor(this);
+
+        // The card stack is compact, but a short work area (small laptop, heavy scaling) must not
+        // cut the window off: shrink it and let the scroll viewer take over.
+        var maxHeight = Math.Max(420, area.Height - 24);
+        if (Height > maxHeight) Height = maxHeight;
+
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + (area.Height - Height) / 2;
     }
@@ -109,9 +115,7 @@ public partial class SettingsWindow : Window
         HotkeySwitch.IsChecked = s.HotkeyEnabled;
         AutostartSwitch.IsChecked = StartupService.IsEnabled;
         if (!_capturingHotkey)
-            HotkeyHint.Text = s.HotkeyEnabled
-                ? HotkeyHintDefault
-                : "默认关闭；打开开关后生效，点击这里可先改组合键";
+            HotkeyHint.Text = DefaultHotkeyHint(s.HotkeyEnabled);
 
         var version = typeof(App).Assembly.GetName().Version;
         VersionText.Text = version is null ? "Jump" : $"Jump v{version.ToString(3)}";
@@ -286,7 +290,7 @@ public partial class SettingsWindow : Window
         var mods = Keyboard.Modifiers;
         if (mods == ModifierKeys.None)
         {
-            HotkeyHint.Text = "至少需要 Ctrl / Alt / Shift / Win 中的一个";
+            HotkeyHint.Text = "至少需要一个修饰键";
             return;
         }
 
@@ -309,11 +313,13 @@ public partial class SettingsWindow : Window
     {
         if (!_capturingHotkey) return;
         _capturingHotkey = false;
-        HotkeyHint.Text = App.Current.Settings.HotkeyEnabled
-            ? HotkeyHintDefault
-            : "默认关闭；打开左侧开关后生效，点击这里可先改组合键";
+        HotkeyHint.Text = DefaultHotkeyHint(App.Current.Settings.HotkeyEnabled);
         HotkeyText.Text = App.Current.Settings.Hotkey;
     }
+
+    /// <summary>The hint sits on the same line as the switch, so it has to stay short.</summary>
+    private static string DefaultHotkeyHint(bool enabled) =>
+        enabled ? HotkeyHintDefault : "默认关闭，打开后生效";
 
     private void OnSettingsDone(object sender, RoutedEventArgs e) => Close();
     private void OnOpenDataFolder(object sender, RoutedEventArgs e) => App.Current.OpenDataFolder();
