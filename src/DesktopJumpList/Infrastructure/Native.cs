@@ -57,6 +57,27 @@ internal static class Native
     [DllImport("gdi32.dll")]
     public static extern bool DeleteObject(IntPtr hObject);
 
+    /// <summary>Hands the process' idle pages back to the OS so a tray-resident app stays small.</summary>
+    [DllImport("psapi.dll")]
+    public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+    /// <summary>System DPI, for choosing an icon bitmap size instead of always asking for 256 px.</summary>
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForSystem();
+
+    public static double SystemScale
+    {
+        get
+        {
+            try
+            {
+                var dpi = GetDpiForSystem();
+                return dpi is 0 or > 480 ? 1.0 : dpi / 96.0;
+            }
+            catch { return 1.0; }
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X; public int Y; }
 

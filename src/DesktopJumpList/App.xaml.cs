@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows;
@@ -104,6 +104,7 @@ public partial class App : Application
         wakeThread.Start();
 
         _ = IconService.LoadAsync(Library.Items);
+        Dispatcher.BeginInvoke(ScheduleIdleTrim, DispatcherPriority.ApplicationIdle);
 
         if (!Settings.FirstRunDone)
         {
@@ -151,7 +152,7 @@ public partial class App : Application
         }
 
         _settingsWindow = new SettingsWindow();
-        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Closed += (_, _) => { _settingsWindow = null; ScheduleIdleTrim(); };
         _settingsWindow.Show();
         _settingsWindow.Activate();
     }
@@ -160,6 +161,49 @@ public partial class App : Application
     public void OnLauncherClosed()
     {
         if (Settings.ShowDock) Dock.HoldOpen(false);
+        ScheduleIdleTrim();
+    }
+
+    // ───────────────────────── Idle housekeeping ─────────────────────────
+
+    private DispatcherTimer? _trimTimer;
+
+    /// <summary>
+    /// A tray-resident WPF app keeps whatever the last panel used in its heap. Once the app has
+    /// been quiet for a few seconds, hand those pages back so the idle footprint is the tray icon,
+    /// not the panel you closed a minute ago. Cancelled the moment anything opens again.
+    /// </summary>
+    private void ScheduleIdleTrim()
+    {
+        if (IsShuttingDown) return;
+
+        if (_trimTimer is null)
+        {
+            _trimTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+            _trimTimer.Tick += (_, _) =>
+            {
+                _trimTimer!.Stop();
+                if (Launcher is null || Launcher.IsOpen || Launcher.IsModal) return;
+                if (_settingsWindow is { IsVisible: true }) return;
+                TrimWorkingSet();
+            };
+        }
+
+        _trimTimer.Stop();
+        _trimTimer.Start();
+    }
+
+    private static void TrimWorkingSet()
+    {
+        try
+        {
+            // Only the resident set is handed back; the pages stay in the standby list, so the
+            // next open re-faults them from RAM instead of disk. No GC.Collect: it costs time and
+            // does not shrink the working set on its own.
+            using var process = Process.GetCurrentProcess();
+            Infrastructure.Native.EmptyWorkingSet(process.Handle);
+        }
+        catch { }
     }
 
     /// <summary>Shows a short message in the panel; if it is closed, it appears at the next open.</summary>

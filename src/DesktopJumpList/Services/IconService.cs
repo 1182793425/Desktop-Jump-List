@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -23,7 +23,21 @@ public static class IconService
     private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
     private const int SIIGBF_BIGGERSIZEOK = 0x1;
     private const int SIIGBF_ICONONLY = 0x4;
-    private const int ShellIconPixels = 256;
+
+    /// <summary>
+    /// Pixel size to ask the shell for. Tiles top out at a few dozen DIPs, so a 256 px bitmap per
+    /// item only ever cost memory (a frozen 256² surface is 256 KB); asking for just over the
+    /// displayed size keeps the tiles sharp and the cache ~4-8x smaller.
+    /// </summary>
+    internal static int IconPixels
+    {
+        get
+        {
+            var size = App.Current?.Settings?.PanelIconSize ?? 48;
+            var wanted = (int)Math.Ceiling((Math.Max(0, size) + 8) * Native.SystemScale);
+            return Math.Clamp(wanted, 32, 128);
+        }
+    }
 
     private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Gate = new();
@@ -52,7 +66,7 @@ public static class IconService
                 var appx = pending.Where(i => i.Kind == ShortcutKind.AppX).ToList();
                 if (appx.Count > 0)
                 {
-                    var logos = StoreAppsService.GetLogos(appx.Select(i => i.Target), 256);
+                    var logos = StoreAppsService.GetLogos(appx.Select(i => i.Target), IconPixels);
                     dispatcher.BeginInvoke(() =>
                     {
                         foreach (var app in appx)
@@ -109,6 +123,7 @@ public static class IconService
     /// </summary>
     private static ImageSource? FromShellImage(string path)
     {
+        var px = IconPixels;
         var iid = typeof(Native.IShellItemImageFactory).GUID;
         if (Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory is null)
             return null;
@@ -116,7 +131,7 @@ public static class IconService
         try
         {
             var hr = factory.GetImage(
-                new Native.SIZE { cx = ShellIconPixels, cy = ShellIconPixels },
+                new Native.SIZE { cx = px, cy = px },
                 SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
                 out var hBitmap);
             if (hr != 0 || hBitmap == IntPtr.Zero) return null;

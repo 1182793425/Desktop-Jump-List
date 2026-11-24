@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
 using System.Windows;
@@ -95,6 +95,7 @@ public partial class LauncherWindow : Window
     private bool _recentView;
     private bool _closing;
     private bool _staggerNext;
+    private bool _suppressTileEntrance;
     private int _modalDepth;
     private ShortcutItem? _renaming;
     private (ShortcutItem item, int index)? _lastRemoved;
@@ -119,6 +120,7 @@ public partial class LauncherWindow : Window
     public bool InEditMode => _editMode;
 
     public bool IsOpen { get; private set; }
+
 
     /// <summary>True while a file/folder/store-app dialog owns the UI.</summary>
     public bool IsModal => _modalDepth > 0;
@@ -241,7 +243,18 @@ public partial class LauncherWindow : Window
             StackShift.Set(TranslateTransform.YProperty, 10);
         }
 
+        // A layered window that is shown again hands the compositor the surface it had the last
+        // time it was visible, so the first frames were a stale slice of the old content. The
+        // window is therefore fully transparent while it is shown and laid out, and becomes
+        // visible in the same dispatcher turn — the compositor never sees the stale frame.
+        Opacity = 0;
+        _suppressTileEntrance = true;
         Show();
+        UpdateLayout();
+        Opacity = 1;
+        _suppressTileEntrance = false;
+
+        StartTileEntrance();
         Activate();
         Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         Query.Focus();
@@ -484,6 +497,14 @@ public partial class LauncherWindow : Window
     {
         if (sender is not ListBoxItem container) return;
 
+        // The pre-Show layout pass creates the containers; they are animated by
+        // StartTileEntrance once the window is actually on screen.
+        if (_suppressTileEntrance)
+        {
+            container.Opacity = 0;
+            return;
+        }
+
         var owner = ItemsControl.ItemsControlFromItemContainer(container);
         var isMain = ReferenceEquals(owner, Tiles);
         var index = owner?.ItemContainerGenerator.IndexFromContainer(container) ?? 0;
@@ -501,6 +522,30 @@ public partial class LauncherWindow : Window
         }
         if (stagger && index >= _tiles.Count - 1)
             Dispatcher.BeginInvoke(() => _staggerNext = false, DispatcherPriority.ContextIdle);
+    }
+
+    /// <summary>
+    /// Runs the entrance animation for containers that were built by the pre-Show layout pass.
+    /// Containers created later (a filter, a new item) animate themselves in OnTileLoaded.
+    /// </summary>
+    private void StartTileEntrance()
+    {
+        AnimateContainers(Tiles, stagger: _staggerNext);
+        AnimateContainers(RecentTiles, stagger: false);
+        _staggerNext = false;
+    }
+
+    private void AnimateContainers(ItemsControl list, bool stagger)
+    {
+        for (var i = 0; i < list.Items.Count; i++)
+        {
+            if (list.ItemContainerGenerator.ContainerFromIndex(i) is not ListBoxItem container) continue;
+            var delay = stagger ? Math.Min(i, 12) * 11 + 40 : 0;
+            container.FromTo(OpacityProperty, 0, 1, stagger ? 200 : 130, Motion.Out, delay);
+            if (!stagger) continue;
+            var shift = (TranslateTransform)EnsureTransforms(container).Children[1];
+            shift.FromTo(TranslateTransform.YProperty, 6, 0, 240, Motion.OutStrong, delay);
+        }
     }
 
     /// <summary>While searching, the pointer drives the selection; in edit mode, a drag starts.</summary>
