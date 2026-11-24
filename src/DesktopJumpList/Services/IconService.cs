@@ -21,6 +21,9 @@ public static class IconService
     private const uint SHGFI_ICON = 0x100;
     private const uint SHGFI_LARGEICON = 0x0;
     private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
+    private const int SIIGBF_BIGGERSIZEOK = 0x1;
+    private const int SIIGBF_ICONONLY = 0x4;
+    private const int ShellIconPixels = 256;
 
     private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Gate = new();
@@ -49,7 +52,7 @@ public static class IconService
                 var appx = pending.Where(i => i.Kind == ShortcutKind.AppX).ToList();
                 if (appx.Count > 0)
                 {
-                    var logos = StoreAppsService.GetLogos(appx.Select(i => i.Target), 64);
+                    var logos = StoreAppsService.GetLogos(appx.Select(i => i.Target), 256);
                     dispatcher.BeginInvoke(() =>
                     {
                         foreach (var app in appx)
@@ -92,12 +95,48 @@ public static class IconService
         try
         {
             if (File.Exists(path) || Directory.Exists(path))
-                result = FromShellIcon(path);
+                result = FromShellImage(path) ?? FromShellIcon(path);
         }
         catch { result = null; }
 
         lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>
+    /// Asks the shell for the item's real 256 px icon. SHGetFileInfo only exposes the
+    /// 32 px "large" icon, which is exactly why tiles used to look blurry at 40-48 px.
+    /// </summary>
+    private static ImageSource? FromShellImage(string path)
+    {
+        var iid = typeof(Native.IShellItemImageFactory).GUID;
+        if (Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory is null)
+            return null;
+
+        try
+        {
+            var hr = factory.GetImage(
+                new Native.SIZE { cx = ShellIconPixels, cy = ShellIconPixels },
+                SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
+                out var hBitmap);
+            if (hr != 0 || hBitmap == IntPtr.Zero) return null;
+
+            try
+            {
+                var source = Imaging.CreateBitmapSourceFromHBitmap(
+                    hBitmap, IntPtr.Zero, System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                source.Freeze();
+                return source;
+            }
+            finally
+            {
+                Native.DeleteObject(hBitmap);
+            }
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(factory);
+        }
     }
 
     /// <summary>Gets the icon Explorer shows: the shell's own HICON, alpha intact, no shortcuts.</summary>

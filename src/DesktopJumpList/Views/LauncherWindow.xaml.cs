@@ -1218,7 +1218,7 @@ public partial class LauncherWindow : Window
                 {
                     _ = Task.Run(() =>
                     {
-                        var logo = StoreAppsService.GetLogo(chosen.AppUserModelId, 64);
+                        var logo = StoreAppsService.GetLogo(chosen.AppUserModelId, 256);
                         if (logo is not null) Dispatcher.BeginInvoke(() => item.Icon = logo);
                     });
                     ShowMessage($"已添加「{chosen.Name}」");
