@@ -1,4 +1,5 @@
-# Generates src/DesktopJumpList/Assets/app.ico — the round gradient ball with a 2x2 glyph.
+# Generates src/DesktopJumpList/Assets/app.ico — a light rounded tile with a blue
+# paper-plane glyph ("quick arrival"/send), readable on both light and dark taskbars.
 # Usage: pwsh ./tools/make-icon.ps1
 Add-Type -AssemblyName System.Drawing
 
@@ -23,37 +24,39 @@ function New-Frame([int]$s) {
     $g.PixelOffsetMode = 'HighQuality'
     $g.Clear([System.Drawing.Color]::Transparent)
 
-    $pad = [single]([Math]::Max(0.5, $s * 0.03))
+    $pad = [single]([Math]::Max(0.5, $s * 0.02))
     $rect = [System.Drawing.RectangleF]::new($pad, $pad, $s - 2 * $pad, $s - 2 * $pad)
-    $brush = [System.Drawing.Drawing2D.LinearGradientBrush]::new($rect,
-        [System.Drawing.Color]::FromArgb(255, 0x4F, 0x80, 0xFF),
-        [System.Drawing.Color]::FromArgb(255, 0x8A, 0x5C, 0xFF), 55.0)
-    $g.FillEllipse($brush, $rect)
+    $radius = [single]($s * 0.22)
+    $bg = New-RoundRect $pad $pad ([single]($s - 2 * $pad)) ([single]($s - 2 * $pad)) $radius
+    $bgBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new($rect,
+        [System.Drawing.Color]::White,
+        [System.Drawing.Color]::FromArgb(255, 0xEC, 0xF0, 0xF7), 90.0)
+    $g.FillPath($bgBrush, $bg)
 
-    # soft top highlight
-    $hl = [System.Drawing.RectangleF]::new($s * 0.10, $s * 0.06, $s * 0.80, $s * 0.48)
-    $hlBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new($hl,
-        [System.Drawing.Color]::FromArgb(70, 255, 255, 255),
-        [System.Drawing.Color]::FromArgb(0, 255, 255, 255), 90.0)
-    $g.FillEllipse($hlBrush, $hl)
+    # subtle border so the white tile reads on a white background
+    $border = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(28, 0x1A, 0x1D, 0x24), [single]([Math]::Max(0.5, $s * 0.008)))
+    $g.DrawPath($border, $bg)
 
-    # 2x2 glyph
-    $glyph = $s * 0.38
-    $cell = $glyph * 0.41
-    $gap = $glyph - 2 * $cell
-    $ox = ($s - $glyph) / 2
-    $oy = ($s - $glyph) / 2
-    $r = [single]([Math]::Max(0.6, $cell * 0.30))
-    $cells = @(
-        @(0, 0, 255, $r), @(1, 0, 200, $r), @(0, 1, 200, $r), @(1, 1, 255, ($cell / 2))
+    # paper-plane (send) glyph: polygon in a 24x24 box, scaled/centred
+    $pts = @(
+        @(2.0, 21.0), @(23.0, 12.0), @(2.0, 3.0), @(2.0, 10.0), @(17.0, 12.0), @(2.0, 14.0)
     )
-    foreach ($c in $cells) {
-        $x = [single]($ox + $c[0] * ($cell + $gap))
-        $y = [single]($oy + $c[1] * ($cell + $gap))
-        $path = New-RoundRect $x $y ([single]$cell) ([single]$cell) ([single]$c[3])
-        $wb = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb($c[2], 255, 255, 255))
-        $g.FillPath($wb, $path)
+    $box = $s * 0.60
+    $ox = ($s - $box) / 2
+    $oy = ($s - $box) / 2
+    $scale = $box / 24.0
+    $planePts = foreach ($p in $pts) {
+        [System.Drawing.PointF]::new([single]($ox + $p[0] * $scale), [single]($oy + $p[1] * $scale))
     }
+    $planePath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $planePath.AddPolygon([System.Drawing.PointF[]]$planePts)
+
+    $gBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+        [System.Drawing.RectangleF]::new([single]$ox, [single]$oy, [single]$box, [single]$box),
+        [System.Drawing.Color]::FromArgb(255, 0x4F, 0x80, 0xFF),
+        [System.Drawing.Color]::FromArgb(255, 0x6A, 0x5C, 0xFF), 45.0)
+    $g.FillPath($gBrush, $planePath)
+
     $g.Dispose()
     return $bmp
 }

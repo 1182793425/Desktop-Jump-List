@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -21,29 +22,64 @@ public sealed class AddTile
     private AddTile() { }
 }
 
+/// <summary>A named group of shortcuts (iOS-style folder) shown as one tile.</summary>
+public sealed class FolderTile
+{
+    public string Name { get; }
+    public IReadOnlyList<ShortcutItem> Members { get; }
+    public IReadOnlyList<ShortcutItem> Preview { get; }
+
+    public FolderTile(string name, IReadOnlyList<ShortcutItem> members)
+    {
+        Name = name;
+        Members = members;
+        Preview = members.Take(4).ToList();
+    }
+}
+
+/// <summary>Sentinel item for the "back to all" tile inside a folder view.</summary>
+public sealed class BackTile
+{
+    public string FolderName { get; }
+    public BackTile(string folderName) => FolderName = folderName;
+}
+
 /// <summary>
 /// The centred panel. Nothing but your shortcuts: a grid of tiles, type-to-filter, click to open.
 /// The search pill only exists while you are typing (or for a brief message).
 /// </summary>
 public partial class LauncherWindow : Window
 {
-    private const int Columns = 5;
-    private const int MaxRows = 4;
     private const double TileHeight = 96;
     private const double PanelChrome = 2 + 28; // border + inner padding
     private const double EmptyHeight = 210;
+
+    private int Cols => Math.Clamp(App.Current.Settings.Columns, 3, 8);
+    private int MaxRowCount => Math.Clamp(App.Current.Settings.MaxRows, 2, 8);
 
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
     private readonly DispatcherTimer _messageTimer;
 
     private List<ShortcutItem> _ordered = new();
+    private string? _currentFolder;
     private bool _closing;
     private bool _staggerNext;
     private int _modalDepth;
     private ShortcutItem? _renaming;
     private (ShortcutItem item, int index)? _lastRemoved;
     private Action? _messageAction;
+
+    // Long-press → edit mode, and edit-mode drag state.
+    private DispatcherTimer? _longPress;
+    private bool _editMode;
+    private bool _longPressTriggered;
+    private bool _dragArmed;
+    private Point _tilePressPoint;
+    private object? _tilePressData;
+    private FrameworkElement? _tilePressContainer;
+
+    public bool InEditMode => _editMode;
 
     public bool IsOpen { get; private set; }
 
@@ -55,6 +91,17 @@ public partial class LauncherWindow : Window
 
         _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         _messageTimer.Tick += (_, _) => HideMessage();
+
+        _longPress = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(550) };
+        _longPress.Tick += (_, _) =>
+        {
+            _longPress.Stop();
+            if (_tilePressData is ShortcutItem or FolderTile)
+            {
+                _longPressTriggered = true;
+                EnterEditMode();
+            }
+        };
 
         SourceInitialized += (_, _) => Native.MakeToolWindow(new WindowInteropHelper(this).Handle, noActivate: false);
         new WindowInteropHelper(this).EnsureHandle(); // first open is as fast as every other
@@ -78,6 +125,8 @@ public partial class LauncherWindow : Window
         Drop += OnDrop;
 
         _library.Items.CollectionChanged += OnLibraryChanged;
+
+        ApplyLayout(); // honour the configured columns/rows before first open
     }
 
     // ───────────────────────── Open / close ─────────────────────────
@@ -99,6 +148,7 @@ public partial class LauncherWindow : Window
             Query.Text = string.Empty;
             HideMessage(immediate: true);
             HideRename(immediate: true);
+            _currentFolder = null;
             _ordered = _library.Ordered();
             _staggerNext = true;
             Rebuild();
@@ -164,8 +214,37 @@ public partial class LauncherWindow : Window
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
         _tiles.Clear();
-        foreach (var i in items) _tiles.Add(i);
-        if (q.Length == 0 && _ordered.Count > 0) _tiles.Add(AddTile.Instance);
+
+        if (q.Length == 0 && _currentFolder is not null)
+        {
+            // Inside a folder: back tile + that folder's members.
+            _tiles.Add(new BackTile(_currentFolder));
+            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _tiles.Add(i);
+            _tiles.Add(AddTile.Instance);
+        }
+        else
+        {
+            // Top level (or a search, which flattens folders so everything is findable).
+            var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (var item in items)
+            {
+                if (item.Folder is null)
+                {
+                    _tiles.Add(item);
+                    continue;
+                }
+                if (q.Length == 0 && seen.Add(item.Folder))
+                {
+                    var members = items.Where(x => SameFolder(x.Folder, item.Folder)).ToList();
+                    _tiles.Add(new FolderTile(item.Folder, members));
+                }
+                else if (q.Length > 0)
+                {
+                    _tiles.Add(item); // search: show the item itself, not the folder
+                }
+            }
+            if (q.Length == 0 && _ordered.Count > 0) _tiles.Add(AddTile.Instance);
+        }
 
         bool empty = _ordered.Count == 0;
         EmptyState.Visibility = empty && q.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -176,14 +255,16 @@ public partial class LauncherWindow : Window
         NoMatch.Text = noMatch ? $"没有找到 “{q}”" : string.Empty;
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
 
-        if (q.Length > 0) Tiles.SelectedIndex = items.Count > 0 ? 0 : -1;
+        if (q.Length > 0) Tiles.SelectedIndex = _tiles.Count > 0 ? 0 : -1;
     }
+
+    private static bool SameFolder(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && string.Equals(a, b, StringComparison.CurrentCultureIgnoreCase);
 
     private double TargetPanelHeight()
     {
-        if (_ordered.Count == 0) return EmptyHeight;
-        var count = _ordered.Count + 1; // + the add tile
-        var rows = Math.Clamp((int)Math.Ceiling(count / (double)Columns), 1, MaxRows);
+        if (_tiles.Count == 0) return EmptyHeight;
+        var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
         return PanelChrome + rows * TileHeight;
     }
 
@@ -192,6 +273,22 @@ public partial class LauncherWindow : Window
         var target = TargetPanelHeight();
         if (Math.Abs(Panel.ActualHeight - target) < 0.5) return;
         Panel.To(HeightProperty, target, 220, Motion.Out);
+    }
+
+    /// <summary>Rebuilds the tile grid for the configured columns/rows. Called when settings change.</summary>
+    public void ApplyLayout()
+    {
+        var factory = new FrameworkElementFactory(typeof(UniformGrid));
+        factory.SetValue(UniformGrid.ColumnsProperty, Cols);
+        factory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+        Tiles.ItemsPanel = new ItemsPanelTemplate(factory);
+
+        Rebuild();
+        if (IsOpen)
+        {
+            Panel.Set(HeightProperty, TargetPanelHeight());
+            Scroller.ScrollToTop();
+        }
     }
 
     /// <summary>
@@ -229,12 +326,29 @@ public partial class LauncherWindow : Window
             Dispatcher.BeginInvoke(() => _staggerNext = false, DispatcherPriority.ContextIdle);
     }
 
-    /// <summary>While searching, the pointer drives the same selection that Enter opens.</summary>
+    /// <summary>While searching, the pointer drives the selection; in edit mode, a drag starts.</summary>
     private void OnTilesMouseMove(object sender, MouseEventArgs e)
     {
+        if (_editMode && _dragArmed && e.LeftButton == MouseButtonState.Pressed && _tilePressContainer is { } container)
+        {
+            var p = e.GetPosition(Tiles);
+            if (Math.Abs(p.X - _tilePressPoint.X) > 6 || Math.Abs(p.Y - _tilePressPoint.Y) > 6)
+            {
+                _dragArmed = false;
+                if (_tilePressData is { } data)
+                {
+                    var obj = new DataObject(InternalTileFormat, data);
+                    DragDrop.DoDragDrop(container, obj, DragDropEffects.Move);
+                }
+            }
+            return;
+        }
+
         if (Query.Text.Length == 0) return;
         if (ContainerFrom(e.OriginalSource) is { } c && !c.IsSelected) Tiles.SelectedItem = c.DataContext;
     }
+
+    private const string InternalTileFormat = "Jump.InternalTile";
 
     private static ListBoxItem? ContainerFrom(object source)
     {
@@ -250,15 +364,35 @@ public partial class LauncherWindow : Window
         scale.To(ScaleTransform.ScaleXProperty, 0.94, 90);
         scale.To(ScaleTransform.ScaleYProperty, 0.94, 90);
         e.Handled = true;
+
+        _tilePressData = c.DataContext;
+        _tilePressContainer = c;
+        _tilePressPoint = e.GetPosition(Tiles);
+
+        if (_editMode)
+        {
+            _dragArmed = true;
+        }
+        else if (c.DataContext is ShortcutItem or FolderTile)
+        {
+            _longPressTriggered = false;
+            _longPress?.Stop();
+            _longPress?.Start();
+        }
     }
 
     private void OnTileUp(object sender, MouseButtonEventArgs e)
     {
+        _longPress?.Stop();
+        _dragArmed = false;
         if (ContainerFrom(e.OriginalSource) is not { } c) return;
         var scale = (ScaleTransform)EnsureTransforms(c).Children[0];
         scale.To(ScaleTransform.ScaleXProperty, 1, 180, Motion.OutStrong);
         scale.To(ScaleTransform.ScaleYProperty, 1, 180, Motion.OutStrong);
         e.Handled = true;
+
+        if (_longPressTriggered) { _longPressTriggered = false; return; }
+        if (_editMode) return; // edit mode: clicks don't launch, only drag/context
         if (!c.IsMouseOver) return;
         Invoke(c.DataContext, c);
     }
@@ -268,8 +402,18 @@ public partial class LauncherWindow : Window
         switch (data)
         {
             case ShortcutItem item: OpenItem(item); break;
-            case AddTile: AddViaDialog(folder: false); break;
+            case FolderTile folder: OpenFolder(folder.Name); break;
+            case BackTile: OpenFolder(null); break;
+            case AddTile: ShowAddMenu(anchor); break;
         }
+    }
+
+    private void OpenFolder(string? name)
+    {
+        _currentFolder = name;
+        Rebuild();
+        Panel.Set(HeightProperty, TargetPanelHeight());
+        Scroller.ScrollToTop();
     }
 
     private void OpenItem(ShortcutItem item)
@@ -343,7 +487,7 @@ public partial class LauncherWindow : Window
 
     private void OnKey(object sender, KeyEventArgs e)
     {
-        if (_renaming is not null) return; // rename box handles its own keys
+        if (_renaming is not null || _renamingFolder is not null) return; // rename box handles its own keys
 
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         switch (e.Key)
@@ -362,8 +506,8 @@ public partial class LauncherWindow : Window
 
             case Key.Left: MoveSelection(-1); e.Handled = true; break;
             case Key.Right: MoveSelection(1); e.Handled = true; break;
-            case Key.Up: MoveSelection(-Columns); e.Handled = true; break;
-            case Key.Down: MoveSelection(Columns); e.Handled = true; break;
+            case Key.Up: MoveSelection(-Cols); e.Handled = true; break;
+            case Key.Down: MoveSelection(Cols); e.Handled = true; break;
             case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1); e.Handled = true; break;
 
             case Key.F2:
@@ -425,8 +569,38 @@ public partial class LauncherWindow : Window
         switch (c.DataContext)
         {
             case ShortcutItem item: ShowShortcutMenu(item, c); break;
+            case FolderTile folder: ShowFolderMenu(folder, c); break;
             case AddTile: ShowAddMenu(c); break;
+            case BackTile: OpenFolder(null); break;
         }
+    }
+
+    private void ShowFolderMenu(FolderTile folder, FrameworkElement anchor)
+    {
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        menu.Items.Add(Item("打开分组", () => OpenFolder(folder.Name)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("重命名分组…", () => BeginRenameFolder(folder.Name)));
+        menu.Items.Add(Item("解散分组", () => DissolveFolder(folder.Name)));
+        menu.Closed += (_, _) => { if (IsOpen && _renaming is null) Keyboard.Focus(Query); };
+        menu.IsOpen = true;
+    }
+
+    private string? _renamingFolder;
+
+    private void BeginRenameFolder(string name)
+    {
+        _renamingFolder = name;
+        _renaming = null;
+        RenameBox.Text = name;
+        RenameOverlay.Visibility = Visibility.Visible;
+        RenameOverlay.To(OpacityProperty, 1, 150);
+        Dispatcher.BeginInvoke(() =>
+        {
+            RenameBox.Focus();
+            Keyboard.Focus(RenameBox);
+            RenameBox.SelectAll();
+        }, DispatcherPriority.Input);
     }
 
     private void ShowShortcutMenu(ShortcutItem item, FrameworkElement anchor)
@@ -497,7 +671,13 @@ public partial class LauncherWindow : Window
         if (e.Key == Key.Enter)
         {
             var name = RenameBox.Text.Trim();
-            if (_renaming is not null && name.Length > 0)
+            if (_renamingFolder is not null && name.Length > 0)
+            {
+                var old = _renamingFolder;
+                _renamingFolder = null;
+                RenameFolder(old, name);
+            }
+            else if (_renaming is not null && name.Length > 0)
             {
                 _renaming.Name = name;
                 _library.SaveSoon();
@@ -515,6 +695,7 @@ public partial class LauncherWindow : Window
     private void HideRename(bool immediate = false)
     {
         _renaming = null;
+        _renamingFolder = null;
         if (immediate)
         {
             RenameOverlay.Set(OpacityProperty, 0);
@@ -523,7 +704,7 @@ public partial class LauncherWindow : Window
         }
         RenameOverlay.To(OpacityProperty, 0, 130, Motion.In, completed: () =>
         {
-            if (_renaming is null) RenameOverlay.Visibility = Visibility.Collapsed;
+            if (_renaming is null && _renamingFolder is null) RenameOverlay.Visibility = Visibility.Collapsed;
         });
         Keyboard.Focus(Query);
     }
@@ -539,11 +720,56 @@ public partial class LauncherWindow : Window
                 ? System.Windows.Controls.Primitives.PlacementMode.Center
                 : System.Windows.Controls.Primitives.PlacementMode.MousePoint
         };
-        menu.Items.Add(Item("选择文件或应用…", () => AddViaDialog(folder: false)));
-        menu.Items.Add(Item("选择文件夹…", () => AddViaDialog(folder: true)));
+        menu.Items.Add(Item("添加文件 / 应用…", () => AddViaDialog(folder: false)));
+        menu.Items.Add(Item("添加文件夹…", () => AddViaDialog(folder: true)));
+        menu.Items.Add(Item("添加商店应用…", ShowStoreAppPicker));
+        menu.Items.Add(new Separator());
         menu.Items.Add(Item("粘贴路径或网址", () => { if (!TryPasteAdd(out _)) ShowMessage("剪贴板里没有可添加的路径或网址"); }, "Ctrl+V"));
         menu.Closed += (_, _) => { if (IsOpen) Keyboard.Focus(Query); };
         menu.IsOpen = true;
+    }
+
+    // ───────────────────────── Store apps ─────────────────────────
+
+    private void ShowStoreAppPicker()
+    {
+        _modalDepth++;
+        try
+        {
+            var apps = StoreAppsService.Enumerate();
+            if (apps.Count == 0)
+            {
+                ShowMessage("没有找到已安装的商店应用");
+                return;
+            }
+            var picker = new StoreAppPicker(apps) { Owner = this };
+            if (picker.ShowDialog() == true && picker.Selected is { } chosen)
+            {
+                var item = new ShortcutItem
+                {
+                    Kind = ShortcutKind.AppX,
+                    Target = chosen.AppUserModelId,
+                    Name = chosen.Name
+                };
+                var added = _library.Add(new[] { item });
+                if (added.Count > 0)
+                {
+                    _ = Task.Run(() =>
+                    {
+                        var logo = StoreAppsService.GetLogo(chosen.AppUserModelId, 64);
+                        if (logo is not null) Dispatcher.BeginInvoke(() => item.Icon = logo);
+                    });
+                    ShowMessage($"已添加「{chosen.Name}」");
+                }
+                else ShowMessage("这个应用已经在 Jump 里了");
+            }
+        }
+        catch (Exception ex) { ShowMessage(ex.Message); }
+        finally
+        {
+            _modalDepth--;
+            if (IsOpen) { Activate(); Keyboard.Focus(Query); }
+        }
     }
 
     private void AddViaDialog(bool folder)
@@ -645,8 +871,11 @@ public partial class LauncherWindow : Window
     private static bool HasDroppable(DragEventArgs e) =>
         e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.UnicodeText) || e.Data.GetDataPresent(DataFormats.Text);
 
+    private static bool HasInternalTile(DragEventArgs e) => e.Data.GetDataPresent(InternalTileFormat);
+
     private void OnDragEnter(object sender, DragEventArgs e)
     {
+        if (HasInternalTile(e)) { e.Effects = DragDropEffects.Move; return; }
         if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; return; }
         e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
         SetDropOverlay(true);
@@ -654,6 +883,7 @@ public partial class LauncherWindow : Window
 
     private void OnDragOver(object sender, DragEventArgs e)
     {
+        if (HasInternalTile(e)) { e.Effects = DragDropEffects.Move; e.Handled = true; return; }
         e.Effects = HasDroppable(e) ? DragDropEffects.Link | DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -668,6 +898,12 @@ public partial class LauncherWindow : Window
 
     private void OnDrop(object sender, DragEventArgs e)
     {
+        if (e.Data.GetData(InternalTileFormat) is { } raw)
+        {
+            HandleInternalDrop(raw, e);
+            return;
+        }
+
         SetDropOverlay(false);
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files) AddPaths(files);
         else if (e.Data.GetData(DataFormats.UnicodeText) is string text)
@@ -683,5 +919,136 @@ public partial class LauncherWindow : Window
     private void SetDropOverlay(bool show)
     {
         DropOverlay.To(OpacityProperty, show ? 1 : 0, show ? 140 : 160, show ? Motion.Out : Motion.In);
+    }
+
+    // ───────────────────────── Edit mode & folders ─────────────────────────
+
+    private void EnterEditMode()
+    {
+        if (_editMode) return;
+        _editMode = true;
+        ShowStickyMessage("编辑模式 · 拖一个磁贴到另一个上即可合成分组", "完成", ExitEditMode);
+    }
+
+    private void ExitEditMode()
+    {
+        if (!_editMode) return;
+        _editMode = false;
+        HideMessage(immediate: true);
+        Rebuild();
+    }
+
+    private void HandleInternalDrop(object raw, DragEventArgs e)
+    {
+        if (raw is not ShortcutItem dragged) return;
+        var pos = e.GetPosition(Tiles);
+        var container = FindContainerAt(pos);
+        var target = container?.DataContext;
+
+        if (target is ShortcutItem targetItem && !ReferenceEquals(targetItem, dragged) && container is not null)
+        {
+            // Left/right edge → reorder; centre → merge into a folder.
+            var local = e.GetPosition(container);
+            var rel = local.X / Math.Max(1, container.ActualWidth);
+            if (rel < 0.32)
+            {
+                _library.Reorder(dragged, targetItem, after: false);
+                RefreshOrder();
+            }
+            else if (rel > 0.68)
+            {
+                _library.Reorder(dragged, targetItem, after: true);
+                RefreshOrder();
+            }
+            else
+            {
+                MergeIntoFolder(dragged, targetItem);
+            }
+        }
+        else if (target is FolderTile folder)
+        {
+            MoveToFolder(dragged, folder.Name);
+        }
+    }
+
+    private ListBoxItem? FindContainerAt(Point p)
+    {
+        var hit = Tiles.InputHitTest(p) as DependencyObject;
+        while (hit is not null and not ListBoxItem) hit = VisualTreeHelper.GetParent(hit);
+        return hit as ListBoxItem;
+    }
+
+    private void RefreshOrder()
+    {
+        _ordered = _library.Ordered();
+        Rebuild();
+        AnimatePanelHeight();
+        ShowStickyMessage("已调整顺序", "完成", ExitEditMode);
+    }
+
+    private void MergeIntoFolder(ShortcutItem a, ShortcutItem b)
+    {
+        var name = string.IsNullOrWhiteSpace(b.Folder) ? NextFolderName() : b.Folder!;
+        a.Folder = name;
+        b.Folder = name;
+        _library.SaveSoon();
+        _ordered = _library.Ordered();
+        Rebuild();
+        AnimatePanelHeight();
+        ShowStickyMessage($"已整理到「{name}」· 右键分组可重命名", "完成", ExitEditMode);
+    }
+
+    private void MoveToFolder(ShortcutItem item, string folderName)
+    {
+        item.Folder = folderName;
+        _library.SaveSoon();
+        _ordered = _library.Ordered();
+        Rebuild();
+        AnimatePanelHeight();
+        ShowStickyMessage($"已加入「{folderName}」", "完成", ExitEditMode);
+    }
+
+    private string NextFolderName()
+    {
+        var existing = new HashSet<string>(
+            _library.Items.Where(i => !string.IsNullOrWhiteSpace(i.Folder)).Select(i => i.Folder!),
+            StringComparer.CurrentCultureIgnoreCase);
+        var n = 1;
+        while (existing.Contains($"分组 {n}")) n++;
+        return $"分组 {n}";
+    }
+
+    private void RenameFolder(string oldName, string newName)
+    {
+        newName = newName.Trim();
+        if (newName.Length == 0) return;
+        foreach (var i in _library.Items.Where(x => SameFolder(x.Folder, oldName))) i.Folder = newName;
+        _library.SaveSoon();
+        _ordered = _library.Ordered();
+        if (_currentFolder is not null && SameFolder(_currentFolder, oldName)) _currentFolder = newName;
+        Rebuild();
+        ShowMessage($"已重命名为「{newName}」");
+    }
+
+    private void DissolveFolder(string name)
+    {
+        foreach (var i in _library.Items.Where(x => SameFolder(x.Folder, name))) i.Folder = null;
+        _library.SaveSoon();
+        _ordered = _library.Ordered();
+        if (_currentFolder is not null && SameFolder(_currentFolder, name)) _currentFolder = null;
+        Rebuild();
+        AnimatePanelHeight();
+        ShowMessage($"已解散「{name}」");
+    }
+
+    private void ShowStickyMessage(string text, string? actionText, Action? action)
+    {
+        MessageText.Text = text;
+        _messageAction = action;
+        MessageAction.Content = actionText;
+        MessageAction.Visibility = actionText is null ? Visibility.Collapsed : Visibility.Visible;
+        MessageRow.IsHitTestVisible = true;
+        _messageTimer.Stop(); // sticky: no auto-hide
+        UpdatePill();
     }
 }

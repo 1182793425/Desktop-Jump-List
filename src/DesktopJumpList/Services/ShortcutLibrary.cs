@@ -76,19 +76,27 @@ public sealed class ShortcutLibrary
     }
 
     /// <summary>
-    /// Display order: pinned first (in the order they were pinned), then by frequency + recency.
-    /// Called once per panel open, so tiles never shuffle under the cursor.
+    /// Display order: pinned first, then the collection order. Manual order is authoritative so
+    /// dragging tiles in edit mode actually reorders them; new items append at the end.
     /// </summary>
     public List<ShortcutItem> Ordered()
     {
-        var now = DateTimeOffset.Now;
-        var pinned = Items.Where(i => i.Pinned);
-        var rest = Items.Where(i => !i.Pinned)
-            .Select((item, index) => (item, index))
-            .OrderByDescending(x => x.item.Score(now))
-            .ThenBy(x => x.index)
-            .Select(x => x.item);
-        return pinned.Concat(rest).ToList();
+        return Items.Where(i => i.Pinned).Concat(Items.Where(i => !i.Pinned)).ToList();
+    }
+
+    /// <summary>Moves an item to just before (or after) another item in the flat order.</summary>
+    public void Reorder(ShortcutItem item, ShortcutItem anchor, bool after)
+    {
+        var from = Items.IndexOf(item);
+        if (from < 0) return;
+        var to = Items.IndexOf(anchor);
+        if (to < 0 || ReferenceEquals(item, anchor)) return;
+        if (after) to++;
+        if (from < to) to--;
+        to = Math.Clamp(to, 0, Items.Count - 1);
+        if (from == to) return;
+        Items.Move(from, to);
+        SaveSoon();
     }
 
     /// <summary>Ranks matches: name prefix &gt; pinyin-initials prefix &gt; substring &gt; initials substring.</summary>

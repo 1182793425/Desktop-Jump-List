@@ -56,6 +56,55 @@
             </Grid>
         </DataTemplate>
 
+        <!-- ===== Folder tile (iOS-style grouped shortcuts) ===== -->
+        <DataTemplate DataType="{x:Type local:FolderTile}">
+            <Grid Width="100" Height="96" Background="Transparent">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Border Width="40" Height="40" CornerRadius="12" Background="{DynamicResource HoverBrush}"
+                            BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
+                        <ItemsControl ItemsSource="{Binding Preview}" Margin="4">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="2" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Width="15" Height="15" Margin="1">
+                                        <Image Source="{Binding Icon}" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality"
+                                               Visibility="{Binding Icon, Converter={StaticResource NotNullVisible}}" />
+                                        <Border CornerRadius="3" Background="{Binding Name, Converter={StaticResource NameBrush}}"
+                                                Visibility="{Binding Icon, Converter={StaticResource NullVisible}}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                    <TextBlock Text="{Binding Name}" Margin="0,8,0,0" Width="88" TextAlignment="Center"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16"
+                               LineStackingStrategy="BlockLineHeight" FontSize="12"
+                               Foreground="{DynamicResource InkBrush}" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <!-- ===== Back-to-all tile (inside a folder) ===== -->
+        <DataTemplate DataType="{x:Type local:BackTile}">
+            <Grid Width="100" Height="96" Background="Transparent">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Grid Width="40" Height="40">
+                        <Ellipse Fill="{DynamicResource HoverBrush}" />
+                        <Path Data="M13,4 L5,12 L13,20" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Text="全部" Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource InkSubBrush}" Height="32" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
         <!-- ===== "+" tile ===== -->
         <DataTemplate DataType="{x:Type local:AddTile}">
             <Grid Width="100" Height="96" Background="Transparent">

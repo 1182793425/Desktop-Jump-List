@@ -11,6 +11,13 @@ public static class ShellLauncher
     {
         try
         {
+            if (item.Kind == ShortcutKind.AppX)
+            {
+                // Launch a Microsoft Store app by its AppUserModelId via the AppsFolder shell.
+                Process.Start(new ProcessStartInfo("explorer.exe", $"shell:AppsFolder\\{item.Target}") { UseShellExecute = true });
+                return null;
+            }
+
             if (item.Kind != ShortcutKind.Url && !File.Exists(item.Target) && !Directory.Exists(item.Target))
                 return $"找不到：{item.Target}";
 

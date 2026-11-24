@@ -13,6 +13,7 @@ public sealed class ShortcutItem : ObservableObject
     private string _name = string.Empty;
     private string _target = string.Empty;
     private string? _arguments;
+    private string? _folder;
     private ShortcutKind _kind = ShortcutKind.File;
     private bool _pinned;
     private int _openCount;
@@ -27,7 +28,8 @@ public sealed class ShortcutItem : ObservableObject
         set => Set(ref _name, value);
     }
 
-    /// <summary>Absolute path for file/folder/app, or an absolute URI for <see cref="ShortcutKind.Url"/>.</summary>
+    /// <summary>Absolute path for file/folder/app, an absolute URI for <see cref="ShortcutKind.Url"/>,
+    /// or the AppUserModelId for <see cref="ShortcutKind.AppX"/>.</summary>
     public string Target
     {
         get => _target;
@@ -38,6 +40,13 @@ public sealed class ShortcutItem : ObservableObject
     {
         get => _arguments;
         set => Set(ref _arguments, value);
+    }
+
+    /// <summary>Optional grouping folder name (iOS-style). Null/empty means a loose tile.</summary>
+    public string? Folder
+    {
+        get => _folder;
+        set => Set(ref _folder, string.IsNullOrWhiteSpace(value) ? null : value.Trim());
     }
 
     public ShortcutKind Kind
@@ -78,6 +87,7 @@ public sealed class ShortcutItem : ObservableObject
     {
         ShortcutKind.Folder => "文件夹",
         ShortcutKind.App => "应用",
+        ShortcutKind.AppX => "商店应用",
         ShortcutKind.Url => "网页",
         _ => "文件"
     };
@@ -92,6 +102,11 @@ public sealed class ShortcutItem : ObservableObject
             if (Kind == ShortcutKind.Url)
             {
                 return Uri.TryCreate(Target, UriKind.Absolute, out var uri) ? uri.Host : Target;
+            }
+            if (Kind == ShortcutKind.AppX)
+            {
+                // AUMID is opaque; show the app name (already in Name), so no tooltip clutter.
+                return string.Empty;
             }
             return Target;
         }
@@ -127,6 +142,7 @@ public sealed class ShortcutItem : ObservableObject
         Target = Target,
         Arguments = Arguments,
         Kind = Kind,
+        Folder = Folder,
         Pinned = Pinned,
         OpenCount = OpenCount,
         LastOpenedAt = LastOpenedAt

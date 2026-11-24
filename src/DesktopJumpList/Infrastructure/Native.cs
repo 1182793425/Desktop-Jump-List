@@ -98,4 +98,13 @@ internal static class Native
         if (noActivate) ex |= WS_EX_NOACTIVATE;
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex));
     }
+
+    /// <summary>Keeps the window non-activating but visible in the taskbar (no WS_EX_TOOLWINDOW).</summary>
+    public static void MakeNoActivate(IntPtr hwnd)
+    {
+        var ex = (long)GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        ex &= ~WS_EX_TOOLWINDOW;
+        ex |= WS_EX_NOACTIVATE;
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex));
+    }
 }

@@ -6,5 +6,7 @@ public enum ShortcutKind
     File,
     Folder,
     App,
-    Url
+    Url,
+    /// <summary>A Microsoft Store (UWP/packaged) app, identified by its AppUserModelId.</summary>
+    AppX
 }
