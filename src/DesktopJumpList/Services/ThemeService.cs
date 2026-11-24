@@ -24,8 +24,13 @@ public static class ThemeService
         SystemEvents.UserPreferenceChanged += (_, e) =>
         {
             if (e.Category != UserPreferenceCategory.General) return;
-            if (_mode == AppTheme.System)
-                Application.Current.Dispatcher.BeginInvoke(Apply);
+            if (_mode != AppTheme.System) return;
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher is not null && !dispatcher.HasShutdownStarted) dispatcher.BeginInvoke(Apply);
+            }
+            catch { }
         };
     }
 
@@ -65,6 +70,7 @@ public static class ThemeService
         {
             // Opaque-ish surface so light text never washes out against a bright wallpaper.
             Brush("PanelBrush", "#F51B1F27");
+            Brush("PanelOpaqueBrush", "#FF1B1F27");
             Brush("PanelBorderBrush", "#2EFFFFFF");
             Brush("PanelHighlightBrush", "#0DFFFFFF");
             Brush("InkBrush", "#F2F4F8");        // primary text — high contrast on dark
@@ -80,12 +86,22 @@ public static class ThemeService
             Brush("MenuHoverBrush", "#1AFFFFFF");
             Brush("DropBrush", "#E61B1F27");
             Brush("DashBrush", "#668AB0FF");
+            Brush("CardBrush", "#12FFFFFF");
+            Brush("CardBorderBrush", "#1FFFFFFF");
+            Brush("TooltipBrush", "#FC2A2E37");
+            Brush("TooltipBorderBrush", "#2EFFFFFF");
+            Brush("DangerBrush", "#F0B45A");
+            Brush("ToggleTrackBrush", "#3A4050");
+            Brush("ToggleThumbBrush", "#F2F4F8");
+            Brush("SegmentBrush", "#14FFFFFF");
+            Brush("HintBrush", "#16FFFFFF");
             Col("ShadowColor", "#000000");
             d["ShadowOpacity"] = 0.55;
         }
         else
         {
             Brush("PanelBrush", "#F8FCFCFE");
+            Brush("PanelOpaqueBrush", "#FFFCFCFE");
             Brush("PanelBorderBrush", "#16000000");
             Brush("PanelHighlightBrush", "#B3FFFFFF");
             Brush("InkBrush", "#1A1D24");
@@ -101,6 +117,15 @@ public static class ThemeService
             Brush("MenuHoverBrush", "#0F000000");
             Brush("DropBrush", "#E6F6F8FC");
             Brush("DashBrush", "#663B6CF6");
+            Brush("CardBrush", "#07000000");
+            Brush("CardBorderBrush", "#12000000");
+            Brush("TooltipBrush", "#FCFFFFFF");
+            Brush("TooltipBorderBrush", "#1E000000");
+            Brush("DangerBrush", "#C9761A");
+            Brush("ToggleTrackBrush", "#C9CFDA");
+            Brush("ToggleThumbBrush", "#FFFFFF");
+            Brush("SegmentBrush", "#0A000000");
+            Brush("HintBrush", "#0B000000");
             Col("ShadowColor", "#1E2A4A");
             d["ShadowOpacity"] = 0.28;
         }

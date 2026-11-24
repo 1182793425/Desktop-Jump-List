@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using DesktopJumpList.Services;
 using Microsoft.Win32;
@@ -18,18 +19,12 @@ public partial class StoreAppPicker : Window
         Apply(filter: string.Empty);
 
         Search.TextChanged += (_, _) => Apply(Search.Text.Trim());
-        Search.PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter) { Accept(); e.Handled = true; }
-            else if (e.Key == Key.Escape) { DialogResult = false; e.Handled = true; }
-            else if (e.Key == Key.Down && List.Items.Count > 0) { List.SelectedIndex = 0; e.Handled = true; }
-        };
+        Search.PreviewKeyDown += OnSearchKey;
         List.MouseDoubleClick += (_, _) => Accept();
-        List.PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter) { Accept(); e.Handled = true; }
-            else if (e.Key == Key.Escape) { DialogResult = false; e.Handled = true; }
-        };
+        List.PreviewKeyDown += OnListKey;
+
+        // The filter is the primary input; clicking a row should not steal typing from it.
+        List.PreviewMouseLeftButtonUp += (_, _) => Search.Focus();
 
         Loaded += (_, _) => { Search.Focus(); Keyboard.Focus(Search); };
     }
@@ -40,15 +35,65 @@ public partial class StoreAppPicker : Window
             ? _all
             : _all.Where(a => a.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
         List.ItemsSource = items;
-        if (items.Count > 0) List.SelectedIndex = 0;
+        NoMatch.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        List.SelectedIndex = items.Count > 0 ? 0 : -1;
+        if (items.Count > 0) List.ScrollIntoView(items[0]);
+    }
+
+    private void OnSearchKey(object? sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter:
+                Accept();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                DialogResult = false;
+                e.Handled = true;
+                break;
+            case Key.Down:
+                Move(1);
+                e.Handled = true;
+                break;
+            case Key.Up:
+                Move(-1);
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void OnListKey(object? sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter:
+                Accept();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                DialogResult = false;
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void Move(int delta)
+    {
+        if (List.Items.Count == 0) return;
+        var index = List.SelectedIndex;
+        var next = index < 0 ? 0 : Math.Clamp(index + delta, 0, List.Items.Count - 1);
+        List.SelectedIndex = next;
+        if (List.ItemContainerGenerator.ContainerFromIndex(next) is FrameworkElement container)
+            container.BringIntoView();
     }
 
     private void Accept()
     {
-        if (List.SelectedItem is StoreAppsService.StoreApp app)
-        {
-            Selected = app;
-            DialogResult = true;
-        }
+        var app = List.SelectedItem as StoreAppsService.StoreApp
+                  ?? List.Items.OfType<StoreAppsService.StoreApp>().FirstOrDefault();
+        if (app is null) return;
+        Selected = app;
+        DialogResult = true;
     }
 }

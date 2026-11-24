@@ -14,28 +14,27 @@ using Microsoft.Win32;
 namespace DesktopJumpList.Views;
 
 /// <summary>
-/// The round floating ball.
+/// The floating app tile.
 ///
 /// States
 ///   Resting  – fully visible, insetted from whichever screen edge it is docked to.
 ///   Tucked   – slid into the edge after <see cref="AppSettings.PeekDelayMs"/> of no attention;
-///              a small sliver stays visible at reduced opacity. Hovering slides it back out.
+///              only a slim gradient handle remains, hovering slides the tile back out.
 ///   Dragging – follows the pointer freely; on release it snaps to the nearest edge only when
 ///              dropped close to it (within <see cref="AppSettings.SnapDistance"/>), otherwise it
 ///              stays wherever you left it (free placement).
 ///
-/// Multi-monitor: the work area is resolved from the monitor currently under the ball.
-/// The window itself never moves for tucking: only the ball's TranslateTransform does.
+/// The window never moves for tucking: only the tile's TranslateTransform does, so the edge
+/// handle can sit exactly on the screen edge. Multi-monitor: the work area is resolved from
+/// the monitor currently under the tile.
 /// </summary>
 public partial class DockWindow : Window
 {
-    private const double WindowSize = 72;
-    private const double BallSize = 44;
-    private const double Inset = (WindowSize - BallSize) / 2; // 14
-    private const double Sliver = 12;
-    private const double TuckOffset = BallSize + Inset - Sliver; // 46
+    private const double WindowSize = 80;
+    private const double BallSize = 48;
+    private const double Inset = (WindowSize - BallSize) / 2; // 16
+    private const double TuckOffset = WindowSize - Inset + 2; // 66 - ball fully off-screen
     private const double DragThreshold = 4;
-    private const uint MonitorDefaultToNearest = 2;
 
     private readonly AppSettings _settings;
     private readonly WindowMover _mover;
@@ -51,6 +50,9 @@ public partial class DockWindow : Window
     private Native.POINT _pressCursor;
     private double _pressLeft, _pressTop;
 
+    /// <summary>Developer preview mode: no idle timers, so a capture can inspect a fixed state.</summary>
+    public bool PreviewMode { get; set; }
+
     public DockWindow(AppSettings settings)
     {
         InitializeComponent();
@@ -63,7 +65,7 @@ public partial class DockWindow : Window
         _fullscreenTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
         _fullscreenTimer.Tick += (_, _) => CheckFullscreen();
 
-        SourceInitialized += (_, _) => Native.MakeNoActivate(new WindowInteropHelper(this).Handle);
+        SourceInitialized += (_, _) => Native.MakeToolWindow(new WindowInteropHelper(this).Handle, noActivate: true);
         Loaded += OnLoaded;
 
         Root.MouseEnter += OnEnter;
@@ -74,16 +76,30 @@ public partial class DockWindow : Window
         Root.LostMouseCapture += (_, _) => { if (_pressed) EndPress(cancelled: true); };
         Root.MouseRightButtonUp += OnRightClick;
 
-        SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(PlaceInitial);
+        SystemEvents.DisplaySettingsChanged += (_, _) =>
+        {
+            try { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => PlaceInitial()); }
+            catch { }
+        };
         SystemParameters.StaticPropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(SystemParameters.WorkArea)) Dispatcher.BeginInvoke(PlaceInitial);
+            if (e.PropertyName != nameof(SystemParameters.WorkArea)) return;
+            try { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => PlaceInitial()); }
+            catch { }
         };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        PlaceInitial();
+        PlaceInitial(useCursor: true);
+        if (PreviewMode)
+        {
+            Root.Set(OpacityProperty, 1);
+            BallScale.Set(ScaleTransform.ScaleXProperty, 1);
+            BallScale.Set(ScaleTransform.ScaleYProperty, 1);
+            return;
+        }
+
         Root.Opacity = 0;
         Root.To(OpacityProperty, 1, 260);
         BallScale.ScaleX = BallScale.ScaleY = 0.6;
@@ -95,51 +111,26 @@ public partial class DockWindow : Window
 
     // ───────────────────────── Screen geometry ─────────────────────────
 
-    /// <summary>Work area (DIPs) of the monitor containing the given DIP point.</summary>
-    private Rect WorkAreaFor(double left, double top)
-    {
-        try
-        {
-            var dpi = VisualTreeHelper.GetDpi(this);
-            var pt = new Native.POINT
-            {
-                X = (int)((left + WindowSize / 2) * dpi.DpiScaleX),
-                Y = (int)((top + WindowSize / 2) * dpi.DpiScaleY)
-            };
-            var h = Native.MonitorFromPoint(pt, MonitorDefaultToNearest);
-            var info = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-            if (h != IntPtr.Zero && Native.GetMonitorInfo(h, ref info))
-            {
-                var sx = dpi.DpiScaleX;
-                var sy = dpi.DpiScaleY;
-                return new Rect(
-                    info.rcWork.Left / sx, info.rcWork.Top / sy,
-                    (info.rcWork.Right - info.rcWork.Left) / sx,
-                    (info.rcWork.Bottom - info.rcWork.Top) / sy);
-            }
-        }
-        catch { }
-        return SystemParameters.WorkArea;
-    }
-
-    private Rect CurrentArea => WorkAreaFor(Left, Top);
+    private Rect CurrentArea => ScreenGeometry.WorkAreaAtPoint(Left + WindowSize / 2, Top + WindowSize / 2, this);
 
     // ───────────────────────── Placement ─────────────────────────
 
-    private void PlaceInitial()
+    private void PlaceInitial(bool useCursor = false)
     {
         if (_dragging) return;
         _mover.Stop();
 
         if (_settings.Edge == DockEdge.None && _settings.FreeLeft >= 0 && _settings.FreeTop >= 0)
         {
-            var area = WorkAreaFor(_settings.FreeLeft, _settings.FreeTop);
+            var area = ScreenGeometry.WorkAreaAtPoint(_settings.FreeLeft, _settings.FreeTop, this);
             Left = Clamp(_settings.FreeLeft, area.Left, area.Right - WindowSize);
             Top = Clamp(_settings.FreeTop, area.Top, area.Bottom - WindowSize);
         }
         else
         {
-            var area = WorkAreaFor(Left, Top);
+            var area = useCursor
+                ? ScreenGeometry.WorkAreaAtCursor(this)
+                : ScreenGeometry.WorkAreaAtPoint(Left, Top, this);
             var (l, t) = EdgePosition(area, _settings.Edge, _settings.EdgeRatio);
             Left = l;
             Top = t;
@@ -151,7 +142,7 @@ public partial class DockWindow : Window
 
     private static double Clamp(double v, double lo, double hi) => hi < lo ? lo : Math.Clamp(v, lo, hi);
 
-    /// <summary>Ball position for a docked edge and a 0..1 ratio along that edge.</summary>
+    /// <summary>Tile position for a docked edge and a 0..1 ratio along that edge.</summary>
     private static (double left, double top) EdgePosition(Rect area, DockEdge edge, double ratio)
     {
         var r = Math.Clamp(ratio, 0, 1);
@@ -181,33 +172,54 @@ public partial class DockWindow : Window
 
     private void ApplyEdgeLayout()
     {
-        // The peek hit-strip sits on the edge the ball is tucked into.
+        // The peek hit-strip and the tucked handle sit on the edge the tile is docked to.
         switch (_settings.Edge)
         {
             case DockEdge.Left:
-                HitStrip.Width = 14; HitStrip.Height = 52;
+                HitStrip.Width = 18; HitStrip.Height = 64;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Left;
                 HitStrip.VerticalAlignment = VerticalAlignment.Center;
+                Handle.Width = 6; Handle.Height = 36;
+                Handle.HorizontalAlignment = HorizontalAlignment.Left;
+                Handle.VerticalAlignment = VerticalAlignment.Center;
                 break;
             case DockEdge.Top:
-                HitStrip.Width = 52; HitStrip.Height = 14;
+                HitStrip.Width = 64; HitStrip.Height = 18;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Center;
                 HitStrip.VerticalAlignment = VerticalAlignment.Top;
+                Handle.Width = 36; Handle.Height = 6;
+                Handle.HorizontalAlignment = HorizontalAlignment.Center;
+                Handle.VerticalAlignment = VerticalAlignment.Top;
                 break;
             case DockEdge.Bottom:
-                HitStrip.Width = 52; HitStrip.Height = 14;
+                HitStrip.Width = 64; HitStrip.Height = 18;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Center;
                 HitStrip.VerticalAlignment = VerticalAlignment.Bottom;
+                Handle.Width = 36; Handle.Height = 6;
+                Handle.HorizontalAlignment = HorizontalAlignment.Center;
+                Handle.VerticalAlignment = VerticalAlignment.Bottom;
                 break;
             case DockEdge.None:
                 HitStrip.Width = 0; HitStrip.Height = 0; // no tuck when free
+                Handle.Width = 0; Handle.Height = 0;
                 break;
             default:
-                HitStrip.Width = 14; HitStrip.Height = 52;
+                HitStrip.Width = 18; HitStrip.Height = 64;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Right;
                 HitStrip.VerticalAlignment = VerticalAlignment.Center;
+                Handle.Width = 6; Handle.Height = 36;
+                Handle.HorizontalAlignment = HorizontalAlignment.Right;
+                Handle.VerticalAlignment = VerticalAlignment.Center;
                 break;
         }
+    }
+
+    /// <summary>Re-applies settings changed from the launcher or the tray menu.</summary>
+    public void ApplySettings()
+    {
+        _peekTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.PeekDelayMs, 600, 8000));
+        ApplyEdgeLayout();
+        RestartPeekTimer();
     }
 
     // ───────────────────────── Tuck / peek ─────────────────────────
@@ -217,6 +229,8 @@ public partial class DockWindow : Window
         var (x, y) = TuckVector();
         BallShift.Set(TranslateTransform.XProperty, tucked ? x : 0);
         BallShift.Set(TranslateTransform.YProperty, tucked ? y : 0);
+        Ball.Set(OpacityProperty, tucked ? 0 : 1);
+        Handle.Set(OpacityProperty, tucked ? 0.92 : 0);
     }
 
     private (double x, double y) TuckVector() => _settings.Edge switch
@@ -228,9 +242,17 @@ public partial class DockWindow : Window
         _ => (0, 0)
     };
 
+    /// <summary>Developer preview: freeze the tucked look for a screenshot.</summary>
+    public void PreviewSetTucked(bool tucked)
+    {
+        _tucked = tucked;
+        SetTuckInstant(tucked);
+    }
+
     private void RestartPeekTimer()
     {
         _peekTimer.Stop();
+        if (PreviewMode) return;
         if (!_holdOpen && !_menuOpen && !_dragging && _settings.Edge != DockEdge.None)
             _peekTimer.Start();
     }
@@ -243,7 +265,8 @@ public partial class DockWindow : Window
         var (x, y) = TuckVector();
         BallShift.To(TranslateTransform.XProperty, x, 360, Motion.InOut);
         BallShift.To(TranslateTransform.YProperty, y, 360, Motion.InOut);
-        Ball.To(OpacityProperty, 0.72, 360, Motion.InOut);
+        Ball.To(OpacityProperty, 0, 260, Motion.InOut);
+        Handle.To(OpacityProperty, 0.92, 260, Motion.Out);
         ScaleBall(1, 200);
     }
 
@@ -254,6 +277,8 @@ public partial class DockWindow : Window
         BallShift.To(TranslateTransform.XProperty, 0, ms, Motion.OutStrong);
         BallShift.To(TranslateTransform.YProperty, 0, ms, Motion.OutStrong);
         Ball.To(OpacityProperty, 1, ms * 0.8);
+        Handle.To(OpacityProperty, 0, 160, Motion.In);
+        ScaleBall(1, 160);
     }
 
     public void HoldOpen(bool hold)
@@ -262,7 +287,7 @@ public partial class DockWindow : Window
         if (hold)
         {
             _peekTimer.Stop();
-            Untuck();
+            if (_tucked) Untuck();
         }
         else
         {
@@ -357,8 +382,8 @@ public partial class DockWindow : Window
     }
 
     /// <summary>
-    /// On release, snap to the nearest edge only if the ball is within SnapDistance of it
-    /// (a tight trigger, unlike the old half-screen rule). Otherwise keep the drop position.
+    /// On release, snap to the nearest edge only if the tile is within SnapDistance of it
+    /// (a tight trigger). Otherwise keep the drop position.
     /// </summary>
     private void SnapOnRelease()
     {
@@ -411,10 +436,17 @@ public partial class DockWindow : Window
         var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
 
         var autostart = new MenuItem { Header = "开机自动启动", IsCheckable = true, IsChecked = StartupService.IsEnabled };
-        autostart.Click += (_, _) => { try { StartupService.Set(autostart.IsChecked); } catch { } };
+        autostart.Click += (_, _) =>
+        {
+            var error = App.Current.SetAutostart(autostart.IsChecked);
+            if (error is not null) App.Current.Notify($"无法修改开机启动：{error}");
+        };
 
         var data = new MenuItem { Header = "打开数据目录" };
-        data.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{App.Current.Storage.Directory}\"") { UseShellExecute = true });
+        data.Click += (_, _) => App.Current.OpenDataFolder();
+
+        var settings = new MenuItem { Header = "设置…" };
+        settings.Click += (_, _) => App.Current.OpenSettings();
 
         var quit = new MenuItem { Header = "退出 Jump" };
         quit.Click += (_, _) => FadeOutAndQuit();
@@ -436,25 +468,26 @@ public partial class DockWindow : Window
         // 布局：每行数量 / 最大行数
         var layout = new MenuItem { Header = "布局" };
         var colMenu = new MenuItem { Header = "每行数量" };
-        foreach (var n in new[] { 3, 4, 5, 6, 7 })
+        foreach (var n in new[] { 3, 4, 5 })
         {
             var c = new MenuItem { Header = n.ToString(), IsCheckable = true, IsChecked = _settings.Columns == n };
             var val = n;
-            c.Click += (_, _) => { _settings.Columns = val; App.Current.SaveSettings(); App.Current.Launcher.ApplyLayout(); };
+            c.Click += (_, _) => App.Current.SetColumns(val);
             colMenu.Items.Add(c);
         }
         var rowMenu = new MenuItem { Header = "最大行数" };
-        foreach (var n in new[] { 2, 3, 4, 5, 6 })
+        foreach (var n in new[] { 2, 3, 4, 5 })
         {
             var c = new MenuItem { Header = n.ToString(), IsCheckable = true, IsChecked = _settings.MaxRows == n };
             var val = n;
-            c.Click += (_, _) => { _settings.MaxRows = val; App.Current.SaveSettings(); App.Current.Launcher.ApplyLayout(); };
+            c.Click += (_, _) => App.Current.SetMaxRows(val);
             rowMenu.Items.Add(c);
         }
         layout.Items.Add(colMenu);
         layout.Items.Add(rowMenu);
 
         menu.Items.Add(open);
+        menu.Items.Add(settings);
         menu.Items.Add(new Separator());
         menu.Items.Add(themeSys);
         menu.Items.Add(themeLight);
@@ -486,7 +519,7 @@ public partial class DockWindow : Window
 
     private void CheckFullscreen()
     {
-        if (_holdOpen) return;
+        if (_holdOpen || PreviewMode) return;
         bool busy = Native.SHQueryUserNotificationState(out var state) == 0 && state is 2 or 3 or 4;
         if (busy == _hiddenForFullscreen) return;
         _hiddenForFullscreen = busy;

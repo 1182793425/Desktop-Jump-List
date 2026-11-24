@@ -22,9 +22,9 @@ public sealed class Storage
     private string ShortcutsPath => Path.Combine(Directory, "shortcuts.json");
     private string SettingsPath => Path.Combine(Directory, "settings.json");
 
-    public Storage()
+    public Storage(string? rootDirectory = null)
     {
-        Directory = Path.Combine(
+        Directory = rootDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "DesktopJumpList");
         System.IO.Directory.CreateDirectory(Directory);

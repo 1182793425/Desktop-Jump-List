@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Win32;
 
 namespace DesktopJumpList.Services;
@@ -12,17 +13,46 @@ public static class StartupService
     {
         get
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-            return key?.GetValue(ValueName) is string s && s.Contains(Environment.ProcessPath ?? "\0", StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RunKey);
+                if (key?.GetValue(ValueName) is not string value || string.IsNullOrWhiteSpace(value)) return false;
+
+                var exe = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exe) && value.Contains(exe, StringComparison.OrdinalIgnoreCase)) return true;
+
+                // Framework-dependent runs register "dotnet <Jump.dll>"; match the assembly too.
+                var assembly = typeof(StartupService).Assembly.Location;
+                return !string.IsNullOrEmpty(assembly) && value.Contains(assembly, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
     }
 
     public static void Set(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled && Environment.ProcessPath is { } exe)
-            key.SetValue(ValueName, $"\"{exe}\"");
-        else
-            key.DeleteValue(ValueName, throwOnMissingValue: false);
+        if (enabled) key.SetValue(ValueName, CommandLine);
+        else key.DeleteValue(ValueName, throwOnMissingValue: false);
+    }
+
+    /// <summary>
+    /// The exact command Windows should run at login. `dotnet run` / framework-dependent
+    /// builds hand us dotnet.exe, which would start nothing useful on its own, so the
+    /// entry point assembly is passed explicitly in that case.
+    /// </summary>
+    private static string CommandLine
+    {
+        get
+        {
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe)) return string.Empty;
+            if (string.Equals(Path.GetFileNameWithoutExtension(exe), "dotnet", StringComparison.OrdinalIgnoreCase))
+            {
+                var assembly = typeof(StartupService).Assembly.Location;
+                return $"\"{exe}\" \"{assembly}\"";
+            }
+            return $"\"{exe}\"";
+        }
     }
 }

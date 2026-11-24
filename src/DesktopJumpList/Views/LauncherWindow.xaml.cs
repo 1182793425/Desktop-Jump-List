@@ -20,6 +20,8 @@ public sealed class AddTile
 {
     public static readonly AddTile Instance = new();
     private AddTile() { }
+
+    public string Name => "添加";
 }
 
 /// <summary>A named group of shortcuts (iOS-style folder) shown as one tile.</summary>
@@ -35,6 +37,8 @@ public sealed class FolderTile
         Members = members;
         Preview = members.Take(4).ToList();
     }
+
+    public string Tooltip => $"{Name}\n分组 · {Members.Count} 项\n单击打开，右键重命名或解散";
 }
 
 /// <summary>Sentinel item for the "back to all" tile inside a folder view.</summary>
@@ -42,6 +46,7 @@ public sealed class BackTile
 {
     public string FolderName { get; }
     public BackTile(string folderName) => FolderName = folderName;
+    public string Name => "全部";
 }
 
 /// <summary>
@@ -53,9 +58,12 @@ public partial class LauncherWindow : Window
     private const double TileHeight = 96;
     private const double PanelChrome = 2 + 28; // border + inner padding
     private const double EmptyHeight = 210;
+    private const double SettingsHeight = 366;
+    private const double CanvasMargin = 36;
+    private const double PillRowHeight = 50; // 40 px pill + 10 px gap
 
-    private int Cols => Math.Clamp(App.Current.Settings.Columns, 3, 8);
-    private int MaxRowCount => Math.Clamp(App.Current.Settings.MaxRows, 2, 8);
+    private int Cols => Math.Clamp(App.Current.Settings.Columns, 3, 5);
+    private int MaxRowCount => Math.Clamp(App.Current.Settings.MaxRows, 2, 5);
 
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
@@ -69,6 +77,12 @@ public partial class LauncherWindow : Window
     private ShortcutItem? _renaming;
     private (ShortcutItem item, int index)? _lastRemoved;
     private Action? _messageAction;
+    private string? _pendingNotice;
+
+    // Settings overlay state.
+    private bool _settingsOpen;
+    private bool _capturingHotkey;
+    private const string HotkeyHintDefault = "点击后按下新的组合键，Esc 取消";
 
     // Long-press → edit mode, and edit-mode drag state.
     private DispatcherTimer? _longPress;
@@ -82,6 +96,9 @@ public partial class LauncherWindow : Window
     public bool InEditMode => _editMode;
 
     public bool IsOpen { get; private set; }
+
+    /// <summary>True while a file/folder/store-app dialog owns the UI.</summary>
+    public bool IsModal => _modalDepth > 0;
 
     public LauncherWindow(ShortcutLibrary library)
     {
@@ -100,14 +117,30 @@ public partial class LauncherWindow : Window
             {
                 _longPressTriggered = true;
                 EnterEditMode();
+                _dragArmed = true; // keep the press alive: the same gesture can continue into a drag
             }
         };
 
         SourceInitialized += (_, _) => Native.MakeToolWindow(new WindowInteropHelper(this).Handle, noActivate: false);
         new WindowInteropHelper(this).EnsureHandle(); // first open is as fast as every other
 
+        // Alt+F4 (or any shell close request) must hide the panel, never destroy the window;
+        // the app is tray-resident and reopening a closed WPF Window would throw.
+        Closing += (_, e) =>
+        {
+            if (App.Current.IsShuttingDown) return;
+            e.Cancel = true;
+            Close(animated: true);
+        };
+
         Deactivated += (_, _) => { if (IsOpen && _modalDepth == 0) Close(animated: true); };
         PreviewKeyDown += OnKey;
+        PreviewMouseDown += (_, e) =>
+        {
+            if (!_capturingHotkey) return;
+            if (e.OriginalSource is DependencyObject source && IsInside(source, HotkeyBox)) return;
+            CancelHotkeyCapture();
+        };
         Query.TextChanged += (_, _) => OnQueryChanged();
 
         Tiles.PreviewMouseMove += OnTilesMouseMove;
@@ -115,9 +148,11 @@ public partial class LauncherWindow : Window
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(OnTileUp), true);
         Tiles.AddHandler(ListBoxItem.MouseRightButtonUpEvent, new MouseButtonEventHandler(OnTileRightClick), true);
 
-        EmptyState.MouseLeftButtonUp += (_, _) => AddViaDialog(folder: false);
+        EmptyState.MouseLeftButtonUp += (_, _) => ShowAddMenu(null);
         MessageAction.Click += (_, _) => { var a = _messageAction; HideMessage(); a?.Invoke(); };
         RenameBox.PreviewKeyDown += OnRenameKey;
+
+        WheelScroller.Attach(this, () => _settingsOpen ? null : Scroller);
 
         DragEnter += OnDragEnter;
         DragOver += OnDragOver;
@@ -145,6 +180,13 @@ public partial class LauncherWindow : Window
 
         if (!wasClosing)
         {
+            _editMode = false;
+            _settingsOpen = false;
+            _capturingHotkey = false;
+            Query.IsEnabled = true;
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+            SettingsOverlay.Set(OpacityProperty, 0);
+
             Query.Text = string.Empty;
             HideMessage(immediate: true);
             HideRename(immediate: true);
@@ -152,12 +194,17 @@ public partial class LauncherWindow : Window
             _ordered = _library.Ordered();
             _staggerNext = true;
             Rebuild();
-            Panel.Set(HeightProperty, TargetPanelHeight());
+            var panelHeight = TargetPanelHeight();
+            Panel.Set(HeightProperty, panelHeight);
             Scroller.ScrollToTop();
 
-            var wa = SystemParameters.WorkArea;
+            // Top-anchored stack: the search pill and panel top stay put while the result
+            // count (and therefore the panel height) changes. The window itself is placed
+            // so the initial panel is optically centred on the monitor under the pointer.
+            var wa = ScreenGeometry.WorkAreaAtCursor(this);
             Left = wa.Left + (wa.Width - Width) / 2;
-            Top = wa.Top + (wa.Height - Height) / 2 - 24; // optical centre sits a little high
+            var desiredTop = wa.Top + wa.Height / 2 - CanvasMargin - PillRowHeight - panelHeight / 2 - 16;
+            Top = Math.Clamp(desiredTop, wa.Top, Math.Max(wa.Top, wa.Bottom - Height));
 
             Stack.Set(OpacityProperty, 0);
             StackScale.Set(ScaleTransform.ScaleXProperty, 0.94);
@@ -175,6 +222,12 @@ public partial class LauncherWindow : Window
         StackScale.To(ScaleTransform.ScaleXProperty, 1, 260, Motion.OutStrong);
         StackScale.To(ScaleTransform.ScaleYProperty, 1, 260, Motion.OutStrong);
         StackShift.To(TranslateTransform.YProperty, 0, 260, Motion.OutStrong);
+
+        if (!wasClosing && _pendingNotice is { } notice)
+        {
+            _pendingNotice = null;
+            Dispatcher.BeginInvoke(() => ShowMessage(notice), DispatcherPriority.Input);
+        }
     }
 
     public void Close(bool animated)
@@ -187,12 +240,22 @@ public partial class LauncherWindow : Window
             if (!_closing) return; // re-opened mid-fade
             _closing = false;
             IsOpen = false;
+            _longPress?.Stop();
+            _dragArmed = false;
+            _editMode = false;
+            _settingsOpen = false;
+            _capturingHotkey = false;
+            Query.IsEnabled = true;
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+            SettingsOverlay.Set(OpacityProperty, 0);
+
             Hide();
             Query.Text = string.Empty;
             Tiles.SelectedIndex = -1;
             HideRename(immediate: true);
             HideMessage(immediate: true);
             SetDropOverlay(false);
+            Panel.Set(HeightProperty, TargetPanelHeight());
             App.Current.OnLauncherClosed();
         }
 
@@ -263,6 +326,7 @@ public partial class LauncherWindow : Window
 
     private double TargetPanelHeight()
     {
+        if (_settingsOpen) return SettingsHeight;
         if (_tiles.Count == 0) return EmptyHeight;
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
         return PanelChrome + rows * TileHeight;
@@ -329,6 +393,8 @@ public partial class LauncherWindow : Window
     /// <summary>While searching, the pointer drives the selection; in edit mode, a drag starts.</summary>
     private void OnTilesMouseMove(object sender, MouseEventArgs e)
     {
+        if (_settingsOpen) return;
+
         if (_editMode && _dragArmed && e.LeftButton == MouseButtonState.Pressed && _tilePressContainer is { } container)
         {
             var p = e.GetPosition(Tiles);
@@ -359,6 +425,7 @@ public partial class LauncherWindow : Window
 
     private void OnTileDown(object sender, MouseButtonEventArgs e)
     {
+        if (_settingsOpen) return;
         if (ContainerFrom(e.OriginalSource) is not { } c) return;
         var scale = (ScaleTransform)EnsureTransforms(c).Children[0];
         scale.To(ScaleTransform.ScaleXProperty, 0.94, 90);
@@ -421,6 +488,8 @@ public partial class LauncherWindow : Window
         var error = ShellLauncher.Open(item);
         if (error is not null)
         {
+            if (item.NeedsAvailabilityProbe)
+                item.IsUnavailable = !File.Exists(item.Target) && !Directory.Exists(item.Target);
             ShowMessage(error);
             return;
         }
@@ -433,9 +502,11 @@ public partial class LauncherWindow : Window
     private void OnQueryChanged()
     {
         if (!IsOpen) return;
+        if (_editMode && Query.Text.Length > 0) ExitEditMode();
         if (Query.Text.Length > 0 && MessageRow.IsHitTestVisible) HideMessage();
         _staggerNext = false;
         Rebuild();
+        AnimatePanelHeight();
         Scroller.ScrollToTop();
         UpdatePill();
     }
@@ -445,6 +516,7 @@ public partial class LauncherWindow : Window
     private void UpdatePill()
     {
         var show = PillWanted;
+        Pill.IsHitTestVisible = show;
         Pill.To(OpacityProperty, show ? 1 : 0, show ? 160 : 140, show ? Motion.Out : Motion.In);
         PillShift.To(TranslateTransform.YProperty, show ? 0 : 6, show ? 220 : 140, show ? Motion.OutStrong : Motion.In);
 
@@ -477,6 +549,7 @@ public partial class LauncherWindow : Window
             MessageRow.Set(OpacityProperty, 0);
             SearchRow.Set(OpacityProperty, 1);
             Pill.Set(OpacityProperty, 0);
+            Pill.IsHitTestVisible = false;
             PillShift.Set(TranslateTransform.YProperty, 6);
             return;
         }
@@ -488,19 +561,34 @@ public partial class LauncherWindow : Window
     private void OnKey(object sender, KeyEventArgs e)
     {
         if (_renaming is not null || _renamingFolder is not null) return; // rename box handles its own keys
+        if (_modalDepth > 0) return;
+        if (_capturingHotkey) { HandleHotkeyCapture(e); return; }
 
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+
+        if (_settingsOpen)
+        {
+            if (e.Key == Key.Escape) { HideSettings(); e.Handled = true; }
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.Escape:
-                if (Query.Text.Length > 0) Query.Text = string.Empty;
+                if (_editMode) ExitEditMode();
+                else if (Query.Text.Length > 0) Query.Text = string.Empty;
+                else if (_currentFolder is not null) OpenFolder(null);
                 else Close(animated: true);
                 e.Handled = true;
                 break;
 
+            case Key.Back when Query.Text.Length == 0 && _currentFolder is not null:
+                OpenFolder(null);
+                e.Handled = true;
+                break;
+
             case Key.Enter:
-                if (Tiles.SelectedItem is not null) Invoke(Tiles.SelectedItem, null);
-                else if (_tiles.FirstOrDefault() is ShortcutItem first) OpenItem(first);
+                if (Tiles.SelectedItem is { } selected) Invoke(selected, null);
                 e.Handled = true;
                 break;
 
@@ -517,6 +605,11 @@ public partial class LauncherWindow : Window
 
             case Key.Delete when Query.Text.Length == 0:
                 if (Tiles.SelectedItem is ShortcutItem d) { Remove(d); e.Handled = true; }
+                break;
+
+            case Key.OemComma when ctrl:
+                ShowSettings();
+                e.Handled = true;
                 break;
 
             case Key.V when ctrl:
@@ -563,6 +656,7 @@ public partial class LauncherWindow : Window
 
     private void OnTileRightClick(object sender, MouseButtonEventArgs e)
     {
+        if (_settingsOpen) return;
         if (ContainerFrom(e.OriginalSource) is not { } c) return;
         e.Handled = true;
 
@@ -609,7 +703,7 @@ public partial class LauncherWindow : Window
 
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
         menu.Items.Add(Item("打开", () => OpenItem(item), "Enter"));
-        if (item.Kind != ShortcutKind.Url)
+        if (item.Kind is ShortcutKind.File or ShortcutKind.Folder or ShortcutKind.App)
             menu.Items.Add(Item("打开所在位置", () => { ShellLauncher.Reveal(item); Close(animated: true); }));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(item.Pinned ? "取消固定" : "固定在最前", () => TogglePin(item)));
@@ -709,6 +803,236 @@ public partial class LauncherWindow : Window
         Keyboard.Focus(Query);
     }
 
+    // ───────────────────────── Settings ─────────────────────────
+
+    public void ShowSettings()
+    {
+        if (!IsOpen) Open();
+        if (_settingsOpen) { RefreshSettings(); return; }
+
+        _settingsOpen = true;
+        _editMode = false;
+        _capturingHotkey = false;
+        Query.Text = string.Empty;
+        Query.IsEnabled = false;
+        HideMessage(immediate: true);
+        HideRename(immediate: true);
+
+        SettingsOverlay.Visibility = Visibility.Visible;
+        SettingsOverlay.To(OpacityProperty, 1, 160, Motion.Out);
+        Panel.To(HeightProperty, SettingsHeight, 260, Motion.OutStrong);
+        _staggerNext = false;
+
+        RefreshSettings();
+        Keyboard.Focus(HotkeyBox);
+    }
+
+    private void HideSettings(bool immediate = false)
+    {
+        if (!_settingsOpen) return;
+        _settingsOpen = false;
+        _capturingHotkey = false;
+        HotkeyHint.Text = HotkeyHintDefault;
+        Query.IsEnabled = true;
+
+        if (immediate)
+        {
+            SettingsOverlay.Set(OpacityProperty, 0);
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+            Panel.Set(HeightProperty, TargetPanelHeight());
+        }
+        else
+        {
+            SettingsOverlay.To(OpacityProperty, 0, 130, Motion.In, completed: () =>
+            {
+                if (!_settingsOpen) SettingsOverlay.Visibility = Visibility.Collapsed;
+            });
+            Panel.To(HeightProperty, TargetPanelHeight(), 240, Motion.Out);
+        }
+
+        if (IsOpen)
+        {
+            Query.Focus();
+            Keyboard.Focus(Query);
+            if (_pendingNotice is { } notice)
+            {
+                _pendingNotice = null;
+                ShowMessage(notice);
+            }
+        }
+    }
+
+    private void RefreshSettings()
+    {
+        var s = App.Current.Settings;
+
+        ThemeSystem.IsChecked = s.Theme == AppTheme.System;
+        ThemeLight.IsChecked = s.Theme == AppTheme.Light;
+        ThemeDark.IsChecked = s.Theme == AppTheme.Dark;
+
+        ColumnsValue.Text = s.Columns.ToString();
+        RowsValue.Text = s.MaxRows.ToString();
+        ColumnsMinus.IsEnabled = s.Columns > 3;
+        ColumnsPlus.IsEnabled = s.Columns < 5;
+        RowsMinus.IsEnabled = s.MaxRows > 2;
+        RowsPlus.IsEnabled = s.MaxRows < 5;
+
+        PeekValue.Text = $"{s.PeekDelayMs / 1000.0:0.0} 秒";
+        PeekMinus.IsEnabled = s.PeekDelayMs > 600;
+        PeekPlus.IsEnabled = s.PeekDelayMs < 8000;
+
+        HotkeyText.Text = s.Hotkey;
+        AutostartSwitch.IsChecked = StartupService.IsEnabled;
+        if (!_capturingHotkey) HotkeyHint.Text = HotkeyHintDefault;
+
+        var version = typeof(App).Assembly.GetName().Version;
+        VersionText.Text = version is null ? "Jump" : $"Jump v{version.ToString(3)}";
+    }
+
+    private void OnThemeSystem(object sender, RoutedEventArgs e) => ApplyThemeFromSettings(AppTheme.System);
+    private void OnThemeLight(object sender, RoutedEventArgs e) => ApplyThemeFromSettings(AppTheme.Light);
+    private void OnThemeDark(object sender, RoutedEventArgs e) => ApplyThemeFromSettings(AppTheme.Dark);
+
+    private void ApplyThemeFromSettings(AppTheme mode)
+    {
+        App.Current.SetTheme(mode);
+        RefreshSettings();
+    }
+
+    private void OnColumnsMinus(object sender, RoutedEventArgs e) => ChangeColumns(-1);
+    private void OnColumnsPlus(object sender, RoutedEventArgs e) => ChangeColumns(1);
+    private void OnRowsMinus(object sender, RoutedEventArgs e) => ChangeRows(-1);
+    private void OnRowsPlus(object sender, RoutedEventArgs e) => ChangeRows(1);
+    private void OnPeekMinus(object sender, RoutedEventArgs e) => ChangePeek(-400);
+    private void OnPeekPlus(object sender, RoutedEventArgs e) => ChangePeek(400);
+
+    private void ChangeColumns(int delta)
+    {
+        App.Current.SetColumns(App.Current.Settings.Columns + delta);
+        RefreshSettings();
+    }
+
+    private void ChangeRows(int delta)
+    {
+        App.Current.SetMaxRows(App.Current.Settings.MaxRows + delta);
+        RefreshSettings();
+    }
+
+    private void ChangePeek(int delta)
+    {
+        App.Current.SetPeekDelay(App.Current.Settings.PeekDelayMs + delta);
+        RefreshSettings();
+    }
+
+    private void OnAutostartClick(object sender, RoutedEventArgs e)
+    {
+        var want = AutostartSwitch.IsChecked == true;
+        var error = App.Current.SetAutostart(want);
+        if (error is not null)
+        {
+            AutostartSwitch.IsChecked = !want;
+            ShowMessage($"无法修改开机启动：{error}");
+        }
+        RefreshSettings();
+    }
+
+    private void OnSettingsDone(object sender, RoutedEventArgs e) => HideSettings();
+    private void OnOpenDataFolder(object sender, RoutedEventArgs e) => App.Current.OpenDataFolder();
+
+    private void OnHotkeyBoxClick(object sender, MouseButtonEventArgs e)
+    {
+        _capturingHotkey = true;
+        HotkeyText.Text = "按下组合键…";
+        HotkeyHint.Text = "Esc 取消 · 至少需要一个修饰键";
+        Keyboard.Focus(HotkeyBox);
+        e.Handled = true;
+    }
+
+    private void HandleHotkeyCapture(KeyEventArgs e)
+    {
+        e.Handled = true;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        // Modifier-only presses are not a complete shortcut.
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.Tab)
+            return;
+
+        if (key == Key.Escape)
+        {
+            EndHotkeyCapture();
+            HotkeyHint.Text = "已取消";
+            return;
+        }
+
+        var mods = Keyboard.Modifiers;
+        if (mods == ModifierKeys.None)
+        {
+            HotkeyHint.Text = "至少需要 Ctrl / Alt / Shift / Win 中的一个";
+            return;
+        }
+
+        var text = FormatHotkey(mods, key);
+        if (App.Current.TrySetHotkey(text, out var error))
+        {
+            EndHotkeyCapture();
+            HotkeyHint.Text = $"已更新为 {text}";
+        }
+        else
+        {
+            HotkeyHint.Text = error ?? "无法注册该快捷键";
+        }
+    }
+
+    private void EndHotkeyCapture()
+    {
+        _capturingHotkey = false;
+        RefreshSettings();
+        Keyboard.Focus(HotkeyBox);
+    }
+
+    private void CancelHotkeyCapture()
+    {
+        if (!_capturingHotkey) return;
+        _capturingHotkey = false;
+        HotkeyHint.Text = HotkeyHintDefault;
+        HotkeyText.Text = App.Current.Settings.Hotkey;
+        Query.IsEnabled = false;
+    }
+
+    private static bool IsInside(DependencyObject node, DependencyObject ancestor)
+    {
+        for (var d = node; d is not null; d = VisualTreeHelper.GetParent(d))
+            if (ReferenceEquals(d, ancestor)) return true;
+        return false;
+    }
+
+    private static string FormatHotkey(ModifierKeys mods, Key key)
+    {
+        var parts = new List<string>(5);
+        if (mods.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (mods.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (mods.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (mods.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        parts.Add(KeyName(key));
+        return string.Join("+", parts);
+    }
+
+    private static string KeyName(Key key)
+    {
+        // KeyConverter round-trips through HotkeyService.TryParse for letters, digits,
+        // arrows, OEM punctuation and numpad keys alike.
+        var text = new KeyConverter().ConvertToInvariantString(key);
+        return string.IsNullOrWhiteSpace(text) ? key.ToString() : text;
+    }
+
+    /// <summary>Shows a notice immediately when open, or on the next open otherwise.</summary>
+    public void ShowNotice(string text)
+    {
+        if (IsOpen && !_settingsOpen) ShowMessage(text);
+        else _pendingNotice = text;
+    }
+
     // ───────────────────────── Adding ─────────────────────────
 
     private void ShowAddMenu(FrameworkElement? anchor)
@@ -731,12 +1055,16 @@ public partial class LauncherWindow : Window
 
     // ───────────────────────── Store apps ─────────────────────────
 
-    private void ShowStoreAppPicker()
+    private async void ShowStoreAppPicker()
     {
         _modalDepth++;
         try
         {
-            var apps = StoreAppsService.Enumerate();
+            ShowMessage("正在读取已安装的商店应用…");
+            var apps = await Task.Run(StoreAppsService.Enumerate);
+            if (!IsOpen) return;
+            HideMessage(immediate: true);
+
             if (apps.Count == 0)
             {
                 ShowMessage("没有找到已安装的商店应用");
@@ -749,7 +1077,8 @@ public partial class LauncherWindow : Window
                 {
                     Kind = ShortcutKind.AppX,
                     Target = chosen.AppUserModelId,
-                    Name = chosen.Name
+                    Name = chosen.Name,
+                    Folder = _currentFolder
                 };
                 var added = _library.Add(new[] { item });
                 if (added.Count > 0)
@@ -845,6 +1174,11 @@ public partial class LauncherWindow : Window
 
     private int Commit(List<ShortcutItem> items)
     {
+        // Adding while inside a group puts the new entries into that group, not on the top level.
+        if (_currentFolder is not null)
+            foreach (var item in items)
+                if (item.Folder is null) item.Folder = _currentFolder;
+
         var added = _library.Add(items);
         _ = IconService.LoadAsync(added);
         if (added.Count == 0) ShowMessage("这些已经在 Jump 里了");
@@ -934,6 +1268,7 @@ public partial class LauncherWindow : Window
     {
         if (!_editMode) return;
         _editMode = false;
+        _dragArmed = false;
         HideMessage(immediate: true);
         Rebuild();
     }

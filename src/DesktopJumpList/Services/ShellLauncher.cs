@@ -80,7 +80,6 @@ public static class ShellLauncher
             var name = ext is ".lnk" or ".exe" or ".appref-ms" or ".url"
                 ? Path.GetFileNameWithoutExtension(input)
                 : Path.GetFileName(input);
-            if (ext == ".url") kind = ShortcutKind.Url;
             return new ShortcutItem { Kind = kind, Target = input, Name = name };
         }
         return null;

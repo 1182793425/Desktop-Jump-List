@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:DesktopJumpList.Views"
         xmlns:m="clr-namespace:DesktopJumpList.Models"
         xmlns:inf="clr-namespace:DesktopJumpList.Infrastructure"
-        Title="Jump" Width="604" Height="536"
+        Title="Jump" Width="660" Height="680"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         WindowStartupLocation="Manual"
@@ -22,7 +22,11 @@
 
         <!-- ===== Shortcut tile ===== -->
         <DataTemplate DataType="{x:Type m:ShortcutItem}">
-            <Grid Width="100" Height="96" Background="Transparent">
+            <Grid Width="100" Height="96" Background="Transparent"
+                  ToolTip="{Binding TooltipText}" ToolTipService.InitialShowDelay="450"
+                  ToolTipService.ShowDuration="15000"
+                  AutomationProperties.Name="{Binding Name}"
+                  AutomationProperties.HelpText="{Binding TooltipText}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Grid Width="40" Height="40" HorizontalAlignment="Center">
                         <Image Source="{Binding Icon}" Width="40" Height="40" Stretch="Uniform"
@@ -40,7 +44,7 @@
                                Foreground="{DynamicResource InkBrush}" />
                 </StackPanel>
                 <!-- Pinned marker -->
-                <Ellipse Width="5" Height="5" Fill="{DynamicResource AccentBrush}" Margin="0,10,12,0"
+                <Ellipse Width="5" Height="5" Fill="{DynamicResource AccentBrush}" Margin="0,10,24,0"
                          HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False">
                     <Ellipse.Style>
                         <Style TargetType="Ellipse">
@@ -53,12 +57,30 @@
                         </Style>
                     </Ellipse.Style>
                 </Ellipse>
+                <!-- Missing-target warning: the target was moved or deleted -->
+                <Border Width="14" Height="14" CornerRadius="7" Background="{DynamicResource DangerBrush}"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="18,12,0,0" IsHitTestVisible="False">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="!" Foreground="#2A1B00" FontSize="9" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
             </Grid>
         </DataTemplate>
 
         <!-- ===== Folder tile (iOS-style grouped shortcuts) ===== -->
         <DataTemplate DataType="{x:Type local:FolderTile}">
-            <Grid Width="100" Height="96" Background="Transparent">
+            <Grid Width="100" Height="96" Background="Transparent"
+                  ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="450"
+                  AutomationProperties.Name="{Binding Name}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Border Width="40" Height="40" CornerRadius="12" Background="{DynamicResource HoverBrush}"
                             BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
@@ -91,7 +113,8 @@
 
         <!-- ===== Back-to-all tile (inside a folder) ===== -->
         <DataTemplate DataType="{x:Type local:BackTile}">
-            <Grid Width="100" Height="96" Background="Transparent">
+            <Grid Width="100" Height="96" Background="Transparent" ToolTip="返回全部快捷项"
+                  AutomationProperties.Name="返回全部">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Grid Width="40" Height="40">
                         <Ellipse Fill="{DynamicResource HoverBrush}" />
@@ -107,7 +130,8 @@
 
         <!-- ===== "+" tile ===== -->
         <DataTemplate DataType="{x:Type local:AddTile}">
-            <Grid Width="100" Height="96" Background="Transparent">
+            <Grid Width="100" Height="96" Background="Transparent" ToolTip="添加文件、文件夹、商店应用或网址"
+                  AutomationProperties.Name="添加">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Grid Width="40" Height="40">
                         <Ellipse Stroke="{DynamicResource InkFaintBrush}" StrokeThickness="1.4" StrokeDashArray="3 2.4" />
@@ -125,6 +149,7 @@
         <Style x:Key="TileContainer" TargetType="ListBoxItem">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="Focusable" Value="False" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
             <EventSetter Event="Loaded" Handler="OnTileLoaded" />
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
             <Setter Property="Template">
@@ -185,7 +210,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="8,3">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -202,7 +227,7 @@
     <!-- Fixed-size transparent canvas; the stack is vertically centred, so when the panel
          height animates the whole thing stays centred on screen, frame by frame. -->
     <Grid x:Name="Canvas" Margin="36">
-        <StackPanel x:Name="Stack" VerticalAlignment="Center" HorizontalAlignment="Center"
+        <StackPanel x:Name="Stack" VerticalAlignment="Top" HorizontalAlignment="Center"
                     RenderTransformOrigin="0.5,0.5">
             <StackPanel.RenderTransform>
                 <TransformGroup>
@@ -213,6 +238,7 @@
 
             <!-- ===== Pill: search query or a transient message. Invisible when idle. ===== -->
             <Border x:Name="Pill" Height="40" Width="340" Margin="0,0,0,10" CornerRadius="20" Opacity="0"
+                    IsHitTestVisible="False"
                     Background="{DynamicResource PillBrush}"
                     BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1"
                     RenderTransformOrigin="0.5,1">
@@ -307,7 +333,7 @@
                                            Text="把常用的文件、文件夹、应用拖到这里" />
                                 <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="12"
                                            Foreground="{DynamicResource InkSubBrush}"
-                                           Text="也可以点击这里选择，或按 Ctrl+V 粘贴路径、网址" />
+                                           Text="点击这里或拖入文件；也可以按 Ctrl+V 粘贴路径、网址" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -342,6 +368,140 @@
                             <TextBlock Text="Enter 保存 · Esc 取消" FontSize="11.5" Foreground="{DynamicResource InkFaintBrush}"
                                        Margin="2,8,0,0" />
                         </StackPanel>
+                    </Border>
+
+                    <!-- Settings overlay: lives inside the panel, so the app never needs a taskbar window. -->
+                    <Border x:Name="SettingsOverlay" CornerRadius="21" Opacity="0" Visibility="Collapsed"
+                            Background="{DynamicResource PanelOpaqueBrush}"
+                            BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
+                        <Grid Margin="24,18,24,16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Header -->
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="设置" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <Button x:Name="SettingsDone" Content="完成" Style="{StaticResource LinkButton}"
+                                        HorizontalAlignment="Right" FontWeight="SemiBold" Click="OnSettingsDone" />
+                            </Grid>
+
+                            <!-- Appearance -->
+                            <Grid Grid.Row="1" Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="外观" Style="{StaticResource SettingsLabel}" />
+                                <Border Grid.Column="1" HorizontalAlignment="Left" CornerRadius="10" Padding="3"
+                                        Background="{DynamicResource CardBrush}"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ToggleButton x:Name="ThemeSystem" Style="{StaticResource SegmentButton}"
+                                                      Content="跟随系统" Click="OnThemeSystem" />
+                                        <ToggleButton x:Name="ThemeLight" Style="{StaticResource SegmentButton}"
+                                                      Content="浅色" Margin="2,0" Click="OnThemeLight" />
+                                        <ToggleButton x:Name="ThemeDark" Style="{StaticResource SegmentButton}"
+                                                      Content="深色" Click="OnThemeDark" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <!-- Layout -->
+                            <Grid Grid.Row="2" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="布局" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="每行" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
+                                    <Button x:Name="ColumnsMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnColumnsMinus" />
+                                    <TextBlock x:Name="ColumnsValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="ColumnsPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnColumnsPlus" />
+                                    <TextBlock Text="最大行数" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                               Margin="22,0,0,0" />
+                                    <Button x:Name="RowsMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnRowsMinus" />
+                                    <TextBlock x:Name="RowsValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="RowsPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnRowsPlus" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Auto tuck delay -->
+                            <Grid Grid.Row="3" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="自动收起" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="PeekMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Click="OnPeekMinus" />
+                                    <TextBlock x:Name="PeekValue" Width="56" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="PeekPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnPeekPlus" />
+                                    <TextBlock Text="后自动缩进屏幕边缘" Style="{StaticResource SettingsLabel}" FontSize="11"
+                                               Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Hotkey -->
+                            <Grid Grid.Row="4" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="快捷键" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1">
+                                    <Border x:Name="HotkeyBox" Width="190" Height="32" HorizontalAlignment="Left"
+                                            CornerRadius="8" Background="{DynamicResource SegmentBrush}"
+                                            BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                                            Cursor="Hand" Focusable="True" FocusVisualStyle="{x:Null}"
+                                            MouseLeftButtonUp="OnHotkeyBoxClick">
+                                        <TextBlock x:Name="HotkeyText" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                   FontSize="12.5" Foreground="{DynamicResource InkBrush}" />
+                                    </Border>
+                                    <TextBlock x:Name="HotkeyHint" Margin="2,6,0,0" FontSize="11"
+                                               Foreground="{DynamicResource InkFaintBrush}"
+                                               Text="点击后按下新的组合键，Esc 取消" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Autostart -->
+                            <Grid Grid.Row="5" Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="开机启动" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="AutostartSwitch" Style="{StaticResource Switch}" Click="OnAutostartClick" />
+                                    <TextBlock Text="登录 Windows 后在系统托盘启动" Style="{StaticResource SettingsLabel}"
+                                               FontSize="11" Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Grid.Row="7">
+                                <Button x:Name="DataFolderButton" Content="打开数据目录" Style="{StaticResource LinkButton}"
+                                        HorizontalAlignment="Left" Padding="0,3" Click="OnOpenDataFolder" />
+                                <TextBlock x:Name="VersionText" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                           FontSize="11" Foreground="{DynamicResource InkFaintBrush}" />
+                            </Grid>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>

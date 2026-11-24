@@ -44,10 +44,10 @@ public sealed class AppSettings
     [JsonPropertyName("themeMode")]
     public AppTheme Theme { get; set; } = AppTheme.System;
 
-    /// <summary>Tiles per row. Clamped to 3..8.</summary>
+    /// <summary>Tiles per row. Clamped to 3..5 so a 100 px tile never overflows the 530 px panel.</summary>
     public int Columns { get; set; } = 5;
 
-    /// <summary>Maximum visible rows before the panel scrolls. Clamped to 2..8.</summary>
+    /// <summary>Maximum visible rows before the panel scrolls. Clamped to 2..5 to fit the panel.</summary>
     public int MaxRows { get; set; } = 4;
 
     /// <summary>How close (px) a dropped ball must be to a screen edge to snap to it.</summary>

@@ -13,6 +13,8 @@ namespace DesktopJumpList.Services;
 /// HICON straight out of the shell's system image list (the same cache Explorer renders from),
 /// so the tile icon is pixel-identical to the one next to the file in Explorer.
 /// Extraction runs on an STA worker thread; results are frozen and cached by path.
+/// Store-app logos come from the package manifest, and targets that no longer exist are
+/// flagged so the tile can show a warning instead of pretending everything is fine.
 /// </summary>
 public static class IconService
 {
@@ -25,22 +27,52 @@ public static class IconService
 
     public static Task LoadAsync(IEnumerable<ShortcutItem> items)
     {
-        var pending = items.Where(i => i.Icon is null && i.Kind != ShortcutKind.Url).ToList();
-        if (pending.Count == 0) return Task.CompletedTask;
+        var all = items.ToList();
+        var pending = all.Where(i => i.Icon is null && i.Kind != ShortcutKind.Url).ToList();
+        if (pending.Count == 0 && all.All(i => !i.NeedsAvailabilityProbe)) return Task.CompletedTask;
 
         var dispatcher = Application.Current.Dispatcher;
         var tcs = new TaskCompletionSource();
         var thread = new Thread(() =>
         {
-            foreach (var item in pending)
+            try
             {
-                var icon = Get(item.Target);
-                if (icon is not null)
+                foreach (var item in all)
                 {
-                    dispatcher.BeginInvoke(() => item.Icon = icon);
+                    if (!item.NeedsAvailabilityProbe) continue;
+                    var missing = !File.Exists(item.Target) && !Directory.Exists(item.Target);
+                    var target = item;
+                    dispatcher.BeginInvoke(() => target.IsUnavailable = missing);
+                }
+
+                // Store apps: one package enumeration for all tiles that still need a logo.
+                var appx = pending.Where(i => i.Kind == ShortcutKind.AppX).ToList();
+                if (appx.Count > 0)
+                {
+                    var logos = StoreAppsService.GetLogos(appx.Select(i => i.Target), 64);
+                    dispatcher.BeginInvoke(() =>
+                    {
+                        foreach (var app in appx)
+                            if (logos.TryGetValue(app.Target, out var logo)) app.Icon = logo;
+                    });
+                }
+
+                foreach (var item in pending.Where(i => i.Kind != ShortcutKind.AppX))
+                {
+                    var icon = Get(item.Target);
+                    if (icon is null) continue;
+                    var target = item;
+                    dispatcher.BeginInvoke(() => target.Icon = icon);
                 }
             }
-            tcs.TrySetResult();
+            catch
+            {
+                // A missing icon must never take the app down.
+            }
+            finally
+            {
+                tcs.TrySetResult();
+            }
         })
         { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA);

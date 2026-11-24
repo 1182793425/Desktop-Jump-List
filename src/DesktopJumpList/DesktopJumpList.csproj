@@ -5,6 +5,10 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- app.manifest keeps per-monitor v2 DPI for the WPF windows; WFAC010 is a WinForms-only hint. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -12,7 +16,7 @@
     <RootNamespace>DesktopJumpList</RootNamespace>
     <AssemblyTitle>Jump</AssemblyTitle>
     <Product>Jump · Desktop Jump List</Product>
-    <Version>3.2.0</Version>
+    <Version>3.3.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -21,6 +25,14 @@
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <!-- UseWindowsForms adds System.Drawing / System.Windows.Forms to implicit usings, which
+       collide with WPF's Color/Brush/Point/Application types in every file. Keep the
+       WinForms types available through explicit usings in the tray icon only. -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
   </ItemGroup>
 
 </Project>

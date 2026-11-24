@@ -19,13 +19,14 @@ public sealed class ShortcutItem : ObservableObject
     private int _openCount;
     private DateTimeOffset? _lastOpenedAt;
     private ImageSource? _icon;
+    private bool _isUnavailable;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
     public string Name
     {
         get => _name;
-        set => Set(ref _name, value);
+        set { if (Set(ref _name, value)) Raise(nameof(TooltipText)); }
     }
 
     /// <summary>Absolute path for file/folder/app, an absolute URI for <see cref="ShortcutKind.Url"/>,
@@ -33,7 +34,7 @@ public sealed class ShortcutItem : ObservableObject
     public string Target
     {
         get => _target;
-        set { if (Set(ref _target, value)) { Raise(nameof(DisplayTarget)); } }
+        set { if (Set(ref _target, value)) { Raise(nameof(DisplayTarget)); Raise(nameof(TooltipText)); } }
     }
 
     public string? Arguments
@@ -52,14 +53,14 @@ public sealed class ShortcutItem : ObservableObject
     public ShortcutKind Kind
     {
         get => _kind;
-        set { if (Set(ref _kind, value)) Raise(nameof(KindLabel)); }
+        set { if (Set(ref _kind, value)) { Raise(nameof(KindLabel)); Raise(nameof(TooltipText)); } }
     }
 
     /// <summary>Pinned entries always sort before ranked ones, protecting muscle memory.</summary>
     public bool Pinned
     {
         get => _pinned;
-        set => Set(ref _pinned, value);
+        set { if (Set(ref _pinned, value)) Raise(nameof(TooltipText)); }
     }
 
     public int OpenCount
@@ -81,6 +82,18 @@ public sealed class ShortcutItem : ObservableObject
         get => _icon;
         set => Set(ref _icon, value);
     }
+
+    /// <summary>True when the target path has disappeared (moved, deleted, offline drive).</summary>
+    [JsonIgnore]
+    public bool IsUnavailable
+    {
+        get => _isUnavailable;
+        set { if (Set(ref _isUnavailable, value)) Raise(nameof(TooltipText)); }
+    }
+
+    /// <summary>Only file-system targets can be verified; URLs and AUMIDs cannot be probed cheaply.</summary>
+    [JsonIgnore]
+    public bool NeedsAvailabilityProbe => Kind is ShortcutKind.File or ShortcutKind.Folder or ShortcutKind.App;
 
     [JsonIgnore]
     public string KindLabel => Kind switch
@@ -109,6 +122,21 @@ public sealed class ShortcutItem : ObservableObject
                 return string.Empty;
             }
             return Target;
+        }
+    }
+
+    /// <summary>Hover text: name, where it points, what it is, and a warning if it went missing.</summary>
+    [JsonIgnore]
+    public string TooltipText
+    {
+        get
+        {
+            var text = Name;
+            if (!string.IsNullOrWhiteSpace(DisplayTarget)) text += "\n" + DisplayTarget;
+            text += "\n" + KindLabel;
+            if (Pinned) text += " · 已固定在最前";
+            if (IsUnavailable) text += "\n⚠ 目标不存在，可能已被移动或删除";
+            return text;
         }
     }
 
