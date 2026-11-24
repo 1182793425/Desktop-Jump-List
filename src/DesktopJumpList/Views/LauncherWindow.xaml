@@ -280,7 +280,6 @@
                  columns*(tile+gap)-gap and the grid can never overlap. -->
             <Setter Property="Margin" Value="{DynamicResource TileMarginValue}" />
             <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-            <EventSetter Event="Loaded" Handler="OnTileLoaded" />
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
             <Setter Property="Template">
                 <Setter.Value>

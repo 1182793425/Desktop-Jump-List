@@ -370,24 +370,27 @@ public partial class LauncherWindow : Window
 
         _insertMarker = null;
         _markerIndex = -1;
-        _tiles.Clear();
-        _recentTiles.Clear();
         _recentItems = new List<ShortcutItem>();
+
+        // Build the target list first, then merge it into the bound collection item by item.
+        // Clearing and refilling re-creates every container, which made the whole grid flash
+        // whenever a folder was opened or a character was typed.
+        var next = new List<object>();
 
         if (q.Length == 0 && _recentView)
         {
             // The "more" view: back tile + every retained recently-used entry.
             _recentItems = RecentItems();
-            _tiles.Add(new BackTile("全部"));
-            foreach (var item in _recentItems) _tiles.Add(item);
+            next.Add(new BackTile("全部"));
+            foreach (var item in _recentItems) next.Add(item);
         }
         else if (q.Length == 0 && _currentFolder is not null)
         {
             // Inside a folder: the folder's contents take over the main grid, so the only thing
             // that changes on screen is the grid itself — the recently-used row above stays put.
-            _tiles.Add(new BackTile(_currentFolder));
-            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _tiles.Add(i);
-            _tiles.Add(AddTile.Instance);
+            next.Add(new BackTile(_currentFolder));
+            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) next.Add(i);
+            next.Add(AddTile.Instance);
         }
         else
         {
@@ -397,31 +400,34 @@ public partial class LauncherWindow : Window
             {
                 if (item.Folder is null)
                 {
-                    _tiles.Add(item);
+                    next.Add(item);
                     continue;
                 }
                 if (q.Length == 0 && seen.Add(item.Folder))
                 {
                     var members = items.Where(x => SameFolder(x.Folder, item.Folder)).ToList();
-                    _tiles.Add(new FolderTile(item.Folder, members));
+                    next.Add(new FolderTile(item.Folder, members));
                 }
                 else if (q.Length > 0)
                 {
-                    _tiles.Add(item); // search: show the item itself, not the folder
+                    next.Add(item); // search: show the item itself, not the folder
                 }
             }
-            if (q.Length == 0 && _ordered.Count > 0) _tiles.Add(AddTile.Instance);
+            if (q.Length == 0 && _ordered.Count > 0) next.Add(AddTile.Instance);
 
             // Typing also offers the web: one row per enabled engine, after the local matches.
             if (q.Length > 0)
             {
                 foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchEngines))
-                    _tiles.Add(new SearchResultTile(engine, q));
+                    next.Add(new SearchResultTile(engine, q));
             }
         }
 
+        Sync(_tiles, next);
+
         // One-row recently-used header above the divider. It keeps showing inside a folder, so
         // opening one only ever swaps the grid below it.
+        var nextRecent = new List<object>();
         if (q.Length == 0 && !_recentView)
         {
             _recentItems = RecentItems();
@@ -430,10 +436,11 @@ public partial class LauncherWindow : Window
                 var shown = _recentItems.Count > Cols
                     ? _recentItems.Take(Cols - 1).ToList()
                     : _recentItems;
-                foreach (var item in shown) _recentTiles.Add(item);
-                if (_recentItems.Count > Cols) _recentTiles.Add(MoreRecentTile.Instance);
+                foreach (var item in shown) nextRecent.Add(item);
+                if (_recentItems.Count > Cols) nextRecent.Add(MoreRecentTile.Instance);
             }
         }
+        Sync(_recentTiles, nextRecent);
 
         var recentVisible = _recentTiles.Count > 0;
         RecentSection.Visibility = recentVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -450,8 +457,36 @@ public partial class LauncherWindow : Window
         NoMatch.Text = noMatch ? $"没有找到 “{q}”" : string.Empty;
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
 
-        if (q.Length > 0) Tiles.SelectedIndex = _tiles.Count > 0 ? 0 : -1;
+        if (q.Length > 0) Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
         else Tiles.SelectedIndex = -1;
+    }
+
+    /// <summary>
+    /// Turns <paramref name="target"/> into <paramref name="items"/> with the fewest possible
+    /// collection operations, so containers that survive keep their visuals (and nothing outside
+    /// the changed cells is re-rendered). Two phases: drop what is gone, then order what is left.
+    /// </summary>
+    private static void Sync(ObservableCollection<object> target, List<object> items)
+    {
+        var keep = new HashSet<object>(items, ReferenceEqualityComparer.Instance);
+        for (var i = target.Count - 1; i >= 0; i--)
+            if (!keep.Contains(target[i])) target.RemoveAt(i);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (i < target.Count && ReferenceEquals(target[i], items[i])) continue;
+
+            var found = -1;
+            for (var j = i; j < target.Count; j++)
+            {
+                if (!ReferenceEquals(target[j], items[i])) continue;
+                found = j;
+                break;
+            }
+
+            if (found >= 0) target.Move(found, i);
+            else target.Insert(i, items[i]);
+        }
     }
 
     private List<ShortcutItem> RecentItems()
@@ -508,6 +543,18 @@ public partial class LauncherWindow : Window
         if (Math.Abs(Height - height) > 0.5) Height = height;
     }
 
+    /// <summary>
+    /// Grows the host window when the panel needs more room, but never shrinks it while the panel
+    /// is open: changing the window size makes the compositor rebuild the layered surface, which
+    /// reads as a flash every time a folder is opened.
+    /// </summary>
+    private void EnsureWindowFits()
+    {
+        var need = Math.Round(TargetPanelHeight() + PillRowHeight + CanvasMargin * 2 + (_editMode ? 44 : 0));
+        if (need <= Height + 0.5) return;
+        Height = need;
+    }
+
     private double TargetPanelHeight()
     {
         if (_settingsOpen) return SettingsHeight;
@@ -529,7 +576,8 @@ public partial class LauncherWindow : Window
     {
         var target = TargetPanelHeight();
         if (Math.Abs(Panel.ActualHeight - target) < 0.5) return;
-        Panel.To(HeightProperty, target, 220, Motion.Out);
+        EnsureWindowFits();
+        Panel.To(HeightProperty, target, 180, Motion.Out);
     }
 
     /// <summary>Rebuilds the tile grid for the configured columns/rows. Called when settings change.</summary>
@@ -573,14 +621,6 @@ public partial class LauncherWindow : Window
         return group;
     }
 
-    /// <summary>Newly created tiles fade in briefly; the panel itself carries the entrance.</summary>
-    private void OnTileLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ListBoxItem container) return;
-        if (container.DataContext is InsertMarker) return; // the drop gap must not blink
-        if (_draggingTile) { container.Opacity = 1; return; } // no flicker while tiles reflow
-        container.FromTo(OpacityProperty, 0, 1, 120, Motion.Out);
-    }
 
     /// <summary>While searching, the pointer drives the selection; in edit mode, a drag starts.</summary>
     private void OnTilesMouseMove(object sender, MouseEventArgs e)
@@ -678,8 +718,12 @@ public partial class LauncherWindow : Window
         _currentFolder = name;
         _recentView = false;
         Rebuild();
-        ResizeWindow();
-        AnimatePanelHeight();
+
+        // Swap in place: the panel takes its new height in this frame and the window is only
+        // grown if the folder needs more room than it currently has. No animation, no resize,
+        // so nothing outside the grid is repainted.
+        Panel.Set(HeightProperty, TargetPanelHeight());
+        EnsureWindowFits();
         Scroller.ScrollToTop();
     }
 
