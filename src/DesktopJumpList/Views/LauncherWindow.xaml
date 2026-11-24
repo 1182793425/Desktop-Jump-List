@@ -20,29 +20,57 @@
         <inf:NullToVisibilityConverter x:Key="NotNullVisible" />
         <inf:NullToVisibilityConverter x:Key="NullVisible" Invert="True" />
 
+        <!-- ===== Tile metrics, written by LauncherWindow.ApplyPanelMetrics ===== -->
+        <Style x:Key="TileIconBox" TargetType="Grid">
+            <Setter Property="Width" Value="{DynamicResource IconSizeValue}" />
+            <Setter Property="Height" Value="{DynamicResource IconSizeValue}" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+
+        <Style x:Key="TileLabel" TargetType="TextBlock">
+            <Setter Property="Margin" Value="{DynamicResource LabelMarginValue}" />
+            <Setter Property="FontSize" Value="{DynamicResource LabelFontSizeValue}" />
+            <Setter Property="LineHeight" Value="{DynamicResource LabelLineHeightValue}" />
+            <Setter Property="MaxHeight" Value="{DynamicResource LabelMaxHeightValue}" />
+            <Setter Property="Width" Value="88" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+        </Style>
+
         <!-- ===== Shortcut tile ===== -->
         <DataTemplate DataType="{x:Type m:ShortcutItem}">
-            <Grid Width="100" Height="96" Background="Transparent"
+            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="{Binding TooltipText}" ToolTipService.InitialShowDelay="450"
                   ToolTipService.ShowDuration="15000"
                   AutomationProperties.Name="{Binding Name}"
                   AutomationProperties.HelpText="{Binding TooltipText}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Grid Width="40" Height="40" HorizontalAlignment="Center">
-                        <Image Source="{Binding Icon}" Width="40" Height="40" Stretch="Uniform"
-                               RenderOptions.BitmapScalingMode="HighQuality"
-                               Visibility="{Binding Icon, Converter={StaticResource NotNullVisible}}" />
-                        <Border CornerRadius="11" Background="{Binding Name, Converter={StaticResource NameBrush}}"
-                                Visibility="{Binding Icon, Converter={StaticResource NullVisible}}">
-                            <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="White"
-                                       FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                    </Grid>
-                    <TextBlock Text="{Binding Name}" Margin="0,8,0,0" Width="88" TextAlignment="Center"
-                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16"
-                               LineStackingStrategy="BlockLineHeight" FontSize="12"
-                               Foreground="{DynamicResource InkBrush}" />
-                </StackPanel>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
+                    <Image Source="{Binding Icon}" Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
+                           Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding Icon, Converter={StaticResource NotNullVisible}}" />
+                    <Border CornerRadius="11" Background="{Binding Name, Converter={StaticResource NameBrush}}"
+                            Visibility="{Binding Icon, Converter={StaticResource NullVisible}}">
+                        <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="White"
+                                   FontSize="{DynamicResource LetterFontSizeValue}" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+
+                <!-- This label has its own grid row, so a two-line name never pushes the icon up. -->
+                <TextBlock Grid.Row="1" Text="{Binding Name}" Style="{StaticResource TileLabel}" />
+
                 <!-- Pinned marker -->
                 <Ellipse Width="5" Height="5" Fill="{DynamicResource AccentBrush}" Margin="0,10,24,0"
                          HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False">
@@ -78,13 +106,20 @@
 
         <!-- ===== Folder tile (iOS-style grouped shortcuts) ===== -->
         <DataTemplate DataType="{x:Type local:FolderTile}">
-            <Grid Width="100" Height="96" Background="Transparent"
+            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="450"
                   AutomationProperties.Name="{Binding Name}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Border Width="40" Height="40" CornerRadius="12" Background="{DynamicResource HoverBrush}"
-                            BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
-                        <ItemsControl ItemsSource="{Binding Preview}" Margin="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
+                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"
+                        CornerRadius="12" Background="{DynamicResource HoverBrush}"
+                        BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
+                    <Viewbox Margin="4">
+                        <ItemsControl ItemsSource="{Binding Preview}" Width="32" Height="32">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <UniformGrid Columns="2" />
@@ -102,46 +137,52 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Border>
-                    <TextBlock Text="{Binding Name}" Margin="0,8,0,0" Width="88" TextAlignment="Center"
-                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16"
-                               LineStackingStrategy="BlockLineHeight" FontSize="12"
-                               Foreground="{DynamicResource InkBrush}" />
-                </StackPanel>
+                    </Viewbox>
+                </Border>
+
+                <TextBlock Grid.Row="1" Text="{Binding Name}" Style="{StaticResource TileLabel}" />
             </Grid>
         </DataTemplate>
 
         <!-- ===== Back-to-all tile (inside a folder) ===== -->
         <DataTemplate DataType="{x:Type local:BackTile}">
-            <Grid Width="100" Height="96" Background="Transparent" ToolTip="返回全部快捷项"
+            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent" ToolTip="返回全部快捷项"
                   AutomationProperties.Name="返回全部">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Grid Width="40" Height="40">
-                        <Ellipse Fill="{DynamicResource HoverBrush}" />
-                        <Path Data="M13,4 L5,12 L13,20" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.9"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                              HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Grid>
-                    <TextBlock Text="全部" Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource InkSubBrush}" Height="32" />
-                </StackPanel>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
+                    <Ellipse Fill="{DynamicResource HoverBrush}" />
+                    <Path Data="M13,4 L5,12 L13,20" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.9"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Grid.Row="1" Text="全部" Style="{StaticResource TileLabel}"
+                           Foreground="{DynamicResource InkSubBrush}" />
             </Grid>
         </DataTemplate>
 
         <!-- ===== "+" tile ===== -->
         <DataTemplate DataType="{x:Type local:AddTile}">
-            <Grid Width="100" Height="96" Background="Transparent" ToolTip="添加文件、文件夹、商店应用或网址"
-                  AutomationProperties.Name="添加">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Grid Width="40" Height="40">
-                        <Ellipse Stroke="{DynamicResource InkFaintBrush}" StrokeThickness="1.4" StrokeDashArray="3 2.4" />
-                        <Path Data="M0,6 L12,6 M6,0 L6,12" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.6"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                              HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Grid>
-                    <TextBlock Text="添加" Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource InkSubBrush}" Height="32" />
-                </StackPanel>
+            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+                  ToolTip="添加文件、文件夹、商店应用或网址" AutomationProperties.Name="添加">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
+                    <Ellipse Stroke="{DynamicResource InkFaintBrush}" StrokeThickness="1.4" StrokeDashArray="3 2.4" />
+                    <Path Data="M0,6 L12,6 M6,0 L6,12" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.6"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Grid.Row="1" Text="添加" Style="{StaticResource TileLabel}"
+                           Foreground="{DynamicResource InkSubBrush}" />
             </Grid>
         </DataTemplate>
 
@@ -222,10 +263,35 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ColorDot" TargetType="RadioButton">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Width="26" Height="26">
+                            <Ellipse Width="20" Height="20" Fill="{TemplateBinding Background}"
+                                     Stroke="#2A000000" StrokeThickness="1" />
+                            <Ellipse x:Name="Ring" Width="26" Height="26"
+                                     Stroke="{DynamicResource InkBrush}" StrokeThickness="1.6" Visibility="Collapsed" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <!-- Fixed-size transparent canvas; the stack is vertically centred, so when the panel
-         height animates the whole thing stays centred on screen, frame by frame. -->
+    <!-- Fixed-size transparent canvas; the stack is top-anchored so the search pill and panel
+         top stay put while the result count (and panel height) changes. -->
     <Grid x:Name="Canvas" Margin="36">
         <StackPanel x:Name="Stack" VerticalAlignment="Top" HorizontalAlignment="Center"
                     RenderTransformOrigin="0.5,0.5">
@@ -382,6 +448,9 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
@@ -440,8 +509,89 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- Auto tuck delay -->
+                            <!-- Panel tile metrics -->
                             <Grid Grid.Row="3" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="面板" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="图标" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
+                                    <Button x:Name="IconMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnIconMinus" />
+                                    <TextBlock x:Name="IconValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="IconPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnIconPlus" />
+                                    <TextBlock Text="文字" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                               Margin="16,0,0,0" />
+                                    <Button x:Name="FontMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnFontMinus" />
+                                    <TextBlock x:Name="FontValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="FontPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnFontPlus" />
+                                    <TextBlock Text="间隔" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                               Margin="16,0,0,0" />
+                                    <Button x:Name="GapMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnGapMinus" />
+                                    <TextBlock x:Name="GapValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="GapPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnGapPlus" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Floating circle -->
+                            <Grid Grid.Row="4" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="悬浮球" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="DockVisibleSwitch" Style="{StaticResource Switch}" Click="OnDockVisibleClick" />
+                                    <TextBlock Text="显示" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                               Margin="8,0,0,0" />
+                                    <TextBlock Text="大小" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                               Margin="18,0,0,0" />
+                                    <Button x:Name="DockSizeMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Margin="8,0,0,0" Click="OnDockSizeMinus" />
+                                    <TextBlock x:Name="DockSizeValue" Width="52" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="DockSizePlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnDockSizePlus" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Floating circle colour -->
+                            <Grid Grid.Row="5" Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="圆点颜色" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="ColorWhite" Style="{StaticResource ColorDot}" Background="#FFFFFF"
+                                                 Tag="#FFFFFF" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorGraphite" Style="{StaticResource ColorDot}" Background="#2B2F36"
+                                                 Tag="#2B2F36" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorGray" Style="{StaticResource ColorDot}" Background="#D1D5DB"
+                                                 Tag="#D1D5DB" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorBlue" Style="{StaticResource ColorDot}" Background="#3B82F6"
+                                                 Tag="#3B82F6" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorGreen" Style="{StaticResource ColorDot}" Background="#22C55E"
+                                                 Tag="#22C55E" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorOrange" Style="{StaticResource ColorDot}" Background="#F59E0B"
+                                                 Tag="#F59E0B" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                    <RadioButton x:Name="ColorRose" Style="{StaticResource ColorDot}" Background="#F43F5E"
+                                                 Tag="#F43F5E" GroupName="DockColor" Checked="OnDockColorChecked" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Auto tuck delay -->
+                            <Grid Grid.Row="6" Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -454,13 +604,13 @@
                                                Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
                                     <Button x:Name="PeekPlus" Style="{StaticResource MiniButton}" Content="+"
                                             Click="OnPeekPlus" />
-                                    <TextBlock Text="后自动缩进屏幕边缘" Style="{StaticResource SettingsLabel}" FontSize="11"
+                                    <TextBlock Text="后缩成贴边细条" Style="{StaticResource SettingsLabel}" FontSize="11"
                                                Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0" />
                                 </StackPanel>
                             </Grid>
 
                             <!-- Hotkey -->
-                            <Grid Grid.Row="4" Margin="0,12,0,0">
+                            <Grid Grid.Row="7" Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -482,7 +632,7 @@
                             </Grid>
 
                             <!-- Autostart -->
-                            <Grid Grid.Row="5" Margin="0,14,0,0">
+                            <Grid Grid.Row="8" Margin="0,14,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -495,7 +645,7 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Grid Grid.Row="7">
+                            <Grid Grid.Row="10">
                                 <Button x:Name="DataFolderButton" Content="打开数据目录" Style="{StaticResource LinkButton}"
                                         HorizontalAlignment="Left" Padding="0,3" Click="OnOpenDataFolder" />
                                 <TextBlock x:Name="VersionText" HorizontalAlignment="Right" VerticalAlignment="Center"

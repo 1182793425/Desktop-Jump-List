@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using DesktopJumpList.Infrastructure;
 using DesktopJumpList.Models;
@@ -14,32 +15,34 @@ using Microsoft.Win32;
 namespace DesktopJumpList.Views;
 
 /// <summary>
-/// The floating white circle.
+/// The floating circle.
 ///
 /// States
 ///   Resting  – fully visible, insetted from whichever screen edge it is docked to.
-///   Tucked   – slid into the edge after <see cref="AppSettings.PeekDelayMs"/> of no attention;
-///              exactly half of the circle stays on the edge. Hovering slides it back out.
+///   Tucked   – after <see cref="AppSettings.PeekDelayMs"/> of no attention the circle morphs
+///              into a slim capsule and slides until it is flush with the screen edge, leaving a
+///              visible bar. Hovering slides it back out into a circle.
 ///   Dragging – follows the pointer freely; on release it snaps to the nearest edge only when
 ///              dropped close to it (within <see cref="AppSettings.SnapDistance"/>), otherwise it
 ///              stays wherever you left it (free placement).
 ///
-/// The window never moves for tucking: only the circle's TranslateTransform does, so the half
-/// circle can sit exactly on the screen edge. Multi-monitor: the work area is resolved from
-/// the monitor currently under the circle.
+/// Size, fill colour and visibility come from settings. The window never moves for tucking:
+/// the circle's transform and the shape's width/height animate instead.
 /// </summary>
 public partial class DockWindow : Window
 {
-    private const double WindowSize = 80;
-    private const double BallSize = 48;
-    private const double Inset = (WindowSize - BallSize) / 2; // 16
-    private const double TuckOffset = Inset + BallSize / 2; // 40 - leaves a half circle on the edge
+    private const double ShadowMargin = 16;
+    private const double BarWidth = 6;
     private const double DragThreshold = 4;
 
     private readonly AppSettings _settings;
     private readonly WindowMover _mover;
     private readonly DispatcherTimer _peekTimer;
     private readonly DispatcherTimer _fullscreenTimer;
+
+    private double _ballSize;
+    private double _windowSize;
+    private RectangleGeometry _ballGeometry = null!;
 
     private bool _tucked;
     private bool _pressed;
@@ -57,6 +60,9 @@ public partial class DockWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+        ApplyVisualSettings();
+        SetTuckInstant(false);
+
         _mover = new WindowMover(this);
 
         _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(600, settings.PeekDelayMs)) };
@@ -91,6 +97,8 @@ public partial class DockWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _hiddenForFullscreen = false;
+        Root.IsHitTestVisible = true;
         PlaceInitial(useCursor: true);
         if (PreviewMode)
         {
@@ -109,9 +117,105 @@ public partial class DockWindow : Window
         _fullscreenTimer.Start();
     }
 
+    // ───────────────────────── Appearance ─────────────────────────
+
+    private double BarLength => Math.Max(28, _ballSize * 0.82);
+    private double TuckOffset => (_windowSize - BarWidth) / 2;
+
+    private void ApplyVisualSettings()
+    {
+        _ballSize = Math.Clamp(_settings.DockSize, 32, 64);
+        _windowSize = _ballSize + ShadowMargin * 2;
+
+        Width = _windowSize;
+        Height = _windowSize;
+        Ball.Width = _ballSize;
+        Ball.Height = _ballSize;
+        BallShape.Width = _ballSize;
+        BallShape.Height = _ballSize;
+
+        var restRect = new Rect(0, 0, _ballSize, _ballSize);
+        _ballGeometry = new RectangleGeometry(
+            _tucked ? BarRect() : restRect,
+            _tucked ? BarWidth / 2 : _ballSize / 2,
+            _tucked ? BarWidth / 2 : _ballSize / 2);
+        BallShape.Data = _ballGeometry;
+
+        var color = ParseColor(_settings.DockColor);
+        BallShape.Fill = new SolidColorBrush(color);
+        BallShape.Stroke = new SolidColorBrush(ContrastBorder(color));
+    }
+
+    private Rect BarRect()
+    {
+        var (width, height) = BarSize(true);
+        return new Rect((_ballSize - width) / 2, (_ballSize - height) / 2, width, height);
+    }
+
+    private static Color ParseColor(string value)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(value); }
+        catch { return Colors.White; }
+    }
+
+    private static Color ContrastBorder(Color color)
+    {
+        var luminance = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255;
+        return luminance > 0.6 ? Color.FromArgb(0x30, 0, 0, 0) : Color.FromArgb(0x44, 255, 255, 255);
+    }
+
+    private (double width, double height) BarSize(bool tucked)
+    {
+        if (!tucked) return (_ballSize, _ballSize);
+        return _settings.Edge is DockEdge.Left or DockEdge.Right
+            ? (BarWidth, BarLength)
+            : (BarLength, BarWidth);
+    }
+
+    /// <summary>Re-applies settings changed from the launcher, tray menu or settings page.</summary>
+    public void ApplySettings()
+    {
+        var previousWindowSize = _windowSize;
+        _peekTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.PeekDelayMs, 600, 8000));
+        ApplyVisualSettings();
+
+        if (!_settings.ShowDock)
+        {
+            _tucked = false;
+            _holdOpen = false;
+            SetTuckInstant(false);
+            _peekTimer.Stop();
+            _fullscreenTimer.Stop();
+            Hide();
+            return;
+        }
+
+        if (!IsVisible)
+        {
+            _tucked = false;
+            SetTuckInstant(false);
+            Show();
+            PlaceInitial();
+            _fullscreenTimer.Start();
+            RestartPeekTimer();
+            return;
+        }
+
+        if (Math.Abs(previousWindowSize - _windowSize) > 0.01)
+            PlaceInitial();
+        else
+        {
+            ApplyEdgeLayout();
+            SetTuckInstant(_tucked);
+        }
+
+        if (!_fullscreenTimer.IsEnabled) _fullscreenTimer.Start();
+        RestartPeekTimer();
+    }
+
     // ───────────────────────── Screen geometry ─────────────────────────
 
-    private Rect CurrentArea => ScreenGeometry.WorkAreaAtPoint(Left + WindowSize / 2, Top + WindowSize / 2, this);
+    private Rect CurrentArea => ScreenGeometry.WorkAreaAtPoint(Left + _windowSize / 2, Top + _windowSize / 2, this);
 
     // ───────────────────────── Placement ─────────────────────────
 
@@ -123,8 +227,8 @@ public partial class DockWindow : Window
         if (_settings.Edge == DockEdge.None && _settings.FreeLeft >= 0 && _settings.FreeTop >= 0)
         {
             var area = ScreenGeometry.WorkAreaAtPoint(_settings.FreeLeft, _settings.FreeTop, this);
-            Left = Clamp(_settings.FreeLeft, area.Left, area.Right - WindowSize);
-            Top = Clamp(_settings.FreeTop, area.Top, area.Bottom - WindowSize);
+            Left = Clamp(_settings.FreeLeft, area.Left, area.Right - _windowSize);
+            Top = Clamp(_settings.FreeTop, area.Top, area.Bottom - _windowSize);
         }
         else
         {
@@ -142,37 +246,37 @@ public partial class DockWindow : Window
 
     private static double Clamp(double v, double lo, double hi) => hi < lo ? lo : Math.Clamp(v, lo, hi);
 
-    /// <summary>Tile position for a docked edge and a 0..1 ratio along that edge.</summary>
-    private static (double left, double top) EdgePosition(Rect area, DockEdge edge, double ratio)
+    /// <summary>Circle position for a docked edge and a 0..1 ratio along that edge.</summary>
+    private (double left, double top) EdgePosition(Rect area, DockEdge edge, double ratio)
     {
         var r = Math.Clamp(ratio, 0, 1);
-        var vr = area.Top + r * Math.Max(0, area.Height - WindowSize);
-        var hr = area.Left + r * Math.Max(0, area.Width - WindowSize);
+        var vr = area.Top + r * Math.Max(0, area.Height - _windowSize);
+        var hr = area.Left + r * Math.Max(0, area.Width - _windowSize);
         return edge switch
         {
             DockEdge.Left => (area.Left, vr),
-            DockEdge.Right => (area.Right - WindowSize, vr),
+            DockEdge.Right => (area.Right - _windowSize, vr),
             DockEdge.Top => (hr, area.Top),
-            DockEdge.Bottom => (hr, area.Bottom - WindowSize),
+            DockEdge.Bottom => (hr, area.Bottom - _windowSize),
             _ => (area.Left, area.Top)
         };
     }
 
-    private static double VerticalRatio(Rect area, double top)
+    private double VerticalRatio(Rect area, double top)
     {
-        var range = area.Height - WindowSize;
+        var range = area.Height - _windowSize;
         return range <= 0 ? 0.5 : Math.Clamp((top - area.Top) / range, 0, 1);
     }
 
-    private static double HorizontalRatio(Rect area, double left)
+    private double HorizontalRatio(Rect area, double left)
     {
-        var range = area.Width - WindowSize;
+        var range = area.Width - _windowSize;
         return range <= 0 ? 0.5 : Math.Clamp((left - area.Left) / range, 0, 1);
     }
 
     private void ApplyEdgeLayout()
     {
-        // The peek hit-strip sits on the edge the tile is docked to.
+        // The peek hit-strip sits on the edge the circle is docked to.
         switch (_settings.Edge)
         {
             case DockEdge.Left:
@@ -201,14 +305,6 @@ public partial class DockWindow : Window
         }
     }
 
-    /// <summary>Re-applies settings changed from the launcher or the tray menu.</summary>
-    public void ApplySettings()
-    {
-        _peekTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.PeekDelayMs, 600, 8000));
-        ApplyEdgeLayout();
-        RestartPeekTimer();
-    }
-
     // ───────────────────────── Tuck / peek ─────────────────────────
 
     private void SetTuckInstant(bool tucked)
@@ -216,7 +312,31 @@ public partial class DockWindow : Window
         var (x, y) = TuckVector();
         BallShift.Set(TranslateTransform.XProperty, tucked ? x : 0);
         BallShift.Set(TranslateTransform.YProperty, tucked ? y : 0);
-        Ball.Set(OpacityProperty, tucked ? 0.92 : 1);
+
+        var rect = tucked ? BarRect() : new Rect(0, 0, _ballSize, _ballSize);
+        SetGeometryInstant(rect, tucked ? BarWidth / 2 : _ballSize / 2);
+    }
+
+    private void SetGeometryInstant(Rect rect, double radius)
+    {
+        _ballGeometry.BeginAnimation(RectangleGeometry.RectProperty, null);
+        _ballGeometry.BeginAnimation(RectangleGeometry.RadiusXProperty, null);
+        _ballGeometry.BeginAnimation(RectangleGeometry.RadiusYProperty, null);
+        _ballGeometry.Rect = rect;
+        _ballGeometry.RadiusX = radius;
+        _ballGeometry.RadiusY = radius;
+    }
+
+    private void AnimateGeometry(Rect rect, double radius, double ms)
+    {
+        var rectAnimation = new RectAnimation(rect, TimeSpan.FromMilliseconds(ms))
+        {
+            EasingFunction = Motion.InOut,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        _ballGeometry.BeginAnimation(RectangleGeometry.RectProperty, rectAnimation, HandoffBehavior.SnapshotAndReplace);
+        _ballGeometry.To(RectangleGeometry.RadiusXProperty, radius, ms, Motion.InOut);
+        _ballGeometry.To(RectangleGeometry.RadiusYProperty, radius, ms, Motion.InOut);
     }
 
     private (double x, double y) TuckVector() => _settings.Edge switch
@@ -228,7 +348,7 @@ public partial class DockWindow : Window
         _ => (0, 0)
     };
 
-    /// <summary>Developer preview: freeze the tucked look for a screenshot.</summary>
+    /// <summary>Developer preview: freeze the tucked bar for a screenshot.</summary>
     public void PreviewSetTucked(bool tucked)
     {
         _tucked = tucked;
@@ -238,7 +358,7 @@ public partial class DockWindow : Window
     private void RestartPeekTimer()
     {
         _peekTimer.Stop();
-        if (PreviewMode) return;
+        if (PreviewMode || !_settings.ShowDock || !IsVisible) return;
         if (!_holdOpen && !_menuOpen && !_dragging && _settings.Edge != DockEdge.None)
             _peekTimer.Start();
     }
@@ -246,12 +366,14 @@ public partial class DockWindow : Window
     private void TryTuck()
     {
         if (_tucked || _holdOpen || _menuOpen || _dragging || _pressed || Root.IsMouseOver) return;
+        if (!_settings.ShowDock || !IsVisible) return;
         if (_settings.Edge == DockEdge.None) return;
         _tucked = true;
+
         var (x, y) = TuckVector();
-        BallShift.To(TranslateTransform.XProperty, x, 360, Motion.InOut);
-        BallShift.To(TranslateTransform.YProperty, y, 360, Motion.InOut);
-        Ball.To(OpacityProperty, 0.92, 260, Motion.InOut);
+        BallShift.To(TranslateTransform.XProperty, x, 340, Motion.InOut);
+        BallShift.To(TranslateTransform.YProperty, y, 340, Motion.InOut);
+        AnimateGeometry(BarRect(), BarWidth / 2, 340);
         ScaleBall(1, 200);
     }
 
@@ -259,14 +381,16 @@ public partial class DockWindow : Window
     {
         if (!_tucked) return;
         _tucked = false;
+
         BallShift.To(TranslateTransform.XProperty, 0, ms, Motion.OutStrong);
         BallShift.To(TranslateTransform.YProperty, 0, ms, Motion.OutStrong);
-        Ball.To(OpacityProperty, 1, ms * 0.8);
+        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, ms);
         ScaleBall(1, 160);
     }
 
     public void HoldOpen(bool hold)
     {
+        if (!_settings.ShowDock || !IsVisible) return;
         _holdOpen = hold;
         if (hold)
         {
@@ -366,7 +490,7 @@ public partial class DockWindow : Window
     }
 
     /// <summary>
-    /// On release, snap to the nearest edge only if the tile is within SnapDistance of it
+    /// On release, snap to the nearest edge only if the circle is within SnapDistance of it
     /// (a tight trigger). Otherwise keep the drop position.
     /// </summary>
     private void SnapOnRelease()
@@ -377,9 +501,9 @@ public partial class DockWindow : Window
         var candidates = new (DockEdge edge, double d)[]
         {
             (DockEdge.Left, Left - area.Left),
-            (DockEdge.Right, area.Right - (Left + WindowSize)),
+            (DockEdge.Right, area.Right - (Left + _windowSize)),
             (DockEdge.Top, Top - area.Top),
-            (DockEdge.Bottom, area.Bottom - (Top + WindowSize))
+            (DockEdge.Bottom, area.Bottom - (Top + _windowSize))
         };
 
         var within = candidates.Where(c => c.d <= dist).OrderBy(c => c.d).ToList();
@@ -387,8 +511,8 @@ public partial class DockWindow : Window
         {
             // Free placement: remember the absolute position and stay put.
             _settings.Edge = DockEdge.None;
-            _settings.FreeLeft = Clamp(Left, area.Left, area.Right - WindowSize);
-            _settings.FreeTop = Clamp(Top, area.Top, area.Bottom - WindowSize);
+            _settings.FreeLeft = Clamp(Left, area.Left, area.Right - _windowSize);
+            _settings.FreeTop = Clamp(Top, area.Top, area.Bottom - _windowSize);
             ApplyEdgeLayout();
             App.Current.SaveSettings();
             _mover.MoveTo(_settings.FreeLeft, _settings.FreeTop, 220, Done);
@@ -432,6 +556,9 @@ public partial class DockWindow : Window
         var settings = new MenuItem { Header = "设置…" };
         settings.Click += (_, _) => App.Current.OpenSettings();
 
+        var hideDock = new MenuItem { Header = "隐藏悬浮球" };
+        hideDock.Click += (_, _) => App.Current.SetShowDock(false);
+
         var quit = new MenuItem { Header = "退出 Jump" };
         quit.Click += (_, _) => FadeOutAndQuit();
 
@@ -472,6 +599,7 @@ public partial class DockWindow : Window
 
         menu.Items.Add(open);
         menu.Items.Add(settings);
+        menu.Items.Add(hideDock);
         menu.Items.Add(new Separator());
         menu.Items.Add(themeSys);
         menu.Items.Add(themeLight);

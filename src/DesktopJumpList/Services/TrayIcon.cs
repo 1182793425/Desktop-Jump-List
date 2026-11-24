@@ -112,6 +112,14 @@ public sealed class TrayIcon : IDisposable
         layout.DropDownItems.Add(rows);
         _menu.Items.Add(layout);
 
+        var dock = new Forms.ToolStripMenuItem("显示悬浮球")
+        {
+            Checked = s.ShowDock,
+            CheckOnClick = false
+        };
+        dock.Click += (_, _) => _app.SetShowDock(!_app.Settings.ShowDock);
+        _menu.Items.Add(dock);
+
         _menu.Items.Add(new Forms.ToolStripSeparator());
         var startup = new Forms.ToolStripMenuItem("开机自动启动")
         {

@@ -44,6 +44,24 @@ public sealed class AppSettings
     [JsonPropertyName("themeMode")]
     public AppTheme Theme { get; set; } = AppTheme.System;
 
+    /// <summary>Show the floating circle. Off means tray/hotkey only.</summary>
+    public bool ShowDock { get; set; } = true;
+
+    /// <summary>Diameter of the floating circle in DIPs (32..64).</summary>
+    public int DockSize { get; set; } = 48;
+
+    /// <summary>Fill colour of the floating circle, as "#RRGGBB".</summary>
+    public string DockColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Tile icon size in DIPs (32..48).</summary>
+    public int PanelIconSize { get; set; } = 40;
+
+    /// <summary>Tile label font size in DIPs (10..14).</summary>
+    public int PanelFontSize { get; set; } = 12;
+
+    /// <summary>Space between the tile icon and its label, and extra row breathing room (2..10).</summary>
+    public int PanelGap { get; set; } = 8;
+
     /// <summary>Tiles per row. Clamped to 3..5 so a 100 px tile never overflows the 530 px panel.</summary>
     public int Columns { get; set; } = 5;
 
@@ -64,6 +82,12 @@ public sealed class AppSettings
         PeekDelayMs = PeekDelayMs,
         Hotkey = Hotkey,
         Theme = Theme,
+        ShowDock = ShowDock,
+        DockSize = DockSize,
+        DockColor = DockColor,
+        PanelIconSize = PanelIconSize,
+        PanelFontSize = PanelFontSize,
+        PanelGap = PanelGap,
         Columns = Columns,
         MaxRows = MaxRows,
         SnapDistance = SnapDistance,

@@ -69,13 +69,18 @@ public partial class App : Application
         Settings.MaxRows = Math.Clamp(Settings.MaxRows, 2, 5);
         Settings.PeekDelayMs = Math.Clamp(Settings.PeekDelayMs, 600, 8000);
         Settings.SnapDistance = Math.Clamp(Settings.SnapDistance, 8, 200);
+        Settings.DockSize = Math.Clamp(Settings.DockSize, 32, 64);
+        Settings.PanelIconSize = Math.Clamp(Settings.PanelIconSize, 32, 48);
+        Settings.PanelFontSize = Math.Clamp(Settings.PanelFontSize, 10, 14);
+        Settings.PanelGap = Math.Clamp(Settings.PanelGap, 2, 10);
+        if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
         ThemeService.Initialize(Settings.Theme);
         Library = new ShortcutLibrary(Storage);
 
         Launcher = new LauncherWindow(Library);
         Dock = new DockWindow(Settings);
-        Dock.Show();
+        if (Settings.ShowDock) Dock.Show();
 
         // The app has no taskbar button by design; the tray icon is its permanent home.
         Tray = new TrayIcon(this);
@@ -125,7 +130,7 @@ public partial class App : Application
     public void ShowLauncher()
     {
         if (IsShuttingDown || Launcher.IsModal) return;
-        Dock.HoldOpen(true);
+        if (Settings.ShowDock) Dock.HoldOpen(true);
         Launcher.Open();
     }
 
@@ -137,7 +142,10 @@ public partial class App : Application
     }
 
     /// <summary>Called by the launcher once it has fully faded out.</summary>
-    public void OnLauncherClosed() => Dock.HoldOpen(false);
+    public void OnLauncherClosed()
+    {
+        if (Settings.ShowDock) Dock.HoldOpen(false);
+    }
 
     /// <summary>Shows a short message in the panel; if it is closed, it appears at the next open.</summary>
     public void Notify(string text)
@@ -183,6 +191,51 @@ public partial class App : Application
         Dock.ApplySettings();
     }
 
+    public void SetShowDock(bool show)
+    {
+        Settings.ShowDock = show;
+        SaveSettings();
+        Dock.ApplySettings();
+        if (show && Launcher.IsOpen) Dock.HoldOpen(true);
+    }
+
+    public void SetDockSize(int size)
+    {
+        Settings.DockSize = Math.Clamp(size, 32, 64);
+        SaveSettings();
+        Dock.ApplySettings();
+    }
+
+    public void SetDockColor(string color)
+    {
+        color = color.ToUpperInvariant();
+        if (!IsHexColor(color)) return;
+        Settings.DockColor = color;
+        SaveSettings();
+        Dock.ApplySettings();
+    }
+
+    public void SetPanelIconSize(int size)
+    {
+        Settings.PanelIconSize = Math.Clamp(size, 32, 48);
+        SaveSettings();
+        Launcher.ApplyPanelStyle();
+    }
+
+    public void SetPanelFontSize(int size)
+    {
+        Settings.PanelFontSize = Math.Clamp(size, 10, 14);
+        SaveSettings();
+        Launcher.ApplyPanelStyle();
+    }
+
+    public void SetPanelGap(int gap)
+    {
+        Settings.PanelGap = Math.Clamp(gap, 2, 10);
+        SaveSettings();
+        Launcher.ApplyPanelStyle();
+    }
+
     /// <summary>Returns an error message, or null on success.</summary>
     public string? SetAutostart(bool enabled)
     {
@@ -226,6 +279,9 @@ public partial class App : Application
         }
         catch (Exception ex) { Log(ex); }
     }
+
+    private static bool IsHexColor(string? value) =>
+        value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
 
     public void Quit()
     {
@@ -317,10 +373,34 @@ public partial class App : Application
             }
 
             DumpLayout(directory);
+
+            // Larger panel metrics and a coloured dock, to check both settings live.
+            Settings.Theme = AppTheme.Dark;
+            ThemeService.SetMode(AppTheme.Dark);
+            SetPanelIconSize(48);
+            SetPanelFontSize(14);
+            SetPanelGap(10);
+            Launcher.Open();
+            await Task.Delay(500);
+            CaptureLauncher(Path.Combine(directory, "launcher-large-dark.png"), 1.5);
+            Launcher.Close(animated: false);
+
+            SetDockSize(56);
+            SetDockColor("#3B82F6");
+            await Task.Delay(450);
+            CaptureDock(Path.Combine(directory, "dock-custom.png"), 4);
+            SetDockColor("#FFFFFF");
+            SetDockSize(48);
+            SetPanelIconSize(40);
+            SetPanelFontSize(12);
+            SetPanelGap(8);
+
             Dock.PreviewSetTucked(true);
             await Task.Delay(500);
             CaptureDock(Path.Combine(directory, "dock-tucked.png"), 4);
 
+            Settings.Theme = AppTheme.Light;
+            ThemeService.SetMode(AppTheme.Light);
             var previewTray = new TrayIcon(this);
             await Task.Delay(300);
             previewTray.RenderPreview(Path.Combine(directory, "tray-menu-light.png"));

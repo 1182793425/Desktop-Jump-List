@@ -8,12 +8,12 @@
 
     <Grid x:Name="Root" ClipToBounds="True">
 
-        <!-- Translucent hit target so a tucked half-circle is still easy to reach. -->
+        <!-- Translucent hit target so a tucked bar is still easy to reach. -->
         <Border x:Name="HitStrip" Width="18" Height="64" Background="#01FFFFFF"
                 HorizontalAlignment="Right" VerticalAlignment="Center" />
 
-        <!-- A plain white circle. When tucked, it slides until exactly half of it
-             is off-screen, leaving a clean semicircle on the edge. -->
+        <!-- The circle. When tucked it morphs into a slim capsule and slides until it is
+             flush with the screen edge, so a bar stays visible instead of a cut circle. -->
         <Grid x:Name="Ball" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center"
               RenderTransformOrigin="0.5,0.5" Cursor="Hand"
               AutomationProperties.Name="Jump"
@@ -32,12 +32,16 @@
                 </StackPanel>
             </Grid.ToolTip>
 
-            <Ellipse Fill="White" Stroke="#24000000" StrokeThickness="1">
-                <Ellipse.Effect>
-                    <DropShadowEffect x:Name="BallShadow" BlurRadius="16" ShadowDepth="3" Direction="270"
+            <!-- A single rounded-rectangle geometry. Animating its rect and corner radius morphs
+                 the circle into a capsule bar instead of cross-fading two separate shapes. -->
+            <Path x:Name="BallShape" Width="48" Height="48" Stretch="None"
+                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                  Fill="White" Stroke="#24000000" StrokeThickness="1">
+                <Path.Effect>
+                    <DropShadowEffect x:Name="BallShadow" BlurRadius="14" ShadowDepth="3" Direction="270"
                                       Color="#000000" Opacity="0.30" />
-                </Ellipse.Effect>
-            </Ellipse>
+                </Path.Effect>
+            </Path>
         </Grid>
     </Grid>
 </Window>

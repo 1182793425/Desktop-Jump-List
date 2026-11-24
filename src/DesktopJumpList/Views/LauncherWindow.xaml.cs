@@ -55,12 +55,22 @@ public sealed class BackTile
 /// </summary>
 public partial class LauncherWindow : Window
 {
-    private const double TileHeight = 96;
     private const double PanelChrome = 2 + 28; // border + inner padding
     private const double EmptyHeight = 210;
-    private const double SettingsHeight = 366;
+    private const double SettingsHeight = 470;
     private const double CanvasMargin = 36;
     private const double PillRowHeight = 50; // 40 px pill + 10 px gap
+    private const double IconTopPadding = 8;
+    private const double TileBottomPadding = 8;
+
+    private static AppSettings CurrentSettings => App.Current.Settings;
+
+    private double TileIconSize => Math.Clamp(CurrentSettings.PanelIconSize, 32, 48);
+    private double TileFontSize => Math.Clamp(CurrentSettings.PanelFontSize, 10, 14);
+    private double TileGap => Math.Clamp(CurrentSettings.PanelGap, 2, 10);
+    private double LabelLineHeight => Math.Round(TileFontSize * 1.33);
+    private double LabelArea => LabelLineHeight * 2;
+    private double TileHeight => IconTopPadding + TileIconSize + TileGap + LabelArea + TileBottomPadding;
 
     private int Cols => Math.Clamp(App.Current.Settings.Columns, 3, 5);
     private int MaxRowCount => Math.Clamp(App.Current.Settings.MaxRows, 2, 5);
@@ -82,6 +92,7 @@ public partial class LauncherWindow : Window
     // Settings overlay state.
     private bool _settingsOpen;
     private bool _capturingHotkey;
+    private bool _settingsRefreshing;
     private const string HotkeyHintDefault = "点击后按下新的组合键，Esc 取消";
 
     // Long-press → edit mode, and edit-mode drag state.
@@ -161,6 +172,7 @@ public partial class LauncherWindow : Window
 
         _library.Items.CollectionChanged += OnLibraryChanged;
 
+        ApplyPanelMetrics();
         ApplyLayout(); // honour the configured columns/rows before first open
     }
 
@@ -324,6 +336,29 @@ public partial class LauncherWindow : Window
 
     private static bool SameFolder(string? a, string? b) =>
         !string.IsNullOrWhiteSpace(a) && string.Equals(a, b, StringComparison.CurrentCultureIgnoreCase);
+
+    private void ApplyPanelMetrics()
+    {
+        Resources["TileHeightValue"] = TileHeight;
+        Resources["IconSizeValue"] = TileIconSize;
+        Resources["LabelFontSizeValue"] = TileFontSize;
+        Resources["LabelLineHeightValue"] = LabelLineHeight;
+        Resources["LabelMaxHeightValue"] = LabelArea;
+        Resources["LabelMarginValue"] = new Thickness(0, TileGap, 0, 0);
+        Resources["LetterFontSizeValue"] = Math.Round(TileIconSize * 0.42);
+    }
+
+    /// <summary>Applies the icon/text/spacing settings and keeps the open panel correctly sized.</summary>
+    public void ApplyPanelStyle()
+    {
+        ApplyPanelMetrics();
+        Rebuild();
+        if (IsOpen)
+        {
+            Panel.Set(HeightProperty, TargetPanelHeight());
+            Scroller.ScrollToTop();
+        }
+    }
 
     private double TargetPanelHeight()
     {
@@ -878,9 +913,34 @@ public partial class LauncherWindow : Window
         RowsMinus.IsEnabled = s.MaxRows > 2;
         RowsPlus.IsEnabled = s.MaxRows < 5;
 
+        IconValue.Text = s.PanelIconSize.ToString();
+        FontValue.Text = s.PanelFontSize.ToString();
+        GapValue.Text = s.PanelGap.ToString();
+        IconMinus.IsEnabled = s.PanelIconSize > 32;
+        IconPlus.IsEnabled = s.PanelIconSize < 48;
+        FontMinus.IsEnabled = s.PanelFontSize > 10;
+        FontPlus.IsEnabled = s.PanelFontSize < 14;
+        GapMinus.IsEnabled = s.PanelGap > 2;
+        GapPlus.IsEnabled = s.PanelGap < 10;
+
+        DockVisibleSwitch.IsChecked = s.ShowDock;
+        DockSizeValue.Text = $"{s.DockSize} px";
+        DockSizeMinus.IsEnabled = s.DockSize > 32;
+        DockSizePlus.IsEnabled = s.DockSize < 64;
+
         PeekValue.Text = $"{s.PeekDelayMs / 1000.0:0.0} 秒";
         PeekMinus.IsEnabled = s.PeekDelayMs > 600;
         PeekPlus.IsEnabled = s.PeekDelayMs < 8000;
+
+        _settingsRefreshing = true;
+        ColorWhite.IsChecked = string.Equals(s.DockColor, "#FFFFFF", StringComparison.OrdinalIgnoreCase);
+        ColorGraphite.IsChecked = string.Equals(s.DockColor, "#2B2F36", StringComparison.OrdinalIgnoreCase);
+        ColorGray.IsChecked = string.Equals(s.DockColor, "#D1D5DB", StringComparison.OrdinalIgnoreCase);
+        ColorBlue.IsChecked = string.Equals(s.DockColor, "#3B82F6", StringComparison.OrdinalIgnoreCase);
+        ColorGreen.IsChecked = string.Equals(s.DockColor, "#22C55E", StringComparison.OrdinalIgnoreCase);
+        ColorOrange.IsChecked = string.Equals(s.DockColor, "#F59E0B", StringComparison.OrdinalIgnoreCase);
+        ColorRose.IsChecked = string.Equals(s.DockColor, "#F43F5E", StringComparison.OrdinalIgnoreCase);
+        _settingsRefreshing = false;
 
         HotkeyText.Text = s.Hotkey;
         AutostartSwitch.IsChecked = StartupService.IsEnabled;
@@ -906,6 +966,56 @@ public partial class LauncherWindow : Window
     private void OnRowsPlus(object sender, RoutedEventArgs e) => ChangeRows(1);
     private void OnPeekMinus(object sender, RoutedEventArgs e) => ChangePeek(-400);
     private void OnPeekPlus(object sender, RoutedEventArgs e) => ChangePeek(400);
+
+    private void OnIconMinus(object sender, RoutedEventArgs e) => ChangePanelIcon(-4);
+    private void OnIconPlus(object sender, RoutedEventArgs e) => ChangePanelIcon(4);
+    private void OnFontMinus(object sender, RoutedEventArgs e) => ChangePanelFont(-1);
+    private void OnFontPlus(object sender, RoutedEventArgs e) => ChangePanelFont(1);
+    private void OnGapMinus(object sender, RoutedEventArgs e) => ChangePanelGap(-2);
+    private void OnGapPlus(object sender, RoutedEventArgs e) => ChangePanelGap(2);
+
+    private void OnDockSizeMinus(object sender, RoutedEventArgs e) => ChangeDockSize(-4);
+    private void OnDockSizePlus(object sender, RoutedEventArgs e) => ChangeDockSize(4);
+
+    private void OnDockVisibleClick(object sender, RoutedEventArgs e)
+    {
+        App.Current.SetShowDock(DockVisibleSwitch.IsChecked == true);
+        RefreshSettings();
+    }
+
+    private void OnDockColorChecked(object sender, RoutedEventArgs e)
+    {
+        if (_settingsRefreshing) return;
+        if (sender is RadioButton { Tag: string color })
+        {
+            App.Current.SetDockColor(color);
+            RefreshSettings();
+        }
+    }
+
+    private void ChangePanelIcon(int delta)
+    {
+        App.Current.SetPanelIconSize(App.Current.Settings.PanelIconSize + delta);
+        RefreshSettings();
+    }
+
+    private void ChangePanelFont(int delta)
+    {
+        App.Current.SetPanelFontSize(App.Current.Settings.PanelFontSize + delta);
+        RefreshSettings();
+    }
+
+    private void ChangePanelGap(int delta)
+    {
+        App.Current.SetPanelGap(App.Current.Settings.PanelGap + delta);
+        RefreshSettings();
+    }
+
+    private void ChangeDockSize(int delta)
+    {
+        App.Current.SetDockSize(App.Current.Settings.DockSize + delta);
+        RefreshSettings();
+    }
 
     private void ChangeColumns(int delta)
     {
