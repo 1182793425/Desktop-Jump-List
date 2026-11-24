@@ -264,14 +264,6 @@ public partial class App : Application
         Settings.PanelOpacity = Math.Clamp(opacity, 0.50, 1.00);
         SaveSettings();
         ThemeService.SetPanelOpacity(Settings.PanelOpacity);
-        Launcher.ApplyPanelAppearance();
-    }
-
-    public void SetFrostedGlass(bool enabled)
-    {
-        Settings.FrostedGlass = enabled;
-        SaveSettings();
-        Launcher.ApplyGlass();
     }
 
     /// <summary>Returns an error message, or null on success.</summary>

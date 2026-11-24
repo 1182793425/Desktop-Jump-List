@@ -65,7 +65,7 @@ public partial class LauncherWindow : Window
 {
     private const double PanelChrome = 2 + 28; // border + inner padding
     private const double EmptyHeight = 210;
-    private const double SettingsHeight = 554;
+    private const double SettingsHeight = 600;
     private const double CanvasMargin = 36;
     private const double PillRowHeight = 50; // 40 px pill + 10 px gap
     private const double IconTopPadding = 8;
@@ -100,7 +100,6 @@ public partial class LauncherWindow : Window
     private (ShortcutItem item, int index)? _lastRemoved;
     private Action? _messageAction;
     private string? _pendingNotice;
-    private ImageBrush? _glassBrush;
 
     // Settings overlay state.
     private bool _settingsOpen;
@@ -247,14 +246,6 @@ public partial class LauncherWindow : Window
         Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         Query.Focus();
         Keyboard.Focus(Query);
-
-        // The window is shown but still fully transparent (Stack opacity 0), so this
-        // captures whatever is actually behind the panel for the frosted backdrop.
-        if (!wasClosing)
-        {
-            UpdateLayout();
-            CaptureGlass();
-        }
 
         Stack.To(OpacityProperty, 1, 170);
         StackScale.To(ScaleTransform.ScaleXProperty, 1, 260, Motion.OutStrong);
@@ -424,36 +415,6 @@ public partial class LauncherWindow : Window
             Panel.Set(HeightProperty, TargetPanelHeight());
             Scroller.ScrollToTop();
         }
-    }
-
-    /// <summary>Re-applies the panel tint/glass after an opacity or frosted-glass change.</summary>
-    public void ApplyPanelAppearance()
-    {
-        ThemeService.SetPanelOpacity(CurrentSettings.PanelOpacity);
-        ApplyGlass();
-    }
-
-    public void ApplyGlass()
-    {
-        var on = CurrentSettings.FrostedGlass && _glassBrush is not null;
-        if (on)
-        {
-            GlassLayer.Background = _glassBrush;
-            SettingsGlass.Background = _glassBrush;
-        }
-
-        GlassLayer.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        TintLayer.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        SettingsGlass.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        SettingsTint.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void CaptureGlass()
-    {
-        _glassBrush = CurrentSettings.FrostedGlass
-            ? GlassBackdrop.Capture(this, Panel)
-            : null;
-        ApplyGlass();
     }
 
     private double TargetPanelHeight()
@@ -994,6 +955,7 @@ public partial class LauncherWindow : Window
         SettingsOverlay.Visibility = Visibility.Visible;
         SettingsOverlay.To(OpacityProperty, 1, 160, Motion.Out);
         Panel.To(HeightProperty, SettingsHeight, 260, Motion.OutStrong);
+        SettingsScroll.ScrollToTop();
         _staggerNext = false;
 
         RefreshSettings();
@@ -1070,10 +1032,10 @@ public partial class LauncherWindow : Window
         SnapMinus.IsEnabled = s.SnapDistance > 8;
         SnapPlus.IsEnabled = s.SnapDistance < 200;
 
-        FrostedSwitch.IsChecked = s.FrostedGlass;
+        _settingsRefreshing = true;
+        OpacitySlider.Value = Math.Round(s.PanelOpacity * 100);
+        _settingsRefreshing = false;
         OpacityValue.Text = $"{Math.Round(s.PanelOpacity * 100)}%";
-        OpacityMinus.IsEnabled = s.PanelOpacity > 0.501;
-        OpacityPlus.IsEnabled = s.PanelOpacity < 0.999;
 
         DockVisibleSwitch.IsChecked = s.ShowDock;
         DockSizeValue.Text = $"{s.DockSize} px";
@@ -1136,8 +1098,12 @@ public partial class LauncherWindow : Window
     private void OnSnapMinus(object sender, RoutedEventArgs e) => ChangeSnap(-8);
     private void OnSnapPlus(object sender, RoutedEventArgs e) => ChangeSnap(8);
 
-    private void OnOpacityMinus(object sender, RoutedEventArgs e) => ChangeOpacity(-0.05);
-    private void OnOpacityPlus(object sender, RoutedEventArgs e) => ChangeOpacity(0.05);
+    private void OnOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_settingsRefreshing || OpacityValue is null) return;
+        App.Current.SetPanelOpacity(e.NewValue / 100.0);
+        OpacityValue.Text = $"{Math.Round(e.NewValue)}%";
+    }
 
     private void OnDockSizeMinus(object sender, RoutedEventArgs e) => ChangeDockSize(-4);
     private void OnDockSizePlus(object sender, RoutedEventArgs e) => ChangeDockSize(4);
@@ -1157,12 +1123,6 @@ public partial class LauncherWindow : Window
     private void OnDockVisibleClick(object sender, RoutedEventArgs e)
     {
         App.Current.SetShowDock(DockVisibleSwitch.IsChecked == true);
-        RefreshSettings();
-    }
-
-    private void OnFrostedClick(object sender, RoutedEventArgs e)
-    {
-        App.Current.SetFrostedGlass(FrostedSwitch.IsChecked == true);
         RefreshSettings();
     }
 
@@ -1203,12 +1163,6 @@ public partial class LauncherWindow : Window
     private void ChangeSnap(int delta)
     {
         App.Current.SetSnapDistance(App.Current.Settings.SnapDistance + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeOpacity(double delta)
-    {
-        App.Current.SetPanelOpacity(App.Current.Settings.PanelOpacity + delta);
         RefreshSettings();
     }
 

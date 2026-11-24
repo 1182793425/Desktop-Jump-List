@@ -14,11 +14,7 @@
             <DropShadowEffect BlurRadius="30" ShadowDepth="8" Direction="270"
                               Color="{DynamicResource ShadowColor}" Opacity="{DynamicResource ShadowOpacity}" />
         </Border.Effect>
-        <Grid>
-            <Border x:Name="GlassLayer" CornerRadius="17" Visibility="Collapsed" IsHitTestVisible="False" />
-            <Border x:Name="TintLayer" CornerRadius="17" Background="{DynamicResource PanelBrush}"
-                    Visibility="Collapsed" IsHitTestVisible="False" />
-            <Grid Margin="16">
+        <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -71,7 +67,6 @@
             <TextBlock x:Name="NoMatch" Grid.Row="2" Text="没有匹配的应用" Visibility="Collapsed"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        Foreground="{DynamicResource InkSubBrush}" FontSize="12.5" IsHitTestVisible="False" />
-            </Grid>
         </Grid>
     </Border>
 </Window>

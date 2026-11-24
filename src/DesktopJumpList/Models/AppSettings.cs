@@ -71,9 +71,6 @@ public sealed class AppSettings
     /// <summary>Panel tint alpha (0.50..1.00). The desktop shows through as it drops.</summary>
     public double PanelOpacity { get; set; } = 0.85;
 
-    /// <summary>Blur the desktop behind the panels instead of showing it sharp.</summary>
-    public bool FrostedGlass { get; set; } = true;
-
     /// <summary>Tiles per row. Clamped to 3..5 so a 100 px tile never overflows the 530 px panel.</summary>
     public int Columns { get; set; } = 5;
 
@@ -103,7 +100,6 @@ public sealed class AppSettings
         PanelGap = PanelGap,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
-        FrostedGlass = FrostedGlass,
         Columns = Columns,
         MaxRows = MaxRows,
         SnapDistance = SnapDistance,
