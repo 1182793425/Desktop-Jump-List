@@ -169,14 +169,20 @@
         <DataTemplate DataType="{x:Type local:AddTile}">
             <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="添加文件、文件夹、商店应用或网址" AutomationProperties.Name="添加">
-                <!-- No label now, so the plus sits in the middle of the tile instead of the icon row. -->
-                <Grid Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
-                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
                     <Ellipse Stroke="{DynamicResource InkFaintBrush}" StrokeThickness="1.4" StrokeDashArray="3 2.4" />
                     <Path Data="M0,6 L12,6 M6,0 L6,12" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.6"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
+
+                <TextBlock Grid.Row="1" Text="添加" Style="{StaticResource TileLabel}"
+                           Foreground="{DynamicResource InkSubBrush}" />
             </Grid>
         </DataTemplate>
 
