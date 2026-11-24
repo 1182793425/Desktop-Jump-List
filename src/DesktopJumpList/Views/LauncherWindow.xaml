@@ -254,6 +254,36 @@
             </Grid>
         </DataTemplate>
 
+        <!-- ===== One-line result row (search results and the "/" palette) ===== -->
+        <DataTemplate DataType="{x:Type m:ResultRow}">
+            <Grid Height="{DynamicResource RowHeightValue}" Background="Transparent"
+                  ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="400"
+                  AutomationProperties.Name="{Binding Title}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="34" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Width="24" Height="24" Margin="9,0,0,0" VerticalAlignment="Center"
+                      HorizontalAlignment="Left">
+                    <Image Source="{Binding Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding Icon, Converter={StaticResource NotNullVisible}}" />
+                    <Border CornerRadius="7" Background="{Binding Accent}"
+                            Visibility="{Binding Accent, Converter={StaticResource NotNullVisible}}">
+                        <TextBlock Text="{Binding Glyph}" Foreground="White" FontSize="11.5" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock Text="{Binding Title}" FontSize="12.5" Foreground="{DynamicResource InkBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Subtitle}" FontSize="10.5" Margin="0,1,0,0"
+                               Foreground="{DynamicResource InkFaintBrush}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
         <!-- ===== "/" palette row: glyph + name, with the usage as a second line ===== -->
         <DataTemplate DataType="{x:Type m:SlashRow}">
             <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"
@@ -468,7 +498,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-        </Style>    </Window.Resources>
+        </Style>        <!-- One-line result rows: same hover/selection visuals as a tile, no grid gap. -->
+        <Style x:Key="RowContainer" TargetType="ListBoxItem" BasedOn="{StaticResource TileContainer}">
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+    </Window.Resources>
 
     <!-- Fixed-size transparent canvas; the stack is top-anchored so the search pill and panel
          top stay put while the result count (and panel height) changes. -->

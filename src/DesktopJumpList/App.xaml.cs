@@ -524,7 +524,7 @@ public partial class App : Application
 
                 // "/" palette: the command list and a computed result.
                 Launcher.Query.Text = "/";
-                await Task.Delay(420);
+                await Task.Delay(900);
                 CaptureLauncher(Path.Combine(directory, $"slash-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = "/calc 12*(8+3)";
                 await Task.Delay(420);

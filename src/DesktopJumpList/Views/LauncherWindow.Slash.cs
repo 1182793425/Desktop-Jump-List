@@ -25,7 +25,7 @@ public partial class LauncherWindow
         _markerIndex = -1;
         _recentItems = new List<ShortcutItem>();
 
-        var rows = BuildSlashRows(query);
+        var rows = BuildSlashRows(query).Select(ToResultRow).OfType<ResultRow>().ToList();
         Sync(_tiles, rows.Cast<object>().ToList());
         Sync(_recentTiles, new List<object>());
 
@@ -44,10 +44,62 @@ public partial class LauncherWindow
         EnsureWindowFits();
     }
 
-    /// <summary>Enter or click on a palette row: fill the box for a command, run a result.</summary>
-    private void RunSlashRow(SlashRow row)
+    /// <summary>Maps a shortcut / engine / palette row onto the one-line list model.</summary>
+    private ResultRow? ToResultRow(object item) => item switch
     {
-        if (row.IsCommand && row.Fill is { } fill)
+        ShortcutItem shortcut => BuildItemRow(shortcut),
+        SearchResultTile search => new ResultRow
+        {
+            Title = search.Name,
+            Subtitle = $"「{search.Query}」",
+            Glyph = search.Engine.Monogram,
+            Accent = search.Engine.BrandBrush,
+            Run = () => OpenSearch(search)
+        },
+        SlashRow slash => new ResultRow
+        {
+            Title = slash.Title,
+            Subtitle = slash.Subtitle,
+            Glyph = slash.Glyph,
+            Accent = slash.Accent,
+            Fill = slash.Fill,
+            Run = slash.Run
+        },
+        _ => null
+    };
+
+    /// <summary>An item row shows its real icon; without one it falls back to a lettered tile.</summary>
+    private static ResultRow BuildItemRow(ShortcutItem item)
+    {
+        var row = new ResultRow
+        {
+            Item = item,
+            Title = item.Name,
+            Subtitle = RowSubtitle(item),
+            Icon = item.Icon
+        };
+
+        if (item.Icon is null && item.Name.Length > 0)
+        {
+            row.Glyph = item.Name[..1];
+            row.Accent = NameBrushConverter.Convert(item.Name, typeof(System.Windows.Media.Brush), null, Inv) as System.Windows.Media.Brush;
+        }
+
+        return row;
+    }
+
+    private static readonly Infrastructure.NameToBrushConverter NameBrushConverter = new();
+
+    private static string RowSubtitle(ShortcutItem item)
+    {
+        var where = item.Folder is { Length: > 0 } folder ? $"分组 · {folder}" : item.Target;
+        return item.IsUnavailable ? $"目标已失效 · {where}" : where ?? string.Empty;
+    }
+
+    /// <summary>Enter or click on a result row: fill the box for a command, run a result, open an item.</summary>
+    private void RunResultRow(ResultRow row)
+    {
+        if (row.Fill is { } fill)
         {
             Query.Text = fill;
             Query.CaretIndex = Query.Text.Length;
@@ -55,13 +107,15 @@ public partial class LauncherWindow
             return;
         }
 
-        if (row.Run is { } run)
-        {
-            run();
-            return;
-        }
-
+        if (row.Run is { } run) { run(); return; }
+        if (row.Item is { } item) { Invoke(item, null); return; }
         ShowMessage("这一行只是用法提示，补上参数再回车");
+    }
+
+    /// <summary>Kept for the palette's own rows before they are wrapped.</summary>
+    private void RunSlashRow(SlashRow row)
+    {
+        if (ToResultRow(row) is { } mapped) RunResultRow(mapped);
     }
 
     internal List<SlashRow> BuildSlashRows(string query)

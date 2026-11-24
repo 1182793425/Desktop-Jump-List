@@ -80,6 +80,7 @@ public partial class LauncherWindow : Window
     private const double TileBottomPadding = 8;
     private const double PanelSidePadding = 26; // 14 left + 10 right + 2 border
     private const double LabelWidth = 88;       // wrap width of a tile label
+    private const double RowHeight = 42;        // one-line result row (illustration + two texts)
 
     private static AppSettings CurrentSettings => App.Current.Settings;
 
@@ -126,6 +127,7 @@ public partial class LauncherWindow : Window
     private double _dragScrollStep;
     private Point _lastDragPoint;
     private bool _draggingTile;
+    private bool _listMode; // search results / palette use a one-line list instead of the tile grid
 
     private List<ShortcutItem> _ordered = new();
     private List<ShortcutItem> _recentItems = new();
@@ -366,6 +368,7 @@ public partial class LauncherWindow : Window
     private void Rebuild()
     {
         var q = CurrentQuery;
+        SetListMode(q.Length > 0);
         if (q.StartsWith('/')) { RebuildSlash(q); return; }
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
@@ -424,6 +427,7 @@ public partial class LauncherWindow : Window
             }
         }
 
+        if (_listMode) next = next.Select(ToResultRow).OfType<ResultRow>().Cast<object>().ToList();
         Sync(_tiles, next);
 
         // One-row recently-used header above the divider. It keeps showing inside a folder, so
@@ -518,6 +522,7 @@ public partial class LauncherWindow : Window
         // be sized exactly as columns*cell and nothing gets squeezed.
         Resources["TileMarginValue"] = new Thickness(0, 0, ItemGap, ItemGap);
         Resources["RecentRowHeightValue"] = CellHeight;
+        Resources["RowHeightValue"] = RowHeight - 2; // the container adds the rest as a gap
         Panel.Width = PanelWidth;
     }
 
@@ -561,6 +566,15 @@ public partial class LauncherWindow : Window
         if (_settingsOpen) return SettingsHeight;
         if (_tiles.Count == 0) return EmptyHeight;
 
+        if (_listMode)
+        {
+            // A list shows up to twice the configured rows before it scrolls.
+            var cap = Math.Max(4, MaxRowCount * 2);
+            var fitRows = Math.Max(1, (int)Math.Floor((MaxPanelHeight - PanelChrome) / RowHeight));
+            var shown = Math.Min(Math.Min(_tiles.Count, cap), fitRows);
+            return PanelChrome + shown * RowHeight;
+        }
+
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
         var recentExtra = _recentTiles.Count > 0 ? CellHeight + 15 : 0;
 
@@ -581,13 +595,36 @@ public partial class LauncherWindow : Window
         Panel.To(HeightProperty, target, 180, Motion.Out);
     }
 
+    /// <summary>Switches the result surface between the tile grid and the one-line list.</summary>
+    private void SetListMode(bool on)
+    {
+        if (_listMode == on) return;
+        _listMode = on;
+        ApplyTilesPanel();
+    }
+
+    private void ApplyTilesPanel()
+    {
+        if (_listMode)
+        {
+            var stack = new FrameworkElementFactory(typeof(StackPanel));
+            stack.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+            Tiles.ItemsPanel = new ItemsPanelTemplate(stack);
+            Tiles.ItemContainerStyle = (Style)FindResource("RowContainer");
+            return;
+        }
+
+        var grid = new FrameworkElementFactory(typeof(UniformGrid));
+        grid.SetValue(UniformGrid.ColumnsProperty, Cols);
+        grid.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+        Tiles.ItemsPanel = new ItemsPanelTemplate(grid);
+        Tiles.ItemContainerStyle = (Style)FindResource("TileContainer");
+    }
+
     /// <summary>Rebuilds the tile grid for the configured columns/rows. Called when settings change.</summary>
     public void ApplyLayout()
     {
-        var factory = new FrameworkElementFactory(typeof(UniformGrid));
-        factory.SetValue(UniformGrid.ColumnsProperty, Cols);
-        factory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
-        Tiles.ItemsPanel = new ItemsPanelTemplate(factory);
+        ApplyTilesPanel();
 
         var recentFactory = new FrameworkElementFactory(typeof(UniformGrid));
         recentFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
@@ -708,6 +745,7 @@ public partial class LauncherWindow : Window
             case MoreRecentTile: OpenRecentView(); break;
             case SearchResultTile search: OpenSearch(search); break;
             case SlashRow row: RunSlashRow(row); break;
+            case ResultRow row: RunResultRow(row); break;
         }
     }
 
