@@ -260,11 +260,12 @@
                   ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="400"
                   AutomationProperties.Name="{Binding Title}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="34" />
+                    <ColumnDefinition Width="48" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Grid Width="24" Height="24" Margin="9,0,0,0" VerticalAlignment="Center"
+                <!-- 12 px from the panel edge, 24 px icon, 12 px gap before the text. -->
+                <Grid Width="24" Height="24" Margin="12,0,0,0" VerticalAlignment="Center"
                       HorizontalAlignment="Left">
                     <Image Source="{Binding Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
                            Visibility="{Binding Icon, Converter={StaticResource NotNullVisible}}" />
