@@ -81,7 +81,7 @@ public sealed class TrayIcon : IDisposable
 
         var s = _app.Settings;
 
-        var open = Item("打开面板", _app.ShowLauncher);
+        var open = Item("打开面板", () => _app.ShowLauncher());
         open.Font = new Font(_menu.Font, FontStyle.Bold);
         if (s.HotkeyEnabled)
         {

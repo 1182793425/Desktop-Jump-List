@@ -742,7 +742,7 @@ public partial class LauncherWindow : Window
                 break;
 
             case Key.OemComma when ctrl:
-                ShowSettings();
+                App.Current.OpenSettings();
                 e.Handled = true;
                 break;
 

@@ -89,7 +89,7 @@ public partial class App : Application
         Tray = new TrayIcon(this);
 
         _hotkey = new HotkeyService();
-        _hotkey.Pressed += ToggleLauncher;
+        _hotkey.Pressed += () => ToggleLauncher(fromHotkey: true);
         if (Settings.HotkeyEnabled)
         {
             if (!_hotkey.Register(Settings.Hotkey))
@@ -130,25 +130,39 @@ public partial class App : Application
 
     // ───────────────────────── Windows ─────────────────────────
 
-    public void ToggleLauncher()
+    public void ToggleLauncher(bool fromHotkey = false)
     {
         if (IsShuttingDown || Launcher.IsModal) return;
         if (Launcher.IsOpen) Launcher.Close(animated: true);
-        else ShowLauncher();
+        else ShowLauncher(revealDock: !fromHotkey);
     }
 
-    public void ShowLauncher()
+    public void ShowLauncher(bool revealDock = true)
     {
         if (IsShuttingDown || Launcher.IsModal) return;
-        if (Settings.ShowDock) Dock.HoldOpen(true);
+        if (revealDock && Settings.ShowDock) Dock.HoldOpen(true);
         Launcher.Open();
     }
 
+    private SettingsWindow? _settingsWindow;
+
+    /// <summary>Opens the standalone settings window, centered on the screen. The panel stays closed.</summary>
     public void OpenSettings()
     {
         if (IsShuttingDown || Launcher.IsModal) return;
-        ShowLauncher();
-        Launcher.ShowSettings();
+
+        if (Launcher.IsOpen) Launcher.Close(animated: false);
+
+        if (_settingsWindow is { IsVisible: true })
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        _settingsWindow = new SettingsWindow();
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
     }
 
     /// <summary>Called by the launcher once it has fully faded out.</summary>
@@ -428,9 +442,11 @@ public partial class App : Application
                 CaptureLauncher(Path.Combine(directory, $"search-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
-                Launcher.ShowSettings();
+                var settingsWindow = new SettingsWindow();
+                settingsWindow.Show();
                 await Task.Delay(500);
-                CaptureLauncher(Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+                settingsWindow.Close();
                 Launcher.Close(animated: false);
             }
 
