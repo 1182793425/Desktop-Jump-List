@@ -1,4 +1,4 @@
-<Window x:Class="DesktopJumpList.Views.LauncherWindow"
+﻿<Window x:Class="DesktopJumpList.Views.LauncherWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:DesktopJumpList.Views"
@@ -46,7 +46,7 @@
 
         <!-- ===== Shortcut tile ===== -->
         <DataTemplate DataType="{x:Type m:ShortcutItem}">
-            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="{Binding TooltipText}" ToolTipService.InitialShowDelay="450"
                   ToolTipService.ShowDuration="15000"
                   AutomationProperties.Name="{Binding Name}"
@@ -106,7 +106,7 @@
 
         <!-- ===== Folder tile (iOS-style grouped shortcuts) ===== -->
         <DataTemplate DataType="{x:Type local:FolderTile}">
-            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="450"
                   AutomationProperties.Name="{Binding Name}">
                 <Grid.RowDefinitions>
@@ -146,7 +146,7 @@
 
         <!-- ===== Back-to-all tile (inside a folder) ===== -->
         <DataTemplate DataType="{x:Type local:BackTile}">
-            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent" ToolTip="返回全部快捷项"
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}" Background="Transparent" ToolTip="返回全部快捷项"
                   AutomationProperties.Name="返回全部">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -168,7 +168,7 @@
 
         <!-- ===== "+" tile ===== -->
         <DataTemplate DataType="{x:Type local:AddTile}">
-            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="添加文件、文件夹、商店应用或网址" AutomationProperties.Name="添加">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -189,7 +189,7 @@
 
         <!-- ===== "more recently used" tile ===== -->
         <DataTemplate DataType="{x:Type local:MoreRecentTile}">
-            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}" Background="Transparent"
                   ToolTip="查看全部最近使用" AutomationProperties.Name="更多最近使用">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -212,10 +212,31 @@
             </Grid>
         </DataTemplate>
 
+        <!-- ===== Drop placeholder: the gap that opens where the tile will land ===== -->
+        <DataTemplate DataType="{x:Type local:InsertMarker}">
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"
+                  IsHitTestVisible="False">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0" Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
+                        Margin="0,8,0,0" CornerRadius="12"
+                        Background="{DynamicResource SelectedBrush}"
+                        BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1.4" />
+                <Rectangle Grid.Row="1" Height="{DynamicResource LabelLineHeightValue}" Margin="10,10,10,0"
+                           VerticalAlignment="Top" RadiusX="4" RadiusY="4"
+                           Fill="{DynamicResource HoverBrush}" />
+            </Grid>
+        </DataTemplate>
+
         <!-- ===== Tile container: one highlight layer that fades, plus press scale ===== -->
         <Style x:Key="TileContainer" TargetType="ListBoxItem">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="Focusable" Value="False" />
+            <!-- The gap between tiles lives on the cell, so the panel width/height is
+                 columns*(tile+gap)-gap and the grid can never overlap. -->
+            <Setter Property="Margin" Value="{DynamicResource TileMarginValue}" />
             <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
             <EventSetter Event="Loaded" Handler="OnTileLoaded" />
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
@@ -459,7 +480,7 @@
 
                         <!-- One-row recently used header, above the divider. -->
                         <StackPanel x:Name="RecentSection" Grid.Row="0" Visibility="Collapsed">
-                            <ListBox x:Name="RecentTiles" Margin="14,14,10,0" Height="{DynamicResource TileHeightValue}"
+                            <ListBox x:Name="RecentTiles" Margin="14,14,10,0" Height="{DynamicResource RecentRowHeightValue}"
                                      Background="Transparent" BorderThickness="0" Padding="0" Focusable="False"
                                      SelectionMode="Single" Foreground="{DynamicResource InkBrush}"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -844,6 +865,20 @@
                         </Grid>
                     </Border>
                 </Grid>
+            </Border>
+
+            <!-- ===== Edit-mode status strip: below the panel so it never covers a tile ===== -->
+            <Border x:Name="EditHintBar" Margin="0,10,0,0" CornerRadius="13" Padding="14,7"
+                    HorizontalAlignment="Center" Visibility="Collapsed" Opacity="0"
+                    Background="{DynamicResource PillBrush}"
+                    BorderBrush="{DynamicResource SelectedBorderBrush}" BorderThickness="1">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                             Fill="{DynamicResource AccentBrush}" />
+                    <TextBlock x:Name="EditHintText" Margin="8,0,0,0" FontSize="11.5"
+                               Foreground="{DynamicResource InkBrush}"
+                               Text="拖动调整顺序 · 拖到图标上合并成分组 · 拖到边缘自动滚动 · Esc 完成" />
+                </StackPanel>
             </Border>
         </StackPanel>
     </Grid>

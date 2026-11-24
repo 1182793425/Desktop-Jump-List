@@ -49,6 +49,14 @@ public sealed class BackTile
     public string Name => "全部";
 }
 
+/// <summary>Placeholder shown while dragging: the cell opens up where the tile will land.</summary>
+public sealed class InsertMarker
+{
+    public static readonly InsertMarker Instance = new();
+    private InsertMarker() { }
+    public string Name => string.Empty;
+}
+
 /// <summary>Sentinel item for the last cell of the one-row "recently used" header.</summary>
 public sealed class MoreRecentTile
 {
@@ -70,7 +78,8 @@ public partial class LauncherWindow : Window
     private const double PillRowHeight = 50; // 40 px pill + 10 px gap
     private const double IconTopPadding = 8;
     private const double TileBottomPadding = 8;
-    private const double MaxPanelHeight = 590; // window is 680, panel top sits at 86
+    private const double PanelSidePadding = 26; // 14 left + 10 right + 2 border
+    private const double LabelWidth = 88;       // wrap width of a tile label
 
     private static AppSettings CurrentSettings => App.Current.Settings;
 
@@ -81,6 +90,29 @@ public partial class LauncherWindow : Window
     private double LabelArea => LabelLineHeight * 2;
     private double TileHeight => IconTopPadding + TileIconSize + TileGap + LabelArea + TileBottomPadding;
 
+    /// <summary>Gap between tiles (both axes) — the panel grows with it.</summary>
+    private double ItemGap => Math.Max(0, CurrentSettings.PanelItemGap);
+
+    /// <summary>A tile is as wide as its widest part (label or icon), plus a little breathing room.</summary>
+    private double TileWidth => Math.Round(Math.Max(LabelWidth, TileIconSize) + 12);
+
+    /// <summary>One grid cell: the tile plus the gap that follows it.</summary>
+    private double CellWidth => TileWidth + ItemGap;
+    private double CellHeight => TileHeight + ItemGap;
+
+    /// <summary>Width follows the columns, so five columns of 96 px tiles make a narrower panel than five of 120 px.</summary>
+    private double PanelWidth => Math.Round(Cols * CellWidth + PanelSidePadding);
+
+    /// <summary>Tallest the panel may get on the current screen, leaving room for the pill and the shadow.</summary>
+    private double MaxPanelHeight
+    {
+        get
+        {
+            var area = ScreenGeometry.WorkAreaAtCursor(this);
+            return Math.Max(180, area.Height - CanvasMargin * 2 - PillRowHeight - 24);
+        }
+    }
+
     private int Cols => Math.Max(1, App.Current.Settings.Columns);
     private int MaxRowCount => Math.Max(1, App.Current.Settings.MaxRows);
 
@@ -88,14 +120,18 @@ public partial class LauncherWindow : Window
     private readonly ObservableCollection<object> _tiles = new();
     private readonly ObservableCollection<object> _recentTiles = new();
     private readonly DispatcherTimer _messageTimer;
+    private readonly DispatcherTimer _dragScroll;
+    private InsertMarker? _insertMarker;
+    private int _markerIndex = -1;
+    private double _dragScrollStep;
+    private Point _lastDragPoint;
+    private bool _draggingTile;
 
     private List<ShortcutItem> _ordered = new();
     private List<ShortcutItem> _recentItems = new();
     private string? _currentFolder;
     private bool _recentView;
     private bool _closing;
-    private bool _staggerNext;
-    private bool _suppressTileEntrance;
     private int _modalDepth;
     private ShortcutItem? _renaming;
     private (ShortcutItem item, int index)? _lastRemoved;
@@ -134,6 +170,18 @@ public partial class LauncherWindow : Window
 
         _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         _messageTimer.Tick += (_, _) => HideMessage();
+
+        // Dragging a tile near the top/bottom edge scrolls the list, otherwise a tile can only be
+        // moved inside the rows that happen to be visible.
+        _dragScroll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _dragScroll.Tick += (_, _) =>
+        {
+            if (Math.Abs(_dragScrollStep) < 0.5) return;
+            var before = Scroller.VerticalOffset;
+            Scroller.ScrollToVerticalOffset(before + _dragScrollStep);
+            if (Math.Abs(Scroller.VerticalOffset - before) < 0.5) return;
+            UpdateInsertMarkerAt(_lastDragPoint);
+        };
 
         _longPress = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(550) };
         _longPress.Tick += (_, _) =>
@@ -187,6 +235,7 @@ public partial class LauncherWindow : Window
         DragOver += OnDragOver;
         DragLeave += OnDragLeave;
         Drop += OnDrop;
+        QueryContinueDrag += (_, e) => { if (e.Action == DragAction.Cancel) EndInternalDrag(); };
 
         _library.Items.CollectionChanged += OnLibraryChanged;
 
@@ -223,11 +272,14 @@ public partial class LauncherWindow : Window
             _currentFolder = null;
             _recentView = false;
             _ordered = _library.Ordered();
-            _staggerNext = true;
             Rebuild();
             var panelHeight = TargetPanelHeight();
             Panel.Set(HeightProperty, panelHeight);
             Scroller.ScrollToTop();
+
+            // The window is a transparent canvas around the panel: it has to follow the panel's
+            // real size, otherwise a tall panel loses its rounded bottom corners.
+            ResizeWindow();
 
             // Top-anchored stack: the search pill and panel top stay put while the result
             // count (and therefore the panel height) changes. The window itself is placed
@@ -238,9 +290,9 @@ public partial class LauncherWindow : Window
             Top = Math.Clamp(desiredTop, wa.Top, Math.Max(wa.Top, wa.Bottom - Height));
 
             Stack.Set(OpacityProperty, 0);
-            StackScale.Set(ScaleTransform.ScaleXProperty, 0.94);
-            StackScale.Set(ScaleTransform.ScaleYProperty, 0.94);
-            StackShift.Set(TranslateTransform.YProperty, 10);
+            StackScale.Set(ScaleTransform.ScaleXProperty, 1);
+            StackScale.Set(ScaleTransform.ScaleYProperty, 1);
+            StackShift.Set(TranslateTransform.YProperty, 12);
         }
 
         // A layered window that is shown again hands the compositor the surface it had the last
@@ -248,22 +300,19 @@ public partial class LauncherWindow : Window
         // window is therefore fully transparent while it is shown and laid out, and becomes
         // visible in the same dispatcher turn — the compositor never sees the stale frame.
         Opacity = 0;
-        _suppressTileEntrance = true;
         Show();
         UpdateLayout();
         Opacity = 1;
-        _suppressTileEntrance = false;
 
-        StartTileEntrance();
         Activate();
         Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         Query.Focus();
         Keyboard.Focus(Query);
 
-        Stack.To(OpacityProperty, 1, 170);
-        StackScale.To(ScaleTransform.ScaleXProperty, 1, 260, Motion.OutStrong);
-        StackScale.To(ScaleTransform.ScaleYProperty, 1, 260, Motion.OutStrong);
-        StackShift.To(TranslateTransform.YProperty, 0, 260, Motion.OutStrong);
+        // A short rise and a fade — no scaling and no per-tile stagger, which together read as a
+        // "jelly" wobble on every icon while the panel opened.
+        Stack.To(OpacityProperty, 1, 180);
+        StackShift.To(TranslateTransform.YProperty, 0, 200, Motion.Out);
 
         if (!wasClosing && _pendingNotice is { } notice)
         {
@@ -285,11 +334,14 @@ public partial class LauncherWindow : Window
             _longPress?.Stop();
             _dragArmed = false;
             _editMode = false;
+            EndInternalDrag();
             _settingsOpen = false;
             _capturingHotkey = false;
             Query.IsEnabled = true;
             SettingsOverlay.Visibility = Visibility.Collapsed;
             SettingsOverlay.Set(OpacityProperty, 0);
+            EditHintBar.To(OpacityProperty, 0, 0);
+            EditHintBar.Visibility = Visibility.Collapsed;
 
             Hide();
             Query.Text = string.Empty;
@@ -303,10 +355,8 @@ public partial class LauncherWindow : Window
 
         if (!animated) { Finish(); return; }
 
-        Stack.To(OpacityProperty, 0, 140, Motion.In, completed: Finish);
-        StackScale.To(ScaleTransform.ScaleXProperty, 0.97, 140, Motion.In);
-        StackScale.To(ScaleTransform.ScaleYProperty, 0.97, 140, Motion.In);
-        StackShift.To(TranslateTransform.YProperty, 4, 140, Motion.In);
+        Stack.To(OpacityProperty, 0, 130, Motion.In, completed: Finish);
+        StackShift.To(TranslateTransform.YProperty, 6, 130, Motion.In);
     }
 
     // ───────────────────────── Tiles ─────────────────────────
@@ -318,6 +368,8 @@ public partial class LauncherWindow : Window
         var q = CurrentQuery;
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
+        _insertMarker = null;
+        _markerIndex = -1;
         _tiles.Clear();
         _recentTiles.Clear();
         _recentItems = new List<ShortcutItem>();
@@ -416,6 +468,12 @@ public partial class LauncherWindow : Window
         Resources["LabelMaxHeightValue"] = LabelArea;
         Resources["LabelMarginValue"] = new Thickness(0, TileGap, 0, 0);
         Resources["LetterFontSizeValue"] = Math.Round(TileIconSize * 0.42);
+        Resources["TileWidthValue"] = TileWidth;
+        // Right+bottom gap on each cell: the row/column pitch becomes tile + gap, so the panel can
+        // be sized exactly as columns*cell and nothing gets squeezed.
+        Resources["TileMarginValue"] = new Thickness(0, 0, ItemGap, ItemGap);
+        Resources["RecentRowHeightValue"] = CellHeight;
+        Panel.Width = PanelWidth;
     }
 
     /// <summary>Applies the icon/text/spacing settings and keeps the open panel correctly sized.</summary>
@@ -425,9 +483,20 @@ public partial class LauncherWindow : Window
         Rebuild();
         if (IsOpen)
         {
+            ResizeWindow();
             Panel.Set(HeightProperty, TargetPanelHeight());
             Scroller.ScrollToTop();
         }
+    }
+
+    /// <summary>Sizes the transparent host window around the panel it has to hold.</summary>
+    private void ResizeWindow()
+    {
+        var hintStrip = _editMode ? 44 : 0; // edit status strip + its top margin
+        var width = Math.Round(PanelWidth + CanvasMargin * 2);
+        var height = Math.Round(TargetPanelHeight() + PillRowHeight + CanvasMargin * 2 + hintStrip);
+        if (Math.Abs(Width - width) > 0.5) Width = width;
+        if (Math.Abs(Height - height) > 0.5) Height = height;
     }
 
     private double TargetPanelHeight()
@@ -436,14 +505,15 @@ public partial class LauncherWindow : Window
         if (_tiles.Count == 0) return EmptyHeight;
 
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
-        var recentExtra = _recentTiles.Count > 0 ? TileHeight + 15 : 0;
+        var recentExtra = _recentTiles.Count > 0 ? CellHeight + 15 : 0;
 
-        // Never let the panel (and its shadow) run past the bottom of the 680 px window.
+        // The screen is the only cap: N configured rows mean an N-row panel, and it scrolls only
+        // when those rows genuinely do not fit on this display.
         var available = MaxPanelHeight - PanelChrome - recentExtra;
-        var fit = Math.Max(1, (int)Math.Floor(available / TileHeight));
+        var fit = Math.Max(1, (int)Math.Floor(available / CellHeight));
         rows = Math.Min(rows, fit);
 
-        return PanelChrome + rows * TileHeight + recentExtra;
+        return PanelChrome + rows * CellHeight + recentExtra;
     }
 
     private void AnimatePanelHeight()
@@ -466,9 +536,11 @@ public partial class LauncherWindow : Window
         recentFactory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
         RecentTiles.ItemsPanel = new ItemsPanelTemplate(recentFactory);
 
+        ApplyPanelMetrics();
         Rebuild();
         if (IsOpen)
         {
+            ResizeWindow();
             Panel.Set(HeightProperty, TargetPanelHeight());
             Scroller.ScrollToTop();
         }
@@ -492,60 +564,13 @@ public partial class LauncherWindow : Window
         return group;
     }
 
-    /// <summary>Tiles fade/rise in. On open they ripple in quickly; on filter they just fade.</summary>
+    /// <summary>Newly created tiles fade in briefly; the panel itself carries the entrance.</summary>
     private void OnTileLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is not ListBoxItem container) return;
-
-        // The pre-Show layout pass creates the containers; they are animated by
-        // StartTileEntrance once the window is actually on screen.
-        if (_suppressTileEntrance)
-        {
-            container.Opacity = 0;
-            return;
-        }
-
-        var owner = ItemsControl.ItemsControlFromItemContainer(container);
-        var isMain = ReferenceEquals(owner, Tiles);
-        var index = owner?.ItemContainerGenerator.IndexFromContainer(container) ?? 0;
-        if (index < 0) index = 0;
-
-        // The one-row recent header just fades; only the main grid ripples.
-        var stagger = _staggerNext && isMain;
-        var delay = stagger ? Math.Min(index, 12) * 11 + 40 : 0;
-        var shift = (TranslateTransform)EnsureTransforms(container).Children[1];
-
-        container.FromTo(OpacityProperty, 0, 1, stagger ? 200 : 130, Motion.Out, delay);
-        if (stagger)
-        {
-            shift.FromTo(TranslateTransform.YProperty, 6, 0, 240, Motion.OutStrong, delay);
-        }
-        if (stagger && index >= _tiles.Count - 1)
-            Dispatcher.BeginInvoke(() => _staggerNext = false, DispatcherPriority.ContextIdle);
-    }
-
-    /// <summary>
-    /// Runs the entrance animation for containers that were built by the pre-Show layout pass.
-    /// Containers created later (a filter, a new item) animate themselves in OnTileLoaded.
-    /// </summary>
-    private void StartTileEntrance()
-    {
-        AnimateContainers(Tiles, stagger: _staggerNext);
-        AnimateContainers(RecentTiles, stagger: false);
-        _staggerNext = false;
-    }
-
-    private void AnimateContainers(ItemsControl list, bool stagger)
-    {
-        for (var i = 0; i < list.Items.Count; i++)
-        {
-            if (list.ItemContainerGenerator.ContainerFromIndex(i) is not ListBoxItem container) continue;
-            var delay = stagger ? Math.Min(i, 12) * 11 + 40 : 0;
-            container.FromTo(OpacityProperty, 0, 1, stagger ? 200 : 130, Motion.Out, delay);
-            if (!stagger) continue;
-            var shift = (TranslateTransform)EnsureTransforms(container).Children[1];
-            shift.FromTo(TranslateTransform.YProperty, 6, 0, 240, Motion.OutStrong, delay);
-        }
+        if (container.DataContext is InsertMarker) return; // the drop gap must not blink
+        if (_draggingTile) { container.Opacity = 1; return; } // no flicker while tiles reflow
+        container.FromTo(OpacityProperty, 0, 1, 120, Motion.Out);
     }
 
     /// <summary>While searching, the pointer drives the selection; in edit mode, a drag starts.</summary>
@@ -682,7 +707,6 @@ public partial class LauncherWindow : Window
         if (!IsOpen) return;
         if (_editMode && Query.Text.Length > 0) ExitEditMode();
         if (Query.Text.Length > 0 && MessageRow.IsHitTestVisible) HideMessage();
-        _staggerNext = false;
         Rebuild();
         AnimatePanelHeight();
         Scroller.ScrollToTop();
@@ -1001,7 +1025,6 @@ public partial class LauncherWindow : Window
         SettingsOverlay.To(OpacityProperty, 1, 160, Motion.Out);
         Panel.To(HeightProperty, SettingsHeight, 260, Motion.OutStrong);
         SettingsScroll.ScrollToTop();
-        _staggerNext = false;
 
         RefreshSettings();
         Keyboard.Focus(HotkeyBox);
@@ -1524,7 +1547,12 @@ public partial class LauncherWindow : Window
 
     private void OnDragEnter(object sender, DragEventArgs e)
     {
-        if (HasInternalTile(e)) { e.Effects = DragDropEffects.Move; return; }
+        if (HasInternalTile(e))
+        {
+            e.Effects = DragDropEffects.Move;
+            BeginInternalDrag(e);
+            return;
+        }
         if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; return; }
         e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
         SetDropOverlay(true);
@@ -1532,7 +1560,13 @@ public partial class LauncherWindow : Window
 
     private void OnDragOver(object sender, DragEventArgs e)
     {
-        if (HasInternalTile(e)) { e.Effects = DragDropEffects.Move; e.Handled = true; return; }
+        if (HasInternalTile(e))
+        {
+            e.Effects = DragDropEffects.Move;
+            TrackInternalDrag(e);
+            e.Handled = true;
+            return;
+        }
         e.Effects = HasDroppable(e) ? DragDropEffects.Link | DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -1543,6 +1577,7 @@ public partial class LauncherWindow : Window
         var p = e.GetPosition(Panel);
         if (p.X > 0 && p.Y > 0 && p.X < Panel.ActualWidth && p.Y < Panel.ActualHeight) return;
         SetDropOverlay(false);
+        EndInternalDrag();
     }
 
     private void OnDrop(object sender, DragEventArgs e)
@@ -1550,6 +1585,7 @@ public partial class LauncherWindow : Window
         if (e.Data.GetData(InternalTileFormat) is { } raw)
         {
             HandleInternalDrop(raw, e);
+            EndInternalDrag();
             return;
         }
 
@@ -1577,6 +1613,13 @@ public partial class LauncherWindow : Window
         if (_editMode) return;
         _editMode = true;
         EditGlow.To(OpacityProperty, 1, 160, Motion.Out);
+
+        // A persistent strip under the panel names the mode and the gestures. The window grows
+        // downwards to make room, so the panel itself does not move.
+        EditHintBar.Visibility = Visibility.Visible;
+        EditHintBar.To(OpacityProperty, 1, 160, Motion.Out);
+        ResizeWindow();
+
         ShowStickyMessage("调整布局中 · Esc 退出", "完成", ExitEditMode);
     }
 
@@ -1585,19 +1628,118 @@ public partial class LauncherWindow : Window
         if (!_editMode) return;
         _editMode = false;
         _dragArmed = false;
+        EndInternalDrag();
         EditGlow.To(OpacityProperty, 0, 140, Motion.In);
+        EditHintBar.To(OpacityProperty, 0, 120, Motion.In);
+        EditHintBar.Visibility = Visibility.Collapsed;
         HideMessage(immediate: true);
         Rebuild();
+        ResizeWindow();
+    }
+
+    // ───────────────────────── Internal drag: gap preview + auto-scroll ─────────────────────────
+
+    /// <summary>
+    /// Cell under <paramref name="p"/> (ListBox coordinates), derived from the grid geometry
+    /// instead of from the container under the cursor: while the placeholder inserts itself the
+    /// containers shift, and hit-testing them would make the preview oscillate.
+    /// </summary>
+    private (int index, double relX) CellAt(Point p)
+    {
+        var cellW = Math.Max(1, CellWidth);
+        var cellH = Math.Max(1, CellHeight);
+        var col = Math.Clamp((int)Math.Floor(p.X / cellW), 0, Cols - 1);
+        var row = Math.Max(0, (int)Math.Floor(p.Y / cellH));
+        var relX = Math.Clamp((p.X - col * cellW) / cellW, 0, 1);
+        var index = Math.Clamp(row * Cols + col, 0, Math.Max(0, _tiles.Count - 1));
+        return (index, relX);
+    }
+
+    private void BeginInternalDrag(DragEventArgs e)
+    {
+        if (!_editMode) return;
+        _draggingTile = true;
+        _lastDragPoint = e.GetPosition(Tiles);
+        UpdateInsertMarkerAt(_lastDragPoint);
+        UpdateDragAutoScroll(e);
+        if (!_dragScroll.IsEnabled) _dragScroll.Start();
+    }
+
+    private void TrackInternalDrag(DragEventArgs e)
+    {
+        if (!_editMode) { e.Effects = DragDropEffects.None; return; }
+        _draggingTile = true;
+        _lastDragPoint = e.GetPosition(Tiles);
+        UpdateInsertMarkerAt(_lastDragPoint);
+        UpdateDragAutoScroll(e);
+        if (!_dragScroll.IsEnabled) _dragScroll.Start();
+    }
+
+    private void EndInternalDrag()
+    {
+        _draggingTile = false;
+        _dragScrollStep = 0;
+        _dragScroll?.Stop();
+        RemoveInsertMarker();
+    }
+
+    /// <summary>Scrolls faster the closer the pointer is to the top/bottom edge of the list.</summary>
+    private void UpdateDragAutoScroll(DragEventArgs e)
+    {
+        const double edge = 46;
+        var p = e.GetPosition(Scroller);
+        var height = Math.Max(1, Scroller.ActualHeight);
+        if (p.Y < edge) _dragScrollStep = -(1 - p.Y / edge) * 18;
+        else if (p.Y > height - edge) _dragScrollStep = (1 - (height - p.Y) / edge) * 18;
+        else _dragScrollStep = 0;
+    }
+
+    private void UpdateInsertMarkerAt(Point p)
+    {
+        if (!_draggingTile || !_editMode) return;
+        if (p.Y < 0 || p.Y > Scroller.ActualHeight + 200) return;
+
+        var (index, relX) = CellAt(p);
+        var want = Math.Clamp(index + (relX >= 0.5 ? 1 : 0), 0, _tiles.Count);
+        if (_insertMarker is not null && want == _markerIndex) return;
+
+        RemoveInsertMarker();
+        _insertMarker = InsertMarker.Instance;
+        _tiles.Insert(Math.Min(want, _tiles.Count), _insertMarker);
+        _markerIndex = want;
+        SyncHeightWithMarker();
+    }
+
+    private void RemoveInsertMarker()
+    {
+        if (_insertMarker is null) return;
+        var marker = _insertMarker;
+        _insertMarker = null;
+        _markerIndex = -1;
+        _tiles.Remove(marker);
+        SyncHeightWithMarker();
+    }
+
+    /// <summary>The placeholder may push the grid onto a new row; let the panel grow with it.</summary>
+    private void SyncHeightWithMarker()
+    {
+        var target = TargetPanelHeight();
+        if (Math.Abs(Panel.ActualHeight - target) < 0.5) return;
+        ResizeWindow();
+        Panel.To(HeightProperty, target, 160, Motion.Out);
     }
 
     private void HandleInternalDrop(object raw, DragEventArgs e)
     {
-        var pos = e.GetPosition(Tiles);
-        var container = FindContainerAt(pos);
-        if (container is null) return;
-        var target = container.DataContext;
-        var local = e.GetPosition(container);
-        var rel = local.X / Math.Max(1, container.ActualWidth);
+        var (index, relX) = CellAt(e.GetPosition(Tiles));
+
+        // The placeholder is a preview only; take it out before touching the real order.
+        RemoveInsertMarker();
+        _draggingTile = false;
+        _dragScrollStep = 0;
+        _dragScroll.Stop();
+
+        var target = _tiles.ElementAtOrDefault(index);
 
         // A folder tile is not one library item; move its first member so the whole
         // group tile lands before/after the target.
@@ -1613,7 +1755,7 @@ public partial class LauncherWindow : Window
             if (draggedAnchor is null || targetAnchor is null) return;
             if (ReferenceEquals(draggedAnchor, targetAnchor)) return;
 
-            _library.Reorder(draggedAnchor, targetAnchor, after: rel >= 0.5);
+            _library.Reorder(draggedAnchor, targetAnchor, after: relX >= 0.5);
             RefreshOrder();
             return;
         }
@@ -1623,12 +1765,12 @@ public partial class LauncherWindow : Window
         if (target is ShortcutItem targetItem && !ReferenceEquals(targetItem, dragged))
         {
             // Left/right edge → reorder; centre → merge into a folder.
-            if (rel < 0.32)
+            if (relX < 0.32)
             {
                 _library.Reorder(dragged, targetItem, after: false);
                 RefreshOrder();
             }
-            else if (rel > 0.68)
+            else if (relX > 0.68)
             {
                 _library.Reorder(dragged, targetItem, after: true);
                 RefreshOrder();
@@ -1642,12 +1784,12 @@ public partial class LauncherWindow : Window
         {
             var anchor = folder.Members.FirstOrDefault();
             if (anchor is null) return;
-            if (rel < 0.32)
+            if (relX < 0.32)
             {
                 _library.Reorder(dragged, anchor, after: false);
                 RefreshOrder();
             }
-            else if (rel > 0.68)
+            else if (relX > 0.68)
             {
                 _library.Reorder(dragged, anchor, after: true);
                 RefreshOrder();
@@ -1658,6 +1800,7 @@ public partial class LauncherWindow : Window
             }
         }
     }
+
 
     private ListBoxItem? FindContainerAt(Point p)
     {

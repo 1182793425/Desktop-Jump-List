@@ -1,7 +1,7 @@
-<Window x:Class="DesktopJumpList.Views.SettingsWindow"
+﻿<Window x:Class="DesktopJumpList.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Jump 设置" Width="620" Height="830"
+        Title="Jump 设置" Width="620" Height="852"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         WindowStartupLocation="Manual"
@@ -266,6 +266,7 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Text="每行" Style="{StaticResource GridLabel}" />
@@ -284,12 +285,21 @@
                                     <TextBlock Grid.Row="1" Grid.Column="3" Text="文字" Style="{StaticResource GridLabel}" />
                                     <TextBox x:Name="FontBox" Grid.Row="1" Grid.Column="4" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
-                                    <TextBlock Grid.Row="1" Grid.Column="6" Text="间距" Style="{StaticResource GridLabel}" />
-                                    <TextBox x:Name="GapBox" Grid.Row="1" Grid.Column="7" Style="{StaticResource SettingsNumber}"
+                                    <TextBlock Grid.Row="1" Grid.Column="6" Text="项间距" Style="{StaticResource GridLabel}" />
+                                    <TextBox x:Name="ItemGapBox" Grid.Row="1" Grid.Column="7" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
+
+                                    <!-- The two gaps side by side, each named for what it actually separates. -->
+                                    <TextBlock Grid.Row="2" Text="图标与文字" Style="{StaticResource GridLabel}" Margin="0,0,6,0" />
+                                    <TextBox x:Name="GapBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource SettingsNumber}"
+                                             Margin="0,3,0,3" />
+                                    <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="6"
+                                               Style="{StaticResource InlineHint}" VerticalAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               Text="图标与它下面文字的距离；「项间距」是图标之间、行之间的空隙" />
                                 </Grid>
                                 <TextBlock Style="{StaticResource InlineHint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                           Text="每行 / 最大行数是网格上限；最近使用是面板顶部一行的条数，超出时显示「更多」" />
+                                           Text="面板宽高由每行数量、图标大小、项间距撑开；行数按「最大行数」铺开，超出屏幕才滚动" />
                             </StackPanel>
                         </Border>
 

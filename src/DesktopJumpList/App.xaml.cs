@@ -309,6 +309,13 @@ public partial class App : Application
         Launcher.ApplyPanelStyle();
     }
 
+    public void SetPanelItemGap(int gap)
+    {
+        Settings.PanelItemGap = gap;
+        SaveSettings();
+        Launcher.ApplyPanelStyle();
+    }
+
     public void SetRecentCount(int count)
     {
         Settings.RecentCount = count;
@@ -541,6 +548,16 @@ public partial class App : Application
             typeof(LauncherWindow).GetMethod("EnterEditMode", privateFlags)?.Invoke(Launcher, null);
             await Task.Delay(450);
             CaptureLauncher(Path.Combine(directory, "launcher-edit-dark.png"), 1.5);
+            // Drop preview: the placeholder cell that opens where a dragged tile would land.
+            if (Launcher.Tiles.ItemsSource is System.Collections.ObjectModel.ObservableCollection<object> tileItems)
+            {
+                tileItems.Insert(2, InsertMarker.Instance);
+                typeof(LauncherWindow).GetMethod("SyncHeightWithMarker", privateFlags)?.Invoke(Launcher, null);
+                await Task.Delay(350);
+                CaptureLauncher(Path.Combine(directory, "launcher-drop-dark.png"), 1.5);
+                tileItems.Remove(InsertMarker.Instance);
+            }
+
             typeof(LauncherWindow).GetMethod("ExitEditMode", privateFlags)?.Invoke(Launcher, null);
             Launcher.Close(animated: false);
 
@@ -671,6 +688,10 @@ public partial class App : Application
 
     private static void RenderElement(FrameworkElement element, string path, double scale)
     {
+        // A window that was just resized renders blank until its layout/animation frame lands.
+        element.UpdateLayout();
+        element.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+
         var width = element.ActualWidth;
         var height = element.ActualHeight;
         var pixelWidth = Math.Max(1, (int)Math.Round(width * scale));

@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
         {
             RefreshSettings();
             SettingsScroll.ScrollToTop();
+            GrowToFitContent();
         };
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
@@ -44,6 +45,22 @@ public partial class SettingsWindow : Window
 
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + (area.Height - Height) / 2;
+    }
+
+    /// <summary>
+    /// The card stack grows as settings are added; only grow when the content really needs it,
+    /// so a short window never shows a scrollbar for two pixels of slack.
+    /// </summary>
+    private void GrowToFitContent()
+    {
+        UpdateLayout();
+        var area = ScreenGeometry.WorkAreaAtCursor(this);
+        var chrome = ActualHeight - SettingsScroll.ActualHeight;
+        var wanted = Math.Ceiling(chrome + SettingsScroll.ExtentHeight + 4);
+        var max = Math.Max(420, area.Height - 24);
+        if (wanted <= Height + 1 || wanted > max) return;
+        Height = wanted;
+        CenterOnScreen();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -83,6 +100,7 @@ public partial class SettingsWindow : Window
         IconBox.Text = s.PanelIconSize.ToString();
         FontBox.Text = s.PanelFontSize.ToString();
         GapBox.Text = s.PanelGap.ToString();
+        ItemGapBox.Text = s.PanelItemGap.ToString();
 
         RecentBox.Text = s.RecentCount.ToString();
 
@@ -158,6 +176,7 @@ public partial class SettingsWindow : Window
             case nameof(IconBox): ApplyInt(box, v => App.Current.SetPanelIconSize(v)); break;
             case nameof(FontBox): ApplyInt(box, v => App.Current.SetPanelFontSize(v)); break;
             case nameof(GapBox): ApplyInt(box, v => App.Current.SetPanelGap(v)); break;
+            case nameof(ItemGapBox): ApplyInt(box, v => App.Current.SetPanelItemGap(v)); break;
             case nameof(RecentBox): ApplyInt(box, v => App.Current.SetRecentCount(v)); break;
             case nameof(DockSizeBox): ApplyInt(box, v => App.Current.SetDockSize(v)); break;
             case nameof(DockOpacityBox):

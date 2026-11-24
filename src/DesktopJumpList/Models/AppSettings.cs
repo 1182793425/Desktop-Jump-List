@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace DesktopJumpList.Models;
 
@@ -68,8 +68,14 @@ public sealed class AppSettings
     /// <summary>Tile label font size in DIPs (10..14).</summary>
     public int PanelFontSize { get; set; } = 12;
 
-    /// <summary>Space between the tile icon and its label, and extra row breathing room (2..10).</summary>
+    /// <summary>Space between a tile icon and its label (DIPs).</summary>
     public int PanelGap { get; set; } = 8;
+
+    /// <summary>
+    /// Space between tiles, both horizontally and vertically — the panel's CSS-gap. The panel
+    /// width/height grow with it, so this is a real layout control, not just padding.
+    /// </summary>
+    public int PanelItemGap { get; set; } = 10;
 
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
@@ -77,10 +83,10 @@ public sealed class AppSettings
     /// <summary>Panel tint alpha (0.50..1.00). The desktop shows through as it drops.</summary>
     public double PanelOpacity { get; set; } = 0.85;
 
-    /// <summary>Tiles per row. Clamped to 3..5 so a 100 px tile never overflows the 530 px panel.</summary>
+    /// <summary>Tiles per row. The panel width is derived from this, so there is no fixed limit.</summary>
     public int Columns { get; set; } = 5;
 
-    /// <summary>Maximum visible rows before the panel scrolls. Clamped to 2..5 to fit the panel.</summary>
+    /// <summary>Maximum visible rows before the panel scrolls. The panel height follows it (capped by the screen).</summary>
     public int MaxRows { get; set; } = 4;
 
     /// <summary>How close (px) a dropped ball must be to a screen edge to snap to it.</summary>
@@ -106,6 +112,7 @@ public sealed class AppSettings
         PanelIconSize = PanelIconSize,
         PanelFontSize = PanelFontSize,
         PanelGap = PanelGap,
+        PanelItemGap = PanelItemGap,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,
