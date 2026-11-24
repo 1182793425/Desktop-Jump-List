@@ -44,24 +44,25 @@ function New-Frame([int]$size) {
     return $frame
 }
 
-# Preview: the same mark on a dark and a light surface.
-$sheet = [System.Drawing.Bitmap]::new(700, 300, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+# Preview: the same mark on a dark and a light surface, plus taskbar-sized versions.
+$sheet = [System.Drawing.Bitmap]::new(700, 380, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 $sg = [System.Drawing.Graphics]::FromImage($sheet)
 $sg.Clear([System.Drawing.Color]::FromArgb(255, 30, 32, 38))
-$darkRect = [System.Drawing.Rectangle]::new(0, 0, 350, 300)
 $lightBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 243, 244, 246))
-$sg.FillRectangle($lightBrush, 350, 0, 350, 300)
+$sg.FillRectangle($lightBrush, 350, 0, 350, 380)
 $lightBrush.Dispose()
 $large = New-Frame 256
 $sg.DrawImage($large, 20, 20, 256, 256)
 $sg.DrawImage($large, 374, 20, 256, 256)
 $large.Dispose()
-$px = 470
-foreach ($s in 64, 48, 32, 24, 16) {
-    $f = New-Frame $s
-    $sg.DrawImage($f, $px, 220, $s, $s)
-    $px += $s + 12
-    $f.Dispose()
+foreach ($baseX in 20, 374) {
+    $px = $baseX
+    foreach ($s in 64, 48, 32, 24, 16) {
+        $f = New-Frame $s
+        $sg.DrawImage($f, $px, 300, $s, $s)
+        $px += $s + 12
+        $f.Dispose()
+    }
 }
 $sg.Dispose()
 $sheet.Save($preview, [System.Drawing.Imaging.ImageFormat]::Png)
