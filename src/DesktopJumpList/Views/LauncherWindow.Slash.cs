@@ -82,7 +82,7 @@ public partial class LauncherWindow
         if (item.Icon is null && item.Name.Length > 0)
         {
             row.Glyph = item.Name[..1];
-            row.Accent = NameBrushConverter.Convert(item.Name, typeof(System.Windows.Media.Brush), null, Inv) as System.Windows.Media.Brush;
+            row.Accent = NameBrushConverter.Convert(item.Name, typeof(System.Windows.Media.Brush), null!, Inv) as System.Windows.Media.Brush;
         }
 
         return row;
