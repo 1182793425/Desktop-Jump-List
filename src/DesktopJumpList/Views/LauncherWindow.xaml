@@ -155,7 +155,8 @@
 
                 <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
                     <Ellipse Fill="{DynamicResource HoverBrush}" />
-                    <Path Data="M13,4 L5,12 L13,20" Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.9"
+                    <Path Data="M16,4 L8,12 L16,20" Width="16" Height="16" Stretch="Uniform"
+                          Stroke="{DynamicResource InkSubBrush}" StrokeThickness="1.9"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
@@ -182,6 +183,31 @@
                 </Grid>
 
                 <TextBlock Grid.Row="1" Text="添加" Style="{StaticResource TileLabel}"
+                           Foreground="{DynamicResource InkSubBrush}" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- ===== "more recently used" tile ===== -->
+        <DataTemplate DataType="{x:Type local:MoreRecentTile}">
+            <Grid Width="100" Height="{DynamicResource TileHeightValue}" Background="Transparent"
+                  ToolTip="查看全部最近使用" AutomationProperties.Name="更多最近使用">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
+                    <Border CornerRadius="11" Background="{DynamicResource HoverBrush}"
+                            BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Ellipse Width="3" Height="3" Fill="{DynamicResource InkSubBrush}" />
+                            <Ellipse Width="3" Height="3" Fill="{DynamicResource InkSubBrush}" Margin="3,0,0,0" />
+                            <Ellipse Width="3" Height="3" Fill="{DynamicResource InkSubBrush}" Margin="3,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <TextBlock Grid.Row="1" Text="更多" Style="{StaticResource TileLabel}"
                            Foreground="{DynamicResource InkSubBrush}" />
             </Grid>
         </DataTemplate>
@@ -360,26 +386,57 @@
                     <Border CornerRadius="21" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource PanelHighlightBrush}"
                             IsHitTestVisible="False" />
 
-                    <ScrollViewer x:Name="Scroller" Margin="14,14,10,14" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Focusable="False" CanContentScroll="False">
-                        <ListBox x:Name="Tiles" Background="Transparent" BorderThickness="0" Padding="0"
-                                 Focusable="False" SelectionMode="Single"
-                                 Foreground="{DynamicResource InkBrush}"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                 ItemContainerStyle="{StaticResource TileContainer}">
-                            <ListBox.Template>
-                                <ControlTemplate TargetType="ListBox">
-                                    <ItemsPresenter />
-                                </ControlTemplate>
-                            </ListBox.Template>
-                            <ListBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <UniformGrid Columns="5" VerticalAlignment="Top" />
-                                </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                        </ListBox>
-                    </ScrollViewer>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <!-- One-row recently used header, above the divider. -->
+                        <StackPanel x:Name="RecentSection" Grid.Row="0" Visibility="Collapsed">
+                            <TextBlock Text="最近使用" Height="14" Margin="16,10,0,0" FontSize="10.5"
+                                       Foreground="{DynamicResource InkFaintBrush}" VerticalAlignment="Center" />
+                            <ListBox x:Name="RecentTiles" Margin="14,4,10,0" Height="{DynamicResource TileHeightValue}"
+                                     Background="Transparent" BorderThickness="0" Padding="0" Focusable="False"
+                                     SelectionMode="Single" Foreground="{DynamicResource InkBrush}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     ItemContainerStyle="{StaticResource TileContainer}">
+                                <ListBox.Template>
+                                    <ControlTemplate TargetType="ListBox">
+                                        <ItemsPresenter />
+                                    </ControlTemplate>
+                                </ListBox.Template>
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="5" VerticalAlignment="Top" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                            <Border Height="1" Margin="14,6,10,8" Background="{DynamicResource PanelBorderBrush}" />
+                        </StackPanel>
+
+                        <ScrollViewer x:Name="Scroller" Grid.Row="1" Margin="14,14,10,14" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Focusable="False" CanContentScroll="False">
+                            <ListBox x:Name="Tiles" Background="Transparent" BorderThickness="0" Padding="0"
+                                     Focusable="False" SelectionMode="Single"
+                                     Foreground="{DynamicResource InkBrush}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     ItemContainerStyle="{StaticResource TileContainer}">
+                                <ListBox.Template>
+                                    <ControlTemplate TargetType="ListBox">
+                                        <ItemsPresenter />
+                                    </ControlTemplate>
+                                </ListBox.Template>
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="5" VerticalAlignment="Top" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                        </ScrollViewer>
+                    </Grid>
 
                     <!-- Empty library -->
                     <Border x:Name="EmptyState" Margin="16" CornerRadius="16" Visibility="Collapsed"
@@ -442,6 +499,7 @@
                             BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
                         <Grid Margin="24,18,24,16">
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -543,8 +601,27 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- Floating circle -->
+                            <!-- Recently used list size -->
                             <Grid Grid.Row="4" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="最近使用" Style="{StaticResource SettingsLabel}" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="RecentMinus" Style="{StaticResource MiniButton}" Content="−"
+                                            Click="OnRecentMinus" />
+                                    <TextBlock x:Name="RecentValue" Width="26" TextAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                    <Button x:Name="RecentPlus" Style="{StaticResource MiniButton}" Content="+"
+                                            Click="OnRecentPlus" />
+                                    <TextBlock Text="条；顶部只显示一行，超出显示「更多」" Style="{StaticResource SettingsLabel}"
+                                               FontSize="11" Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Floating circle -->
+                            <Grid Grid.Row="5" Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -566,7 +643,7 @@
                             </Grid>
 
                             <!-- Floating circle colour -->
-                            <Grid Grid.Row="5" Margin="0,10,0,0">
+                            <Grid Grid.Row="6" Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -591,7 +668,7 @@
                             </Grid>
 
                             <!-- Auto tuck delay -->
-                            <Grid Grid.Row="6" Margin="0,12,0,0">
+                            <Grid Grid.Row="7" Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -610,7 +687,7 @@
                             </Grid>
 
                             <!-- Hotkey -->
-                            <Grid Grid.Row="7" Margin="0,12,0,0">
+                            <Grid Grid.Row="8" Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -638,7 +715,7 @@
                             </Grid>
 
                             <!-- Autostart -->
-                            <Grid Grid.Row="8" Margin="0,14,0,0">
+                            <Grid Grid.Row="9" Margin="0,14,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="86" />
                                     <ColumnDefinition Width="*" />
@@ -651,7 +728,7 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Grid Grid.Row="10">
+                            <Grid Grid.Row="11">
                                 <Button x:Name="DataFolderButton" Content="打开数据目录" Style="{StaticResource LinkButton}"
                                         HorizontalAlignment="Left" Padding="0,3" Click="OnOpenDataFolder" />
                                 <TextBlock x:Name="VersionText" HorizontalAlignment="Right" VerticalAlignment="Center"

@@ -65,6 +65,9 @@ public sealed class AppSettings
     /// <summary>Space between the tile icon and its label, and extra row breathing room (2..10).</summary>
     public int PanelGap { get; set; } = 8;
 
+    /// <summary>How many recently-used entries to keep/show (4..20).</summary>
+    public int RecentCount { get; set; } = 10;
+
     /// <summary>Tiles per row. Clamped to 3..5 so a 100 px tile never overflows the 530 px panel.</summary>
     public int Columns { get; set; } = 5;
 
@@ -92,6 +95,7 @@ public sealed class AppSettings
         PanelIconSize = PanelIconSize,
         PanelFontSize = PanelFontSize,
         PanelGap = PanelGap,
+        RecentCount = RecentCount,
         Columns = Columns,
         MaxRows = MaxRows,
         SnapDistance = SnapDistance,

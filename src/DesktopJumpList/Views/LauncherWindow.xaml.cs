@@ -49,6 +49,14 @@ public sealed class BackTile
     public string Name => "全部";
 }
 
+/// <summary>Sentinel item for the last cell of the one-row "recently used" header.</summary>
+public sealed class MoreRecentTile
+{
+    public static readonly MoreRecentTile Instance = new();
+    private MoreRecentTile() { }
+    public string Name => "更多";
+}
+
 /// <summary>
 /// The centred panel. Nothing but your shortcuts: a grid of tiles, type-to-filter, click to open.
 /// The search pill only exists while you are typing (or for a brief message).
@@ -57,11 +65,12 @@ public partial class LauncherWindow : Window
 {
     private const double PanelChrome = 2 + 28; // border + inner padding
     private const double EmptyHeight = 210;
-    private const double SettingsHeight = 470;
+    private const double SettingsHeight = 512;
     private const double CanvasMargin = 36;
     private const double PillRowHeight = 50; // 40 px pill + 10 px gap
     private const double IconTopPadding = 8;
     private const double TileBottomPadding = 8;
+    private const double MaxPanelHeight = 590; // window is 680, panel top sits at 86
 
     private static AppSettings CurrentSettings => App.Current.Settings;
 
@@ -77,10 +86,13 @@ public partial class LauncherWindow : Window
 
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
+    private readonly ObservableCollection<object> _recentTiles = new();
     private readonly DispatcherTimer _messageTimer;
 
     private List<ShortcutItem> _ordered = new();
+    private List<ShortcutItem> _recentItems = new();
     private string? _currentFolder;
+    private bool _recentView;
     private bool _closing;
     private bool _staggerNext;
     private int _modalDepth;
@@ -116,6 +128,7 @@ public partial class LauncherWindow : Window
         InitializeComponent();
         _library = library;
         Tiles.ItemsSource = _tiles;
+        RecentTiles.ItemsSource = _recentTiles;
 
         _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         _messageTimer.Tick += (_, _) => HideMessage();
@@ -158,6 +171,9 @@ public partial class LauncherWindow : Window
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnTileDown), true);
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(OnTileUp), true);
         Tiles.AddHandler(ListBoxItem.MouseRightButtonUpEvent, new MouseButtonEventHandler(OnTileRightClick), true);
+
+        RecentTiles.PreviewMouseLeftButtonUp += OnRecentTileUp;
+        RecentTiles.PreviewMouseRightButtonUp += OnTileRightClick;
 
         EmptyState.MouseLeftButtonUp += (_, _) => ShowAddMenu(null);
         MessageAction.Click += (_, _) => { var a = _messageAction; HideMessage(); a?.Invoke(); };
@@ -203,6 +219,7 @@ public partial class LauncherWindow : Window
             HideMessage(immediate: true);
             HideRename(immediate: true);
             _currentFolder = null;
+            _recentView = false;
             _ordered = _library.Ordered();
             _staggerNext = true;
             Rebuild();
@@ -289,8 +306,17 @@ public partial class LauncherWindow : Window
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
         _tiles.Clear();
+        _recentTiles.Clear();
+        _recentItems = new List<ShortcutItem>();
 
-        if (q.Length == 0 && _currentFolder is not null)
+        if (q.Length == 0 && _recentView)
+        {
+            // The "more" view: back tile + every retained recently-used entry.
+            _recentItems = RecentItems();
+            _tiles.Add(new BackTile("全部"));
+            foreach (var item in _recentItems) _tiles.Add(item);
+        }
+        else if (q.Length == 0 && _currentFolder is not null)
         {
             // Inside a folder: back tile + that folder's members.
             _tiles.Add(new BackTile(_currentFolder));
@@ -321,6 +347,26 @@ public partial class LauncherWindow : Window
             if (q.Length == 0 && _ordered.Count > 0) _tiles.Add(AddTile.Instance);
         }
 
+        // One-row recent header above the divider, only in the top-level view.
+        if (q.Length == 0 && !_recentView && _currentFolder is null)
+        {
+            _recentItems = RecentItems();
+            if (_recentItems.Count > 0)
+            {
+                var shown = _recentItems.Count > Cols
+                    ? _recentItems.Take(Cols - 1).ToList()
+                    : _recentItems;
+                foreach (var item in shown) _recentTiles.Add(item);
+                if (_recentItems.Count > Cols) _recentTiles.Add(MoreRecentTile.Instance);
+            }
+        }
+
+        var recentVisible = _recentTiles.Count > 0;
+        RecentSection.Visibility = recentVisible ? Visibility.Visible : Visibility.Collapsed;
+        Scroller.Margin = recentVisible
+            ? new Thickness(14, 0, 10, 14)
+            : new Thickness(14, 14, 10, 14);
+
         bool empty = _ordered.Count == 0;
         EmptyState.Visibility = empty && q.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         Scroller.Visibility = EmptyState.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
@@ -332,6 +378,17 @@ public partial class LauncherWindow : Window
 
         if (q.Length > 0) Tiles.SelectedIndex = _tiles.Count > 0 ? 0 : -1;
         else Tiles.SelectedIndex = -1;
+    }
+
+    private List<ShortcutItem> RecentItems()
+    {
+        var take = Math.Clamp(CurrentSettings.RecentCount, 4, 20);
+        return _library.Items
+            .Where(i => i.LastOpenedAt is not null)
+            .OrderByDescending(i => i.LastOpenedAt)
+            .ThenByDescending(i => i.OpenCount)
+            .Take(take)
+            .ToList();
     }
 
     private static bool SameFolder(string? a, string? b) =>
@@ -364,8 +421,16 @@ public partial class LauncherWindow : Window
     {
         if (_settingsOpen) return SettingsHeight;
         if (_tiles.Count == 0) return EmptyHeight;
+
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
-        return PanelChrome + rows * TileHeight;
+        var recentExtra = _recentTiles.Count > 0 ? TileHeight + 29 : 0;
+
+        // Never let the panel (and its shadow) run past the bottom of the 680 px window.
+        var available = MaxPanelHeight - PanelChrome - recentExtra;
+        var fit = Math.Max(1, (int)Math.Floor(available / TileHeight));
+        rows = Math.Min(rows, fit);
+
+        return PanelChrome + rows * TileHeight + recentExtra;
     }
 
     private void AnimatePanelHeight()
@@ -382,6 +447,11 @@ public partial class LauncherWindow : Window
         factory.SetValue(UniformGrid.ColumnsProperty, Cols);
         factory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
         Tiles.ItemsPanel = new ItemsPanelTemplate(factory);
+
+        var recentFactory = new FrameworkElementFactory(typeof(UniformGrid));
+        recentFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
+        recentFactory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+        RecentTiles.ItemsPanel = new ItemsPanelTemplate(recentFactory);
 
         Rebuild();
         if (IsOpen)
@@ -413,16 +483,23 @@ public partial class LauncherWindow : Window
     private void OnTileLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is not ListBoxItem container) return;
-        var index = Tiles.ItemContainerGenerator.IndexFromContainer(container);
-        var delay = _staggerNext ? Math.Min(index, 12) * 11 + 40 : 0;
+
+        var owner = ItemsControl.ItemsControlFromItemContainer(container);
+        var isMain = ReferenceEquals(owner, Tiles);
+        var index = owner?.ItemContainerGenerator.IndexFromContainer(container) ?? 0;
+        if (index < 0) index = 0;
+
+        // The one-row recent header just fades; only the main grid ripples.
+        var stagger = _staggerNext && isMain;
+        var delay = stagger ? Math.Min(index, 12) * 11 + 40 : 0;
         var shift = (TranslateTransform)EnsureTransforms(container).Children[1];
 
-        container.FromTo(OpacityProperty, 0, 1, _staggerNext ? 200 : 130, Motion.Out, delay);
-        if (_staggerNext)
+        container.FromTo(OpacityProperty, 0, 1, stagger ? 200 : 130, Motion.Out, delay);
+        if (stagger)
         {
             shift.FromTo(TranslateTransform.YProperty, 6, 0, 240, Motion.OutStrong, delay);
         }
-        if (_staggerNext && index >= _tiles.Count - 1)
+        if (stagger && index >= _tiles.Count - 1)
             Dispatcher.BeginInvoke(() => _staggerNext = false, DispatcherPriority.ContextIdle);
     }
 
@@ -508,15 +585,35 @@ public partial class LauncherWindow : Window
             case FolderTile folder: OpenFolder(folder.Name); break;
             case BackTile: OpenFolder(null); break;
             case AddTile: ShowAddMenu(anchor); break;
+            case MoreRecentTile: OpenRecentView(); break;
         }
     }
 
     private void OpenFolder(string? name)
     {
         _currentFolder = name;
+        _recentView = false;
         Rebuild();
         Panel.Set(HeightProperty, TargetPanelHeight());
         Scroller.ScrollToTop();
+    }
+
+    private void OpenRecentView()
+    {
+        _recentView = true;
+        _currentFolder = null;
+        Rebuild();
+        Panel.Set(HeightProperty, TargetPanelHeight());
+        Scroller.ScrollToTop();
+    }
+
+    private void OnRecentTileUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_settingsOpen) return;
+        if (ContainerFrom(e.OriginalSource) is not { } c) return;
+        e.Handled = true;
+        if (!c.IsMouseOver) return;
+        Invoke(c.DataContext, c);
     }
 
     private void OpenItem(ShortcutItem item)
@@ -613,12 +710,13 @@ public partial class LauncherWindow : Window
             case Key.Escape:
                 if (_editMode) ExitEditMode();
                 else if (Query.Text.Length > 0) Query.Text = string.Empty;
+                else if (_recentView) OpenFolder(null);
                 else if (_currentFolder is not null) OpenFolder(null);
                 else Close(animated: true);
                 e.Handled = true;
                 break;
 
-            case Key.Back when Query.Text.Length == 0 && _currentFolder is not null:
+            case Key.Back when Query.Text.Length == 0 && (_currentFolder is not null || _recentView):
                 OpenFolder(null);
                 e.Handled = true;
                 break;
@@ -925,6 +1023,10 @@ public partial class LauncherWindow : Window
         GapMinus.IsEnabled = s.PanelGap > 2;
         GapPlus.IsEnabled = s.PanelGap < 10;
 
+        RecentValue.Text = s.RecentCount.ToString();
+        RecentMinus.IsEnabled = s.RecentCount > 4;
+        RecentPlus.IsEnabled = s.RecentCount < 20;
+
         DockVisibleSwitch.IsChecked = s.ShowDock;
         DockSizeValue.Text = $"{s.DockSize} px";
         DockSizeMinus.IsEnabled = s.DockSize > 32;
@@ -980,6 +1082,9 @@ public partial class LauncherWindow : Window
     private void OnGapMinus(object sender, RoutedEventArgs e) => ChangePanelGap(-2);
     private void OnGapPlus(object sender, RoutedEventArgs e) => ChangePanelGap(2);
 
+    private void OnRecentMinus(object sender, RoutedEventArgs e) => ChangeRecentCount(-1);
+    private void OnRecentPlus(object sender, RoutedEventArgs e) => ChangeRecentCount(1);
+
     private void OnDockSizeMinus(object sender, RoutedEventArgs e) => ChangeDockSize(-4);
     private void OnDockSizePlus(object sender, RoutedEventArgs e) => ChangeDockSize(4);
 
@@ -1026,6 +1131,12 @@ public partial class LauncherWindow : Window
     private void ChangePanelGap(int delta)
     {
         App.Current.SetPanelGap(App.Current.Settings.PanelGap + delta);
+        RefreshSettings();
+    }
+
+    private void ChangeRecentCount(int delta)
+    {
+        App.Current.SetRecentCount(App.Current.Settings.RecentCount + delta);
         RefreshSettings();
     }
 

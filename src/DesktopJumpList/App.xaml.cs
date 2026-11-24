@@ -73,6 +73,7 @@ public partial class App : Application
         Settings.PanelIconSize = Math.Clamp(Settings.PanelIconSize, 32, 48);
         Settings.PanelFontSize = Math.Clamp(Settings.PanelFontSize, 10, 14);
         Settings.PanelGap = Math.Clamp(Settings.PanelGap, 2, 10);
+        Settings.RecentCount = Math.Clamp(Settings.RecentCount, 4, 20);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
         ThemeService.Initialize(Settings.Theme);
@@ -239,6 +240,13 @@ public partial class App : Application
     public void SetPanelGap(int gap)
     {
         Settings.PanelGap = Math.Clamp(gap, 2, 10);
+        SaveSettings();
+        Launcher.ApplyPanelStyle();
+    }
+
+    public void SetRecentCount(int count)
+    {
+        Settings.RecentCount = Math.Clamp(count, 4, 20);
         SaveSettings();
         Launcher.ApplyPanelStyle();
     }
@@ -438,6 +446,19 @@ public partial class App : Application
             await Task.Delay(500);
             CaptureDock(Path.Combine(directory, "dock-tucked.png"), 4);
 
+            // Bonus previews: the "more recently used" view and a folder view (back tile).
+            Launcher.Open();
+            await Task.Delay(300);
+            var privateFlags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(LauncherWindow).GetMethod("OpenRecentView", privateFlags)?.Invoke(Launcher, null);
+            await Task.Delay(400);
+            CaptureLauncher(Path.Combine(directory, "launcher-recent-all-dark.png"), 1.5);
+            typeof(LauncherWindow).GetMethod("OpenFolder", privateFlags)?.Invoke(Launcher, new object?[] { "设计" });
+            await Task.Delay(400);
+            CaptureLauncher(Path.Combine(directory, "launcher-folder-dark.png"), 1.5);
+            typeof(LauncherWindow).GetMethod("OpenFolder", privateFlags)?.Invoke(Launcher, new object?[] { null });
+            Launcher.Close(animated: false);
+
             Settings.Theme = AppTheme.Light;
             ThemeService.SetMode(AppTheme.Light);
             var previewTray = new TrayIcon(this);
@@ -497,6 +518,15 @@ public partial class App : Application
             };
             if (name == "Figma") item.IsUnavailable = true;
             if (name == "Notion") item.Pinned = true;
+
+            // Preview only: seed a believable "recently used" row.
+            var rank = Array.IndexOf(new[] { "Visual Studio Code", "微信", "Figma", "Windows Terminal", "记事本", "Microsoft Edge", "Notion" }, name);
+            if (rank >= 0)
+            {
+                item.LastOpenedAt = DateTime.Now.AddMinutes(-(rank + 1) * 9);
+                item.OpenCount = 8 - rank;
+            }
+
             Library.Items.Add(item);
         }
     }
