@@ -6,3 +6,4 @@ obj/
 artifacts/
 installer/Output/
 debug.log
+.workbuddy/
