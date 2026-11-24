@@ -14,8 +14,20 @@ public static class ThemeService
 {
     private static ResourceDictionary? _current;
     private static AppTheme _mode = AppTheme.System;
+    private static double _panelOpacity = 0.85;
+    private static double _appliedOpacity = -1;
 
     public static bool IsDark { get; private set; }
+
+    public static double PanelOpacity => _panelOpacity;
+
+    public static void SetPanelOpacity(double opacity)
+    {
+        opacity = Math.Clamp(opacity, 0.50, 1.00);
+        if (Math.Abs(opacity - _panelOpacity) < 0.001) return;
+        _panelOpacity = opacity;
+        Apply();
+    }
 
     public static void Initialize(AppTheme mode)
     {
@@ -59,17 +71,22 @@ public static class ThemeService
             AppTheme.Dark => true,
             _ => ReadSystemDark()
         };
-        if (dark == IsDark && _current is not null) return;
+        if (dark == IsDark && Math.Abs(_appliedOpacity - _panelOpacity) < 0.001 && _current is not null) return;
         IsDark = dark;
+        _appliedOpacity = _panelOpacity;
 
         var d = new ResourceDictionary();
         void Brush(string key, string hex) { var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); b.Freeze(); d[key] = b; }
         void Col(string key, string hex) => d[key] = (Color)ColorConverter.ConvertFromString(hex);
 
+        // Tint alpha follows the panel-opacity setting; the opaque variants stay opaque.
+        var alpha = (byte)Math.Round(_panelOpacity * 255);
+        var tint = alpha.ToString("X2");
+
         if (dark)
         {
-            // Opaque-ish surface so light text never washes out against a bright wallpaper.
-            Brush("PanelBrush", "#F51B1F27");
+            // Translucent tint over the acrylic/frosted backdrop; text stays high-contrast.
+            Brush("PanelBrush", $"#{tint}1B1F27");
             Brush("PanelOpaqueBrush", "#FF1B1F27");
             Brush("PanelBorderBrush", "#2EFFFFFF");
             Brush("PanelHighlightBrush", "#0DFFFFFF");
@@ -81,7 +98,7 @@ public static class ThemeService
             Brush("SelectedBrush", "#338AB0FF");
             Brush("SelectedBorderBrush", "#738AB0FF");
             Brush("AccentBrush", "#8AB0FF");     // brighter accent for dark surfaces
-            Brush("PillBrush", "#F4282C36");
+            Brush("PillBrush", $"#{tint}282C36");
             Brush("MenuBrush", "#FC23262E");
             Brush("MenuHoverBrush", "#1AFFFFFF");
             Brush("DropBrush", "#E61B1F27");
@@ -100,7 +117,7 @@ public static class ThemeService
         }
         else
         {
-            Brush("PanelBrush", "#F8FCFCFE");
+            Brush("PanelBrush", $"#{tint}FCFCFE");
             Brush("PanelOpaqueBrush", "#FFFCFCFE");
             Brush("PanelBorderBrush", "#16000000");
             Brush("PanelHighlightBrush", "#B3FFFFFF");
@@ -112,7 +129,7 @@ public static class ThemeService
             Brush("SelectedBrush", "#1F3B6CF6");
             Brush("SelectedBorderBrush", "#593B6CF6");
             Brush("AccentBrush", "#3B6CF6");
-            Brush("PillBrush", "#F5FFFFFF");
+            Brush("PillBrush", $"#{tint}FFFFFF");
             Brush("MenuBrush", "#FCFFFFFF");
             Brush("MenuHoverBrush", "#0F000000");
             Brush("DropBrush", "#E6F6F8FC");

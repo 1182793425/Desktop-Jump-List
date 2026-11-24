@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using DesktopJumpList.Services;
 using Microsoft.Win32;
 
@@ -9,6 +11,7 @@ namespace DesktopJumpList.Views;
 public partial class StoreAppPicker : Window
 {
     private readonly List<StoreAppsService.StoreApp> _all;
+    private ImageBrush? _glassBrush;
 
     public StoreAppsService.StoreApp? Selected { get; private set; }
 
@@ -26,7 +29,34 @@ public partial class StoreAppPicker : Window
         // The filter is the primary input; clicking a row should not steal typing from it.
         List.PreviewMouseLeftButtonUp += (_, _) => Search.Focus();
 
-        Loaded += (_, _) => { Search.Focus(); Keyboard.Focus(Search); };
+        // Stay invisible for the first frame so the glass capture sees the desktop/owner,
+        // not the picker itself.
+        Opacity = 0;
+        Loaded += (_, _) =>
+        {
+            Search.Focus();
+            Keyboard.Focus(Search);
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+            {
+                UpdateLayout();
+                _glassBrush = App.Current.Settings.FrostedGlass
+                    ? GlassBackdrop.Capture(this, PanelBorder, 20)
+                    : null;
+                ApplyGlass();
+                Opacity = 1;
+            });
+        };
+    }
+
+    private void ApplyGlass()
+    {
+        var on = App.Current.Settings.FrostedGlass && _glassBrush is not null;
+        if (on)
+        {
+            GlassLayer.Background = _glassBrush;
+        }
+        GlassLayer.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        TintLayer.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Apply(string filter)

@@ -74,9 +74,11 @@ public partial class App : Application
         Settings.PanelFontSize = Math.Clamp(Settings.PanelFontSize, 10, 14);
         Settings.PanelGap = Math.Clamp(Settings.PanelGap, 2, 10);
         Settings.RecentCount = Math.Clamp(Settings.RecentCount, 4, 20);
+        Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.50, 1.00);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
         ThemeService.Initialize(Settings.Theme);
+        ThemeService.SetPanelOpacity(Settings.PanelOpacity);
         Library = new ShortcutLibrary(Storage);
 
         Launcher = new LauncherWindow(Library);
@@ -249,6 +251,27 @@ public partial class App : Application
         Settings.RecentCount = Math.Clamp(count, 4, 20);
         SaveSettings();
         Launcher.ApplyPanelStyle();
+    }
+
+    public void SetSnapDistance(int distance)
+    {
+        Settings.SnapDistance = Math.Clamp(distance, 8, 200);
+        SaveSettings();
+    }
+
+    public void SetPanelOpacity(double opacity)
+    {
+        Settings.PanelOpacity = Math.Clamp(opacity, 0.50, 1.00);
+        SaveSettings();
+        ThemeService.SetPanelOpacity(Settings.PanelOpacity);
+        Launcher.ApplyPanelAppearance();
+    }
+
+    public void SetFrostedGlass(bool enabled)
+    {
+        Settings.FrostedGlass = enabled;
+        SaveSettings();
+        Launcher.ApplyGlass();
     }
 
     /// <summary>Returns an error message, or null on success.</summary>
