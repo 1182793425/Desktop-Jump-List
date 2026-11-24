@@ -63,6 +63,12 @@ public partial class SettingsWindow : Window
         CenterOnScreen();
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        _advanced?.Close();
+        base.OnClosed(e);
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (_capturingHotkey)
@@ -341,6 +347,22 @@ public partial class SettingsWindow : Window
         enabled ? HotkeyHintDefault : "默认关闭，打开后生效";
 
     private void OnSettingsDone(object sender, RoutedEventArgs e) => Close();
+
+    private AdvancedSettingsWindow? _advanced;
+
+    private void OnOpenAdvanced(object sender, RoutedEventArgs e)
+    {
+        if (_advanced is { IsVisible: true })
+        {
+            _advanced.Activate();
+            return;
+        }
+
+        _advanced = new AdvancedSettingsWindow();
+        _advanced.Closed += (_, _) => _advanced = null;
+        _advanced.Show();
+        _advanced.Activate();
+    }
     private void OnOpenDataFolder(object sender, RoutedEventArgs e) => App.Current.OpenDataFolder();
 
     private static bool IsInside(DependencyObject node, DependencyObject ancestor)

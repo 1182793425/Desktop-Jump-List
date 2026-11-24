@@ -309,6 +309,13 @@ public partial class App : Application
         Launcher.ApplyPanelStyle();
     }
 
+    public void SetSearchEngines(IEnumerable<string> ids)
+    {
+        Settings.SearchEngines = ids.ToList();
+        SaveSettings();
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
     public void SetPanelItemGap(int gap)
     {
         Settings.PanelItemGap = gap;
@@ -503,6 +510,12 @@ public partial class App : Application
                 await Task.Delay(500);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 DumpSettingsLayout(directory, settingsWindow);
+
+                var advancedWindow = new AdvancedSettingsWindow();
+                advancedWindow.Show();
+                await Task.Delay(400);
+                RenderElement(advancedWindow, Path.Combine(directory, $"advanced-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+                advancedWindow.Close();
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
             }

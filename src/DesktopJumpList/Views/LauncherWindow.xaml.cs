@@ -28,6 +28,7 @@ public sealed class AddTile
 public sealed class FolderTile
 {
     public string Name { get; }
+    public bool IsOpen { get; init; }
     public IReadOnlyList<ShortcutItem> Members { get; }
     public IReadOnlyList<ShortcutItem> Preview { get; }
 
@@ -119,6 +120,7 @@ public partial class LauncherWindow : Window
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
     private readonly ObservableCollection<object> _recentTiles = new();
+    private readonly ObservableCollection<object> _folderTiles = new();
     private readonly DispatcherTimer _messageTimer;
     private readonly DispatcherTimer _dragScroll;
     private InsertMarker? _insertMarker;
@@ -167,6 +169,7 @@ public partial class LauncherWindow : Window
         _library = library;
         Tiles.ItemsSource = _tiles;
         RecentTiles.ItemsSource = _recentTiles;
+        FolderTiles.ItemsSource = _folderTiles;
 
         _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         _messageTimer.Tick += (_, _) => HideMessage();
@@ -221,6 +224,9 @@ public partial class LauncherWindow : Window
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnTileDown), true);
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(OnTileUp), true);
         Tiles.AddHandler(ListBoxItem.MouseRightButtonUpEvent, new MouseButtonEventHandler(OnTileRightClick), true);
+
+        FolderTiles.PreviewMouseLeftButtonUp += OnTileUp;
+        FolderTiles.PreviewMouseRightButtonUp += OnTileRightClick;
 
         RecentTiles.PreviewMouseLeftButtonUp += OnRecentTileUp;
         RecentTiles.PreviewMouseRightButtonUp += OnTileRightClick;
@@ -372,6 +378,7 @@ public partial class LauncherWindow : Window
         _markerIndex = -1;
         _tiles.Clear();
         _recentTiles.Clear();
+        _folderTiles.Clear();
         _recentItems = new List<ShortcutItem>();
 
         if (q.Length == 0 && _recentView)
@@ -380,13 +387,6 @@ public partial class LauncherWindow : Window
             _recentItems = RecentItems();
             _tiles.Add(new BackTile("全部"));
             foreach (var item in _recentItems) _tiles.Add(item);
-        }
-        else if (q.Length == 0 && _currentFolder is not null)
-        {
-            // Inside a folder: back tile + that folder's members.
-            _tiles.Add(new BackTile(_currentFolder));
-            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _tiles.Add(i);
-            _tiles.Add(AddTile.Instance);
         }
         else
         {
@@ -402,7 +402,7 @@ public partial class LauncherWindow : Window
                 if (q.Length == 0 && seen.Add(item.Folder))
                 {
                     var members = items.Where(x => SameFolder(x.Folder, item.Folder)).ToList();
-                    _tiles.Add(new FolderTile(item.Folder, members));
+                    _tiles.Add(new FolderTile(item.Folder, members) { IsOpen = SameFolder(_currentFolder, item.Folder) });
                 }
                 else if (q.Length > 0)
                 {
@@ -410,10 +410,27 @@ public partial class LauncherWindow : Window
                 }
             }
             if (q.Length == 0 && _ordered.Count > 0) _tiles.Add(AddTile.Instance);
+
+            // Typing also offers the web: one row per enabled engine, after the local matches.
+            if (q.Length > 0)
+            {
+                foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchEngines))
+                    _tiles.Add(new SearchResultTile(engine, q));
+            }
         }
 
+        // An opened folder expands *below* the main grid; nothing above it moves.
+        var folderOpen = q.Length == 0 && !_recentView && _currentFolder is not null;
+        if (folderOpen)
+        {
+            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _folderTiles.Add(i);
+            _folderTiles.Add(AddTile.Instance);
+        }
+        FolderSection.Visibility = folderOpen ? Visibility.Visible : Visibility.Collapsed;
+        FolderTitle.Text = folderOpen ? $"{_currentFolder} · {_folderTiles.Count - 1} 项" : string.Empty;
+
         // One-row recent header above the divider, only in the top-level view.
-        if (q.Length == 0 && !_recentView && _currentFolder is null)
+        if (q.Length == 0 && !_recentView)
         {
             _recentItems = RecentItems();
             if (_recentItems.Count > 0)
@@ -499,6 +516,17 @@ public partial class LauncherWindow : Window
         if (Math.Abs(Height - height) > 0.5) Height = height;
     }
 
+    /// <summary>Divider + title row + the folder's own rows, or 0 when no folder is open.</summary>
+    private double FolderSectionHeight
+    {
+        get
+        {
+            if (_folderTiles.Count == 0) return 0;
+            var rows = Math.Max(1, (int)Math.Ceiling(_folderTiles.Count / (double)Cols));
+            return 40 + rows * CellHeight; // divider + title row
+        }
+    }
+
     private double TargetPanelHeight()
     {
         if (_settingsOpen) return SettingsHeight;
@@ -506,14 +534,15 @@ public partial class LauncherWindow : Window
 
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
         var recentExtra = _recentTiles.Count > 0 ? CellHeight + 15 : 0;
+        var folderExtra = FolderSectionHeight;
 
         // The screen is the only cap: N configured rows mean an N-row panel, and it scrolls only
         // when those rows genuinely do not fit on this display.
-        var available = MaxPanelHeight - PanelChrome - recentExtra;
+        var available = MaxPanelHeight - PanelChrome - recentExtra - folderExtra;
         var fit = Math.Max(1, (int)Math.Floor(available / CellHeight));
         rows = Math.Min(rows, fit);
 
-        return PanelChrome + rows * CellHeight + recentExtra;
+        return PanelChrome + rows * CellHeight + recentExtra + folderExtra;
     }
 
     private void AnimatePanelHeight()
@@ -530,6 +559,11 @@ public partial class LauncherWindow : Window
         factory.SetValue(UniformGrid.ColumnsProperty, Cols);
         factory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
         Tiles.ItemsPanel = new ItemsPanelTemplate(factory);
+
+        var folderFactory = new FrameworkElementFactory(typeof(UniformGrid));
+        folderFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
+        folderFactory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+        FolderTiles.ItemsPanel = new ItemsPanelTemplate(folderFactory);
 
         var recentFactory = new FrameworkElementFactory(typeof(UniformGrid));
         recentFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
@@ -656,17 +690,29 @@ public partial class LauncherWindow : Window
             case BackTile: OpenFolder(null); break;
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
+            case SearchResultTile search: OpenSearch(search); break;
         }
     }
 
+    /// <summary>
+    /// Opens (or closes) a folder. The contents appear in their own grid below the main one, so
+    /// the recently-used row and the top-level tiles stay exactly where they were.
+    /// </summary>
     private void OpenFolder(string? name)
     {
+        if (name is not null && SameFolder(_currentFolder, name)) name = null; // click again to close
         _currentFolder = name;
         _recentView = false;
         Rebuild();
-        Panel.Set(HeightProperty, TargetPanelHeight());
-        Scroller.ScrollToTop();
+        ResizeWindow();
+        AnimatePanelHeight();
+        if (name is not null)
+            Dispatcher.BeginInvoke(() => FolderSection.BringIntoView(), DispatcherPriority.Loaded);
+        else
+            Scroller.ScrollToTop();
     }
+
+    private void OnFolderCollapse(object sender, RoutedEventArgs e) => OpenFolder(null);
 
     private void OpenRecentView()
     {
@@ -684,6 +730,16 @@ public partial class LauncherWindow : Window
         e.Handled = true;
         if (!c.IsMouseOver) return;
         Invoke(c.DataContext, c);
+    }
+
+    private void OpenSearch(SearchResultTile search)
+    {
+        if (ShellLauncher.OpenUrl(search.Url) is { } error)
+        {
+            ShowMessage(error);
+            return;
+        }
+        Close(animated: true);
     }
 
     private void OpenItem(ShortcutItem item)
@@ -911,6 +967,27 @@ public partial class LauncherWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(item.Pinned ? "取消固定" : "固定在最前", () => TogglePin(item)));
         menu.Items.Add(Item("重命名", () => BeginRename(item), "F2"));
+
+        // Move between folders without dragging: every existing folder is one click away.
+        var folders = _library.Items
+            .Where(i => !string.IsNullOrWhiteSpace(i.Folder))
+            .Select(i => i.Folder!)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(f => f, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        if (folders.Count > 0 || item.Folder is not null)
+        {
+            var move = new MenuItem { Header = "移动到" };
+            if (item.Folder is not null)
+                move.Items.Add(Item("主面板", () => MoveToFolder(item, null)));
+            foreach (var folder in folders)
+            {
+                if (SameFolder(folder, item.Folder)) continue;
+                var target = folder;
+                move.Items.Add(Item($"「{target}」", () => MoveToFolder(item, target)));
+            }
+            if (move.Items.Count > 0) menu.Items.Add(move);
+        }
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("从 Jump 中移除", () => Remove(item), "Del"));
         menu.Closed += (_, _) => { if (IsOpen && _renaming is null) Keyboard.Focus(Query); };
@@ -1829,14 +1906,23 @@ public partial class LauncherWindow : Window
         ShowStickyMessage("调整布局中 · 已分组 · Esc 退出", "完成", ExitEditMode);
     }
 
-    private void MoveToFolder(ShortcutItem item, string folderName)
+    private void MoveToFolder(ShortcutItem item, string? folderName)
     {
+        var wasFolder = item.Folder;
         item.Folder = folderName;
         _library.SaveSoon();
         _ordered = _library.Ordered();
         Rebuild();
+        ResizeWindow();
         AnimatePanelHeight();
-        ShowStickyMessage("调整布局中 · 已加入分组 · Esc 退出", "完成", ExitEditMode);
+        if (_editMode)
+            ShowStickyMessage("调整布局中 · 已移动 · Esc 退出", "完成", ExitEditMode);
+        else
+            ShowMessage(folderName is null
+                ? $"「{item.Name}」已移回主面板"
+                : $"「{item.Name}」已移动到「{folderName}」");
+        if (wasFolder is not null && !_ordered.Any(i => SameFolder(i.Folder, wasFolder)))
+            _currentFolder = SameFolder(_currentFolder, wasFolder) ? null : _currentFolder;
     }
 
     private string NextFolderName()

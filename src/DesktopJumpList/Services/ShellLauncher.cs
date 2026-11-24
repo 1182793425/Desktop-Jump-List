@@ -37,6 +37,20 @@ public static class ShellLauncher
         }
     }
 
+    /// <summary>Opens a URL in the user's default browser. Returns an error message or null.</summary>
+    public static string? OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
     /// <summary>Opens Explorer with the target selected.</summary>
     public static void Reveal(ShortcutItem item)
     {

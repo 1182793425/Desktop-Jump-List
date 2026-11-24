@@ -77,6 +77,12 @@ public sealed class AppSettings
     /// </summary>
     public int PanelItemGap { get; set; } = 10;
 
+    /// <summary>
+    /// Search engines offered as extra result rows while typing (ids from
+    /// <see cref="SearchEngineCatalog"/>). Empty means the feature is off.
+    /// </summary>
+    public List<string> SearchEngines { get; set; } = new() { "baidu", "google", "bing" };
+
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
 
@@ -113,6 +119,7 @@ public sealed class AppSettings
         PanelFontSize = PanelFontSize,
         PanelGap = PanelGap,
         PanelItemGap = PanelItemGap,
+        SearchEngines = new List<string>(SearchEngines),
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,
