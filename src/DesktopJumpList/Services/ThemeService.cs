@@ -23,7 +23,7 @@ public static class ThemeService
 
     public static void SetPanelOpacity(double opacity)
     {
-        opacity = Math.Clamp(opacity, 0.50, 1.00);
+        opacity = Math.Clamp(opacity, 0.0, 1.00);
         if (Math.Abs(opacity - _panelOpacity) < 0.001) return;
         _panelOpacity = opacity;
         Apply();

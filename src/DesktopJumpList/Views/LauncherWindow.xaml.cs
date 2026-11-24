@@ -74,15 +74,15 @@ public partial class LauncherWindow : Window
 
     private static AppSettings CurrentSettings => App.Current.Settings;
 
-    private double TileIconSize => Math.Clamp(CurrentSettings.PanelIconSize, 32, 48);
-    private double TileFontSize => Math.Clamp(CurrentSettings.PanelFontSize, 10, 14);
-    private double TileGap => Math.Clamp(CurrentSettings.PanelGap, 2, 10);
+    private double TileIconSize => Math.Max(0, CurrentSettings.PanelIconSize);
+    private double TileFontSize => Math.Max(0, CurrentSettings.PanelFontSize);
+    private double TileGap => Math.Max(0, CurrentSettings.PanelGap);
     private double LabelLineHeight => Math.Round(TileFontSize * 1.33);
     private double LabelArea => LabelLineHeight * 2;
     private double TileHeight => IconTopPadding + TileIconSize + TileGap + LabelArea + TileBottomPadding;
 
-    private int Cols => Math.Clamp(App.Current.Settings.Columns, 3, 5);
-    private int MaxRowCount => Math.Clamp(App.Current.Settings.MaxRows, 2, 5);
+    private int Cols => Math.Max(1, App.Current.Settings.Columns);
+    private int MaxRowCount => Math.Max(1, App.Current.Settings.MaxRows);
 
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
@@ -382,7 +382,7 @@ public partial class LauncherWindow : Window
 
     private List<ShortcutItem> RecentItems()
     {
-        var take = Math.Clamp(CurrentSettings.RecentCount, 4, 20);
+        var take = Math.Max(0, CurrentSettings.RecentCount);
         return _library.Items
             .Where(i => i.LastOpenedAt is not null)
             .OrderByDescending(i => i.LastOpenedAt)

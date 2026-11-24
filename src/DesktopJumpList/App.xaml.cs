@@ -65,16 +65,7 @@ public partial class App : Application
     {
         Storage = new Storage();
         Settings = Storage.LoadSettings();
-        Settings.Columns = Math.Clamp(Settings.Columns, 3, 5);
-        Settings.MaxRows = Math.Clamp(Settings.MaxRows, 2, 5);
-        Settings.PeekDelayMs = Math.Clamp(Settings.PeekDelayMs, 600, 8000);
-        Settings.SnapDistance = Math.Clamp(Settings.SnapDistance, 8, 200);
-        Settings.DockSize = Math.Clamp(Settings.DockSize, 32, 64);
-        Settings.PanelIconSize = Math.Clamp(Settings.PanelIconSize, 32, 48);
-        Settings.PanelFontSize = Math.Clamp(Settings.PanelFontSize, 10, 14);
-        Settings.PanelGap = Math.Clamp(Settings.PanelGap, 2, 10);
-        Settings.RecentCount = Math.Clamp(Settings.RecentCount, 4, 20);
-        Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.50, 1.00);
+        Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.0, 1.0);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
         ThemeService.Initialize(Settings.Theme);
@@ -196,21 +187,21 @@ public partial class App : Application
 
     public void SetColumns(int columns)
     {
-        Settings.Columns = Math.Clamp(columns, 3, 5);
+        Settings.Columns = columns;
         SaveSettings();
         Launcher.ApplyLayout();
     }
 
     public void SetMaxRows(int rows)
     {
-        Settings.MaxRows = Math.Clamp(rows, 2, 5);
+        Settings.MaxRows = rows;
         SaveSettings();
         Launcher.ApplyLayout();
     }
 
     public void SetPeekDelay(int milliseconds)
     {
-        Settings.PeekDelayMs = Math.Clamp(milliseconds, 600, 8000);
+        Settings.PeekDelayMs = milliseconds;
         SaveSettings();
         Dock.ApplySettings();
     }
@@ -225,7 +216,7 @@ public partial class App : Application
 
     public void SetDockSize(int size)
     {
-        Settings.DockSize = Math.Clamp(size, 32, 64);
+        Settings.DockSize = size;
         SaveSettings();
         Dock.ApplySettings();
     }
@@ -241,41 +232,41 @@ public partial class App : Application
 
     public void SetPanelIconSize(int size)
     {
-        Settings.PanelIconSize = Math.Clamp(size, 32, 48);
+        Settings.PanelIconSize = size;
         SaveSettings();
         Launcher.ApplyPanelStyle();
     }
 
     public void SetPanelFontSize(int size)
     {
-        Settings.PanelFontSize = Math.Clamp(size, 10, 14);
+        Settings.PanelFontSize = size;
         SaveSettings();
         Launcher.ApplyPanelStyle();
     }
 
     public void SetPanelGap(int gap)
     {
-        Settings.PanelGap = Math.Clamp(gap, 2, 10);
+        Settings.PanelGap = gap;
         SaveSettings();
         Launcher.ApplyPanelStyle();
     }
 
     public void SetRecentCount(int count)
     {
-        Settings.RecentCount = Math.Clamp(count, 4, 20);
+        Settings.RecentCount = count;
         SaveSettings();
         Launcher.ApplyPanelStyle();
     }
 
     public void SetSnapDistance(int distance)
     {
-        Settings.SnapDistance = Math.Clamp(distance, 8, 200);
+        Settings.SnapDistance = distance;
         SaveSettings();
     }
 
     public void SetPanelOpacity(double opacity)
     {
-        Settings.PanelOpacity = Math.Clamp(opacity, 0.50, 1.00);
+        Settings.PanelOpacity = Math.Clamp(opacity, 0.0, 1.0);
         SaveSettings();
         ThemeService.SetPanelOpacity(Settings.PanelOpacity);
     }

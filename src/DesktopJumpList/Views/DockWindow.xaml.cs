@@ -65,7 +65,7 @@ public partial class DockWindow : Window
 
         _mover = new WindowMover(this);
 
-        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(600, settings.PeekDelayMs)) };
+        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(1, settings.PeekDelayMs)) };
         _peekTimer.Tick += (_, _) => { _peekTimer.Stop(); TryTuck(); };
 
         _fullscreenTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
@@ -124,7 +124,7 @@ public partial class DockWindow : Window
 
     private void ApplyVisualSettings()
     {
-        _ballSize = Math.Clamp(_settings.DockSize, 32, 64);
+        _ballSize = Math.Max(0, _settings.DockSize);
         _windowSize = _ballSize + ShadowMargin * 2;
 
         Width = _windowSize;
@@ -176,7 +176,7 @@ public partial class DockWindow : Window
     public void ApplySettings()
     {
         var previousWindowSize = _windowSize;
-        _peekTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.PeekDelayMs, 600, 8000));
+        _peekTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, _settings.PeekDelayMs));
         ApplyVisualSettings();
 
         if (!_settings.ShowDock)
@@ -526,7 +526,7 @@ public partial class DockWindow : Window
     private void SnapOnRelease()
     {
         var area = CurrentArea;
-        var dist = Math.Max(8, _settings.SnapDistance);
+        var dist = Math.Max(0, _settings.SnapDistance);
 
         var candidates = new (DockEdge edge, double d)[]
         {

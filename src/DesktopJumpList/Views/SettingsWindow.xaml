@@ -72,6 +72,36 @@
         <Style x:Key="SettingsRow" TargetType="Grid">
             <Setter Property="Margin" Value="0,7,0,0" />
         </Style>
+        <Style x:Key="SettingsNumber" TargetType="TextBox">
+            <Setter Property="Width" Value="52" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SegmentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <EventSetter Event="LostFocus" Handler="OnNumberLostFocus" />
+            <EventSetter Event="PreviewKeyDown" Handler="OnNumberKeyDown" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="4,0" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="SettingsSlider" TargetType="Slider">
             <Setter Property="Height" Value="22" />
             <Setter Property="Focusable" Value="False" />
@@ -176,15 +206,17 @@
                                     <Grid Grid.Column="1">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="48" />
+                                            <ColumnDefinition Width="52" />
+                                            <ColumnDefinition Width="22" />
                                         </Grid.ColumnDefinitions>
                                         <Slider x:Name="OpacitySlider" Style="{StaticResource SettingsSlider}"
-                                                Minimum="50" Maximum="100" Value="85"
+                                                Minimum="0" Maximum="100" Value="85"
                                                 IsSnapToTickEnabled="True" TickFrequency="1"
                                                 ValueChanged="OnOpacityChanged" />
-                                        <TextBlock x:Name="OpacityValue" Grid.Column="1" Text="85%"
-                                                   TextAlignment="Right" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+                                        <TextBox x:Name="OpacityBox" Grid.Column="1" Style="{StaticResource SettingsNumber}"
+                                                 Text="85" />
+                                        <TextBlock Grid.Column="2" Text="%" FontSize="12" Margin="4,0,0,0"
+                                                   Foreground="{DynamicResource InkSubBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                 </Grid>
                             </StackPanel>
@@ -201,21 +233,11 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="每行" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
-                                        <Button x:Name="ColumnsMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="8,0,0,0" Click="OnColumnsMinus" />
-                                        <TextBlock x:Name="ColumnsValue" Width="26" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="ColumnsPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnColumnsPlus" />
+                                        <TextBox x:Name="ColumnsBox" Style="{StaticResource SettingsNumber}" Margin="8,0,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="最大行数" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
-                                        <Button x:Name="RowsMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="8,0,0,0" Click="OnRowsMinus" />
-                                        <TextBlock x:Name="RowsValue" Width="26" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="RowsPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnRowsPlus" />
+                                        <TextBox x:Name="RowsBox" Style="{StaticResource SettingsNumber}" Margin="8,0,0,0" />
                                     </StackPanel>
                                 </Grid>
 
@@ -227,30 +249,15 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="图标" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
-                                        <Button x:Name="IconMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="6,0,0,0" Click="OnIconMinus" />
-                                        <TextBlock x:Name="IconValue" Width="24" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="IconPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnIconPlus" />
+                                        <TextBox x:Name="IconBox" Style="{StaticResource SettingsNumber}" Margin="6,0,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="文字" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
-                                        <Button x:Name="FontMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="6,0,0,0" Click="OnFontMinus" />
-                                        <TextBlock x:Name="FontValue" Width="24" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="FontPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnFontPlus" />
+                                        <TextBox x:Name="FontBox" Style="{StaticResource SettingsNumber}" Margin="6,0,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="间距" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
-                                        <Button x:Name="GapMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="6,0,0,0" Click="OnGapMinus" />
-                                        <TextBlock x:Name="GapValue" Width="24" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="GapPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnGapPlus" />
+                                        <TextBox x:Name="GapBox" Style="{StaticResource SettingsNumber}" Margin="6,0,0,0" />
                                     </StackPanel>
                                 </Grid>
 
@@ -261,12 +268,7 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="最近使用" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button x:Name="RecentMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Click="OnRecentMinus" />
-                                        <TextBlock x:Name="RecentValue" Width="26" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="RecentPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnRecentPlus" />
+                                        <TextBox x:Name="RecentBox" Style="{StaticResource SettingsNumber}" />
                                         <TextBlock Text="条 · 顶部一行，超出显示「更多」" FontSize="11"
                                                    Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0"
                                                    VerticalAlignment="Center" />
@@ -290,16 +292,21 @@
                                                   Click="OnDockVisibleClick" />
                                         <TextBlock Text="悬浮球" Style="{StaticResource SettingsLabel}" FontSize="11.5"
                                                    Margin="8,0,0,0" />
-                                        <TextBlock Text="自动收起" Style="{StaticResource SettingsLabel}" FontSize="11.5"
-                                                   Margin="20,0,0,0" />
-                                        <Button x:Name="PeekMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="6,0,0,0" Click="OnPeekMinus" />
-                                        <TextBlock x:Name="PeekValue" Width="56" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="PeekPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnPeekPlus" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="84" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="自动收起" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox x:Name="PeekBox" Style="{StaticResource SettingsNumber}" Width="60" />
+                                        <TextBlock Text="秒" FontSize="12" Foreground="{DynamicResource InkSubBrush}"
+                                                   Margin="5,0,0,0" VerticalAlignment="Center" />
                                         <TextBlock Text="后缩成贴边细条" FontSize="10.5"
-                                                   Foreground="{DynamicResource InkFaintBrush}" Margin="6,0,0,0"
+                                                   Foreground="{DynamicResource InkFaintBrush}" Margin="10,0,0,0"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
@@ -311,20 +318,14 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="大小" Style="{StaticResource SettingsLabel}" FontSize="11.5" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button x:Name="DockSizeMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Click="OnDockSizeMinus" />
-                                        <TextBlock x:Name="DockSizeValue" Width="52" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="DockSizePlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnDockSizePlus" />
+                                        <TextBox x:Name="DockSizeBox" Style="{StaticResource SettingsNumber}" />
+                                        <TextBlock Text="px" FontSize="12" Foreground="{DynamicResource InkSubBrush}"
+                                                   Margin="5,0,0,0" VerticalAlignment="Center" />
                                         <TextBlock Text="吸附距离" Style="{StaticResource SettingsLabel}" FontSize="11.5"
                                                    Margin="20,0,0,0" />
-                                        <Button x:Name="SnapMinus" Style="{StaticResource MiniButton}" Content="−"
-                                                Margin="6,0,0,0" Click="OnSnapMinus" />
-                                        <TextBlock x:Name="SnapValue" Width="44" TextAlignment="Center" FontSize="12"
-                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
-                                        <Button x:Name="SnapPlus" Style="{StaticResource MiniButton}" Content="+"
-                                                Click="OnSnapPlus" />
+                                        <TextBox x:Name="SnapBox" Style="{StaticResource SettingsNumber}" Margin="6,0,0,0" />
+                                        <TextBlock Text="px" FontSize="12" Foreground="{DynamicResource InkSubBrush}"
+                                                   Margin="5,0,0,0" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
 

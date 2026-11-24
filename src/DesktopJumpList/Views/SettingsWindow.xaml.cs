@@ -71,44 +71,26 @@ public partial class SettingsWindow : Window
         ThemeLight.IsChecked = s.Theme == AppTheme.Light;
         ThemeDark.IsChecked = s.Theme == AppTheme.Dark;
 
-        ColumnsValue.Text = s.Columns.ToString();
-        RowsValue.Text = s.MaxRows.ToString();
-        ColumnsMinus.IsEnabled = s.Columns > 3;
-        ColumnsPlus.IsEnabled = s.Columns < 5;
-        RowsMinus.IsEnabled = s.MaxRows > 2;
-        RowsPlus.IsEnabled = s.MaxRows < 5;
+        ColumnsBox.Text = s.Columns.ToString();
+        RowsBox.Text = s.MaxRows.ToString();
 
-        IconValue.Text = s.PanelIconSize.ToString();
-        FontValue.Text = s.PanelFontSize.ToString();
-        GapValue.Text = s.PanelGap.ToString();
-        IconMinus.IsEnabled = s.PanelIconSize > 32;
-        IconPlus.IsEnabled = s.PanelIconSize < 48;
-        FontMinus.IsEnabled = s.PanelFontSize > 10;
-        FontPlus.IsEnabled = s.PanelFontSize < 14;
-        GapMinus.IsEnabled = s.PanelGap > 2;
-        GapPlus.IsEnabled = s.PanelGap < 10;
+        IconBox.Text = s.PanelIconSize.ToString();
+        FontBox.Text = s.PanelFontSize.ToString();
+        GapBox.Text = s.PanelGap.ToString();
 
-        RecentValue.Text = s.RecentCount.ToString();
-        RecentMinus.IsEnabled = s.RecentCount > 4;
-        RecentPlus.IsEnabled = s.RecentCount < 20;
+        RecentBox.Text = s.RecentCount.ToString();
 
-        SnapValue.Text = $"{s.SnapDistance} px";
-        SnapMinus.IsEnabled = s.SnapDistance > 8;
-        SnapPlus.IsEnabled = s.SnapDistance < 200;
+        SnapBox.Text = s.SnapDistance.ToString();
 
         _settingsRefreshing = true;
         OpacitySlider.Value = Math.Round(s.PanelOpacity * 100);
+        OpacityBox.Text = $"{Math.Round(s.PanelOpacity * 100)}";
         _settingsRefreshing = false;
-        OpacityValue.Text = $"{Math.Round(s.PanelOpacity * 100)}%";
 
         DockVisibleSwitch.IsChecked = s.ShowDock;
-        DockSizeValue.Text = $"{s.DockSize} px";
-        DockSizeMinus.IsEnabled = s.DockSize > 32;
-        DockSizePlus.IsEnabled = s.DockSize < 64;
+        DockSizeBox.Text = s.DockSize.ToString();
 
-        PeekValue.Text = $"{s.PeekDelayMs / 1000.0:0.0} 秒";
-        PeekMinus.IsEnabled = s.PeekDelayMs > 600;
-        PeekPlus.IsEnabled = s.PeekDelayMs < 8000;
+        PeekBox.Text = (s.PeekDelayMs / 1000.0).ToString("0.##");
 
         _settingsRefreshing = true;
         ColorWhite.IsChecked = string.Equals(s.DockColor, "#FFFFFF", StringComparison.OrdinalIgnoreCase);
@@ -142,35 +124,53 @@ public partial class SettingsWindow : Window
         RefreshSettings();
     }
 
-    private void OnColumnsMinus(object sender, RoutedEventArgs e) => ChangeColumns(-1);
-    private void OnColumnsPlus(object sender, RoutedEventArgs e) => ChangeColumns(1);
-    private void OnRowsMinus(object sender, RoutedEventArgs e) => ChangeRows(-1);
-    private void OnRowsPlus(object sender, RoutedEventArgs e) => ChangeRows(1);
-    private void OnPeekMinus(object sender, RoutedEventArgs e) => ChangePeek(-400);
-    private void OnPeekPlus(object sender, RoutedEventArgs e) => ChangePeek(400);
-
-    private void OnIconMinus(object sender, RoutedEventArgs e) => ChangePanelIcon(-4);
-    private void OnIconPlus(object sender, RoutedEventArgs e) => ChangePanelIcon(4);
-    private void OnFontMinus(object sender, RoutedEventArgs e) => ChangePanelFont(-1);
-    private void OnFontPlus(object sender, RoutedEventArgs e) => ChangePanelFont(1);
-    private void OnGapMinus(object sender, RoutedEventArgs e) => ChangePanelGap(-2);
-    private void OnGapPlus(object sender, RoutedEventArgs e) => ChangePanelGap(2);
-
-    private void OnRecentMinus(object sender, RoutedEventArgs e) => ChangeRecentCount(-1);
-    private void OnRecentPlus(object sender, RoutedEventArgs e) => ChangeRecentCount(1);
-
-    private void OnSnapMinus(object sender, RoutedEventArgs e) => ChangeSnap(-8);
-    private void OnSnapPlus(object sender, RoutedEventArgs e) => ChangeSnap(8);
-
     private void OnOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (_settingsRefreshing || OpacityValue is null) return;
+        if (_settingsRefreshing || OpacityBox is null) return;
         App.Current.SetPanelOpacity(e.NewValue / 100.0);
-        OpacityValue.Text = $"{Math.Round(e.NewValue)}%";
+        _settingsRefreshing = true;
+        OpacityBox.Text = $"{Math.Round(e.NewValue)}";
+        _settingsRefreshing = false;
     }
 
-    private void OnDockSizeMinus(object sender, RoutedEventArgs e) => ChangeDockSize(-4);
-    private void OnDockSizePlus(object sender, RoutedEventArgs e) => ChangeDockSize(4);
+    private void OnNumberKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox box) return;
+        box.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+        e.Handled = true;
+    }
+
+    private void OnNumberLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_settingsRefreshing || sender is not TextBox box) return;
+
+        switch (box.Name)
+        {
+            case nameof(ColumnsBox): ApplyInt(box, v => App.Current.SetColumns(v)); break;
+            case nameof(RowsBox): ApplyInt(box, v => App.Current.SetMaxRows(v)); break;
+            case nameof(IconBox): ApplyInt(box, v => App.Current.SetPanelIconSize(v)); break;
+            case nameof(FontBox): ApplyInt(box, v => App.Current.SetPanelFontSize(v)); break;
+            case nameof(GapBox): ApplyInt(box, v => App.Current.SetPanelGap(v)); break;
+            case nameof(RecentBox): ApplyInt(box, v => App.Current.SetRecentCount(v)); break;
+            case nameof(DockSizeBox): ApplyInt(box, v => App.Current.SetDockSize(v)); break;
+            case nameof(SnapBox): ApplyInt(box, v => App.Current.SetSnapDistance(v)); break;
+            case nameof(PeekBox):
+                if (double.TryParse(box.Text.Trim(), out var seconds))
+                    App.Current.SetPeekDelay((int)Math.Round(seconds * 1000));
+                break;
+            case nameof(OpacityBox):
+                if (int.TryParse(box.Text.Trim(), out var percent))
+                    App.Current.SetPanelOpacity(percent / 100.0);
+                break;
+        }
+
+        RefreshSettings();
+    }
+
+    private static void ApplyInt(TextBox box, Action<int> apply)
+    {
+        if (int.TryParse(box.Text.Trim(), out var value)) apply(value);
+    }
 
     private void OnDockVisibleClick(object sender, RoutedEventArgs e)
     {
@@ -202,60 +202,6 @@ public partial class SettingsWindow : Window
             SettingsNotice.Text = $"无法修改开机启动：{error}";
             SettingsNotice.Visibility = Visibility.Visible;
         }
-    }
-
-    private void ChangePanelIcon(int delta)
-    {
-        App.Current.SetPanelIconSize(App.Current.Settings.PanelIconSize + delta);
-        RefreshSettings();
-    }
-
-    private void ChangePanelFont(int delta)
-    {
-        App.Current.SetPanelFontSize(App.Current.Settings.PanelFontSize + delta);
-        RefreshSettings();
-    }
-
-    private void ChangePanelGap(int delta)
-    {
-        App.Current.SetPanelGap(App.Current.Settings.PanelGap + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeRecentCount(int delta)
-    {
-        App.Current.SetRecentCount(App.Current.Settings.RecentCount + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeSnap(int delta)
-    {
-        App.Current.SetSnapDistance(App.Current.Settings.SnapDistance + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeDockSize(int delta)
-    {
-        App.Current.SetDockSize(App.Current.Settings.DockSize + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeColumns(int delta)
-    {
-        App.Current.SetColumns(App.Current.Settings.Columns + delta);
-        RefreshSettings();
-    }
-
-    private void ChangeRows(int delta)
-    {
-        App.Current.SetMaxRows(App.Current.Settings.MaxRows + delta);
-        RefreshSettings();
-    }
-
-    private void ChangePeek(int delta)
-    {
-        App.Current.SetPeekDelay(App.Current.Settings.PeekDelayMs + delta);
-        RefreshSettings();
     }
 
     private void OnHotkeyEnabledClick(object sender, RoutedEventArgs e)
