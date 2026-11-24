@@ -277,18 +277,23 @@ public partial class DockWindow : Window
         var open = new MenuItem { Header = "打开面板", InputGestureText = _settings.Hotkey };
         open.Click += (_, _) => App.Current.ShowLauncher();
 
-        // 外观 → 主题模式
-        var themeSys = ThemeItem("跟随系统", AppTheme.System);
-        var themeLight = ThemeItem("浅色", AppTheme.Light);
-        var themeDark = ThemeItem("深色", AppTheme.Dark);
-        var appearance = new MenuItem { Header = "外观" };
-        appearance.Items.Add(themeSys);
-        appearance.Items.Add(themeLight);
-        appearance.Items.Add(themeDark);
+        // 外观主题（扁平展示，无需悬停二级菜单）
+        var themeSys = new MenuItem { Header = "外观：跟随系统", IsCheckable = true };
+        var themeLight = new MenuItem { Header = "外观：浅色", IsCheckable = true };
+        var themeDark = new MenuItem { Header = "外观：深色", IsCheckable = true };
+        themeSys.IsChecked = _settings.Theme == AppTheme.System;
+        themeLight.IsChecked = _settings.Theme == AppTheme.Light;
+        themeDark.IsChecked = _settings.Theme == AppTheme.Dark;
+        themeSys.Click += (_, _) => { App.Current.SetTheme(AppTheme.System); themeSys.IsChecked = true; themeLight.IsChecked = false; themeDark.IsChecked = false; };
+        themeLight.Click += (_, _) => { App.Current.SetTheme(AppTheme.Light); themeSys.IsChecked = false; themeLight.IsChecked = true; themeDark.IsChecked = false; };
+        themeDark.Click += (_, _) => { App.Current.SetTheme(AppTheme.Dark); themeSys.IsChecked = false; themeLight.IsChecked = false; themeDark.IsChecked = true; };
 
         menu.Items.Add(open);
         menu.Items.Add(new Separator());
-        menu.Items.Add(appearance);
+        menu.Items.Add(themeSys);
+        menu.Items.Add(themeLight);
+        menu.Items.Add(themeDark);
+        menu.Items.Add(new Separator());
         menu.Items.Add(autostart);
         menu.Items.Add(data);
         menu.Items.Add(new Separator());
@@ -300,19 +305,6 @@ public partial class DockWindow : Window
         Root.ContextMenu = menu;
         menu.PlacementTarget = Root;
         menu.IsOpen = true;
-    }
-
-    private static MenuItem ThemeItem(string header, AppTheme mode)
-    {
-        var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = App.Current.Settings.Theme == mode };
-        item.Click += (_, _) =>
-        {
-            App.Current.SetTheme(mode);
-            if (item.Parent is MenuItem parent)
-                foreach (var child in parent.Items.OfType<MenuItem>())
-                    child.IsChecked = child == item;
-        };
-        return item;
     }
 
     private void FadeOutAndQuit()

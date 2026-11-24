@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DesktopJumpList.Models;
 
 public enum DockEdge
@@ -29,7 +31,9 @@ public sealed class AppSettings
     /// <summary>Global toggle hotkey, stored as "Ctrl+Alt+J" style text.</summary>
     public string Hotkey { get; set; } = "Ctrl+Alt+J";
 
-    /// <summary>Colour mode: follow system, or force light/dark.</summary>
+    /// <summary>Colour mode: follow system, or force light/dark. Named "themeMode" on disk so
+    /// the old v2 "theme" (Light/Dark only) never collides and the default stays System.</summary>
+    [JsonPropertyName("themeMode")]
     public AppTheme Theme { get; set; } = AppTheme.System;
 
     public bool FirstRunDone { get; set; }

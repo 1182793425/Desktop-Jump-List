@@ -1,5 +1,4 @@
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -10,11 +9,17 @@ using DesktopJumpList.Models;
 namespace DesktopJumpList.Services;
 
 /// <summary>
-/// Resolves real shell icons (the same ones Explorer shows). Extraction runs off the UI thread
-/// on an STA worker and results are frozen + cached by target path.
+/// Resolves the exact shell icon Explorer shows for a path. Uses SHGetFileInfo to pull the
+/// HICON straight out of the shell's system image list (the same cache Explorer renders from),
+/// so the tile icon is pixel-identical to the one next to the file in Explorer.
+/// Extraction runs on an STA worker thread; results are frozen and cached by path.
 /// </summary>
 public static class IconService
 {
+    private const uint SHGFI_ICON = 0x100;
+    private const uint SHGFI_LARGEICON = 0x0;
+    private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
+
     private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Gate = new();
 
@@ -55,9 +60,7 @@ public static class IconService
         try
         {
             if (File.Exists(path) || Directory.Exists(path))
-            {
-                result = FromImageFactory(path, 64) ?? FromFileInfo(path);
-            }
+                result = FromShellIcon(path);
         }
         catch { result = null; }
 
@@ -65,59 +68,16 @@ public static class IconService
         return result;
     }
 
-    private static ImageSource? FromImageFactory(string path, int size)
+    /// <summary>Gets the icon Explorer shows: the shell's own HICON, alpha intact, no shortcuts.</summary>
+    private static ImageSource? FromShellIcon(string path)
     {
-        var iid = typeof(Native.IShellItemImageFactory).GUID;
-        if (Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory is null)
-            return null;
-        try
-        {
-            // SIIGBF_ICONONLY (0x4): we want the app/file icon, not a document thumbnail.
-            if (factory.GetImage(new Native.SIZE { cx = size, cy = size }, 0x4, out var hbmp) != 0 || hbmp == IntPtr.Zero)
-                return null;
-            try
-            {
-                var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                var fixedAlpha = FixPremultiplied(src);
-                fixedAlpha.Freeze();
-                return fixedAlpha;
-            }
-            finally { Native.DeleteObject(hbmp); }
-        }
-        finally { Marshal.ReleaseComObject(factory); }
-    }
-
-    /// <summary>
-    /// HBITMAPs from the shell carry a real alpha channel, but CreateBitmapSourceFromHBitmap
-    /// labels them Bgr32/Pbgra32 inconsistently. Re-wrap the pixels as Bgra32 so edges stay smooth.
-    /// </summary>
-    private static BitmapSource FixPremultiplied(BitmapSource src)
-    {
-        int w = src.PixelWidth, h = src.PixelHeight, stride = w * 4;
-        var pixels = new byte[h * stride];
-        src.CopyPixels(pixels, stride, 0);
-
-        bool hasAlpha = false;
-        for (int i = 3; i < pixels.Length; i += 4)
-        {
-            if (pixels[i] != 0) { hasAlpha = true; break; }
-        }
-        if (!hasAlpha)
-        {
-            for (int i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
-        }
-        return BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, pixels, stride);
-    }
-
-    private static ImageSource? FromFileInfo(string path)
-    {
-        const uint SHGFI_ICON = 0x100, SHGFI_LARGEICON = 0x0;
         var info = new Native.SHFILEINFO();
-        var res = Native.SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(info), SHGFI_ICON | SHGFI_LARGEICON);
+        var res = Native.SHGetFileInfo(path, 0, ref info, (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.SHFILEINFO>(),
+            SHGFI_ICON | SHGFI_LARGEICON | SHGFI_SHELLICONSIZE);
         if (res == IntPtr.Zero || info.hIcon == IntPtr.Zero) return null;
         try
         {
-            var src = Imaging.CreateBitmapSourceFromHIcon(info.hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            var src = Imaging.CreateBitmapSourceFromHIcon(info.hIcon, System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
             src.Freeze();
             return src;
         }

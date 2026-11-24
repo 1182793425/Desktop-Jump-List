@@ -36,7 +36,8 @@
                     </Grid>
                     <TextBlock Text="{Binding Name}" Margin="0,8,0,0" Width="88" TextAlignment="Center"
                                TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16"
-                               LineStackingStrategy="BlockLineHeight" FontSize="12" />
+                               LineStackingStrategy="BlockLineHeight" FontSize="12"
+                               Foreground="{DynamicResource InkBrush}" />
                 </StackPanel>
                 <!-- Pinned marker -->
                 <Ellipse Width="5" Height="5" Fill="{DynamicResource AccentBrush}" Margin="0,10,12,0"
@@ -222,6 +223,7 @@
                                   HorizontalScrollBarVisibility="Disabled" Focusable="False" CanContentScroll="False">
                         <ListBox x:Name="Tiles" Background="Transparent" BorderThickness="0" Padding="0"
                                  Focusable="False" SelectionMode="Single"
+                                 Foreground="{DynamicResource InkBrush}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                  ItemContainerStyle="{StaticResource TileContainer}">
