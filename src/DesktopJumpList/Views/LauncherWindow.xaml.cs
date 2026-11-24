@@ -28,7 +28,6 @@ public sealed class AddTile
 public sealed class FolderTile
 {
     public string Name { get; }
-    public bool IsOpen { get; init; }
     public IReadOnlyList<ShortcutItem> Members { get; }
     public IReadOnlyList<ShortcutItem> Preview { get; }
 
@@ -120,7 +119,6 @@ public partial class LauncherWindow : Window
     private readonly ShortcutLibrary _library;
     private readonly ObservableCollection<object> _tiles = new();
     private readonly ObservableCollection<object> _recentTiles = new();
-    private readonly ObservableCollection<object> _folderTiles = new();
     private readonly DispatcherTimer _messageTimer;
     private readonly DispatcherTimer _dragScroll;
     private InsertMarker? _insertMarker;
@@ -169,7 +167,6 @@ public partial class LauncherWindow : Window
         _library = library;
         Tiles.ItemsSource = _tiles;
         RecentTiles.ItemsSource = _recentTiles;
-        FolderTiles.ItemsSource = _folderTiles;
 
         _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         _messageTimer.Tick += (_, _) => HideMessage();
@@ -224,9 +221,6 @@ public partial class LauncherWindow : Window
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnTileDown), true);
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(OnTileUp), true);
         Tiles.AddHandler(ListBoxItem.MouseRightButtonUpEvent, new MouseButtonEventHandler(OnTileRightClick), true);
-
-        FolderTiles.PreviewMouseLeftButtonUp += OnTileUp;
-        FolderTiles.PreviewMouseRightButtonUp += OnTileRightClick;
 
         RecentTiles.PreviewMouseLeftButtonUp += OnRecentTileUp;
         RecentTiles.PreviewMouseRightButtonUp += OnTileRightClick;
@@ -378,7 +372,6 @@ public partial class LauncherWindow : Window
         _markerIndex = -1;
         _tiles.Clear();
         _recentTiles.Clear();
-        _folderTiles.Clear();
         _recentItems = new List<ShortcutItem>();
 
         if (q.Length == 0 && _recentView)
@@ -387,6 +380,14 @@ public partial class LauncherWindow : Window
             _recentItems = RecentItems();
             _tiles.Add(new BackTile("全部"));
             foreach (var item in _recentItems) _tiles.Add(item);
+        }
+        else if (q.Length == 0 && _currentFolder is not null)
+        {
+            // Inside a folder: the folder's contents take over the main grid, so the only thing
+            // that changes on screen is the grid itself — the recently-used row above stays put.
+            _tiles.Add(new BackTile(_currentFolder));
+            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _tiles.Add(i);
+            _tiles.Add(AddTile.Instance);
         }
         else
         {
@@ -402,7 +403,7 @@ public partial class LauncherWindow : Window
                 if (q.Length == 0 && seen.Add(item.Folder))
                 {
                     var members = items.Where(x => SameFolder(x.Folder, item.Folder)).ToList();
-                    _tiles.Add(new FolderTile(item.Folder, members) { IsOpen = SameFolder(_currentFolder, item.Folder) });
+                    _tiles.Add(new FolderTile(item.Folder, members));
                 }
                 else if (q.Length > 0)
                 {
@@ -419,17 +420,8 @@ public partial class LauncherWindow : Window
             }
         }
 
-        // An opened folder expands *below* the main grid; nothing above it moves.
-        var folderOpen = q.Length == 0 && !_recentView && _currentFolder is not null;
-        if (folderOpen)
-        {
-            foreach (var i in _ordered.Where(x => SameFolder(x.Folder, _currentFolder))) _folderTiles.Add(i);
-            _folderTiles.Add(AddTile.Instance);
-        }
-        FolderSection.Visibility = folderOpen ? Visibility.Visible : Visibility.Collapsed;
-        FolderTitle.Text = folderOpen ? $"{_currentFolder} · {_folderTiles.Count - 1} 项" : string.Empty;
-
-        // One-row recent header above the divider, only in the top-level view.
+        // One-row recently-used header above the divider. It keeps showing inside a folder, so
+        // opening one only ever swaps the grid below it.
         if (q.Length == 0 && !_recentView)
         {
             _recentItems = RecentItems();
@@ -516,17 +508,6 @@ public partial class LauncherWindow : Window
         if (Math.Abs(Height - height) > 0.5) Height = height;
     }
 
-    /// <summary>Divider + title row + the folder's own rows, or 0 when no folder is open.</summary>
-    private double FolderSectionHeight
-    {
-        get
-        {
-            if (_folderTiles.Count == 0) return 0;
-            var rows = Math.Max(1, (int)Math.Ceiling(_folderTiles.Count / (double)Cols));
-            return 40 + rows * CellHeight; // divider + title row
-        }
-    }
-
     private double TargetPanelHeight()
     {
         if (_settingsOpen) return SettingsHeight;
@@ -534,15 +515,14 @@ public partial class LauncherWindow : Window
 
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
         var recentExtra = _recentTiles.Count > 0 ? CellHeight + 15 : 0;
-        var folderExtra = FolderSectionHeight;
 
         // The screen is the only cap: N configured rows mean an N-row panel, and it scrolls only
         // when those rows genuinely do not fit on this display.
-        var available = MaxPanelHeight - PanelChrome - recentExtra - folderExtra;
+        var available = MaxPanelHeight - PanelChrome - recentExtra;
         var fit = Math.Max(1, (int)Math.Floor(available / CellHeight));
         rows = Math.Min(rows, fit);
 
-        return PanelChrome + rows * CellHeight + recentExtra + folderExtra;
+        return PanelChrome + rows * CellHeight + recentExtra;
     }
 
     private void AnimatePanelHeight()
@@ -559,11 +539,6 @@ public partial class LauncherWindow : Window
         factory.SetValue(UniformGrid.ColumnsProperty, Cols);
         factory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
         Tiles.ItemsPanel = new ItemsPanelTemplate(factory);
-
-        var folderFactory = new FrameworkElementFactory(typeof(UniformGrid));
-        folderFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
-        folderFactory.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
-        FolderTiles.ItemsPanel = new ItemsPanelTemplate(folderFactory);
 
         var recentFactory = new FrameworkElementFactory(typeof(UniformGrid));
         recentFactory.SetValue(UniformGrid.ColumnsProperty, Cols);
@@ -700,19 +675,13 @@ public partial class LauncherWindow : Window
     /// </summary>
     private void OpenFolder(string? name)
     {
-        if (name is not null && SameFolder(_currentFolder, name)) name = null; // click again to close
         _currentFolder = name;
         _recentView = false;
         Rebuild();
         ResizeWindow();
         AnimatePanelHeight();
-        if (name is not null)
-            Dispatcher.BeginInvoke(() => FolderSection.BringIntoView(), DispatcherPriority.Loaded);
-        else
-            Scroller.ScrollToTop();
+        Scroller.ScrollToTop();
     }
-
-    private void OnFolderCollapse(object sender, RoutedEventArgs e) => OpenFolder(null);
 
     private void OpenRecentView()
     {
