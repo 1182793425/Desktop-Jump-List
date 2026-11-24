@@ -303,7 +303,8 @@ public partial class SettingsWindow : Window
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
 
         if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
-            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.Tab)
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin
+            or Key.System or Key.None or Key.ImeProcessed or Key.DeadCharProcessed)
             return;
 
         if (key == Key.Escape)
@@ -313,9 +314,14 @@ public partial class SettingsWindow : Window
         }
 
         var mods = Keyboard.Modifiers;
-        if (mods == ModifierKeys.None)
+        var vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+
+        // Modifier-free hotkeys are fine for function/media/navigation keys; for anything you
+        // need while typing, say why instead of silently ignoring the press.
+        if (mods == ModifierKeys.None && !HotkeyService.AllowsStandalone(vk))
         {
-            HotkeyHint.Text = "至少需要一个修饰键";
+            HotkeyHint.Text = HotkeyService.ExplainStandaloneRefusal(key) ?? "请至少加一个修饰键";
+            HotkeyText.Text = "按下组合键…";
             return;
         }
 

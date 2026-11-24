@@ -137,6 +137,23 @@ public partial class App : Application
     }
 
     private SettingsWindow? _settingsWindow;
+    private AdvancedSettingsWindow? _advancedWindow;
+
+    /// <summary>Opens the advanced page on its own (used by the "/advanced" palette command).</summary>
+    public void OpenAdvancedSettings()
+    {
+        if (IsShuttingDown) return;
+        if (_advancedWindow is { IsVisible: true })
+        {
+            _advancedWindow.Activate();
+            return;
+        }
+
+        _advancedWindow = new AdvancedSettingsWindow();
+        _advancedWindow.Closed += (_, _) => _advancedWindow = null;
+        _advancedWindow.Show();
+        _advancedWindow.Activate();
+    }
 
     /// <summary>Opens the standalone settings window, centered on the screen. The panel stays closed.</summary>
     public void OpenSettings()
@@ -503,6 +520,15 @@ public partial class App : Application
                 Launcher.Query.Text = "微";
                 await Task.Delay(450);
                 CaptureLauncher(Path.Combine(directory, $"search-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                Launcher.Query.Text = string.Empty;
+
+                // "/" palette: the command list and a computed result.
+                Launcher.Query.Text = "/";
+                await Task.Delay(420);
+                CaptureLauncher(Path.Combine(directory, $"slash-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                Launcher.Query.Text = "/calc 12*(8+3)";
+                await Task.Delay(420);
+                CaptureLauncher(Path.Combine(directory, $"slash-calc-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
                 var settingsWindow = new SettingsWindow();

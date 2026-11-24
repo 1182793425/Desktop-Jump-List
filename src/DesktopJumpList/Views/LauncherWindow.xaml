@@ -254,6 +254,37 @@
             </Grid>
         </DataTemplate>
 
+        <!-- ===== "/" palette row: glyph + name, with the usage as a second line ===== -->
+        <DataTemplate DataType="{x:Type m:SlashRow}">
+            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"
+                  Background="Transparent" ToolTip="{Binding Subtitle}" ToolTipService.InitialShowDelay="350"
+                  AutomationProperties.Name="{Binding Title}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
+                    <Border Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
+                            CornerRadius="12" Background="{Binding Accent}"
+                            HorizontalAlignment="Center" VerticalAlignment="Top">
+                        <TextBlock Text="{Binding Glyph}" Foreground="White" FontWeight="SemiBold"
+                                   FontSize="{DynamicResource LetterFontSizeValue}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+                <StackPanel Grid.Row="1" Margin="{DynamicResource LabelMarginValue}" VerticalAlignment="Top">
+                    <TextBlock Text="{Binding Title}" FontSize="{DynamicResource LabelFontSizeValue}"
+                               Foreground="{DynamicResource InkBrush}" HorizontalAlignment="Center"
+                               TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                               MaxWidth="{DynamicResource TileWidthValue}" />
+                    <TextBlock Text="{Binding Subtitle}" FontSize="9.5" Margin="0,1,0,0"
+                               Foreground="{DynamicResource InkFaintBrush}" HorizontalAlignment="Center"
+                               TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                               MaxWidth="{DynamicResource TileWidthValue}" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
         <!-- ===== Drop placeholder: the gap that opens where the tile will land ===== -->
         <DataTemplate DataType="{x:Type local:InsertMarker}">
             <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"

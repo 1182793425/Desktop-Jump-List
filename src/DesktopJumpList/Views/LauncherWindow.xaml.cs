@@ -366,6 +366,7 @@ public partial class LauncherWindow : Window
     private void Rebuild()
     {
         var q = CurrentQuery;
+        if (q.StartsWith('/')) { RebuildSlash(q); return; }
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
         _insertMarker = null;
@@ -706,6 +707,7 @@ public partial class LauncherWindow : Window
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
             case SearchResultTile search: OpenSearch(search); break;
+            case SlashRow row: RunSlashRow(row); break;
         }
     }
 
