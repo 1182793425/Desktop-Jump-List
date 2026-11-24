@@ -462,7 +462,7 @@ public partial class LauncherWindow : Window
         if (_tiles.Count == 0) return EmptyHeight;
 
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
-        var recentExtra = _recentTiles.Count > 0 ? TileHeight + 29 : 0;
+        var recentExtra = _recentTiles.Count > 0 ? TileHeight + 15 : 0;
 
         // Never let the panel (and its shadow) run past the bottom of the 680 px window.
         var available = MaxPanelHeight - PanelChrome - recentExtra;
@@ -1577,7 +1577,8 @@ public partial class LauncherWindow : Window
     {
         if (_editMode) return;
         _editMode = true;
-        ShowStickyMessage("编辑模式 · 拖一个磁贴到另一个上即可合成分组", "完成", ExitEditMode);
+        EditGlow.To(OpacityProperty, 1, 160, Motion.Out);
+        ShowStickyMessage("调整布局中 · Esc 退出", "完成", ExitEditMode);
     }
 
     private void ExitEditMode()
@@ -1585,22 +1586,44 @@ public partial class LauncherWindow : Window
         if (!_editMode) return;
         _editMode = false;
         _dragArmed = false;
+        EditGlow.To(OpacityProperty, 0, 140, Motion.In);
         HideMessage(immediate: true);
         Rebuild();
     }
 
     private void HandleInternalDrop(object raw, DragEventArgs e)
     {
-        if (raw is not ShortcutItem dragged) return;
         var pos = e.GetPosition(Tiles);
         var container = FindContainerAt(pos);
-        var target = container?.DataContext;
+        if (container is null) return;
+        var target = container.DataContext;
+        var local = e.GetPosition(container);
+        var rel = local.X / Math.Max(1, container.ActualWidth);
 
-        if (target is ShortcutItem targetItem && !ReferenceEquals(targetItem, dragged) && container is not null)
+        // A folder tile is not one library item; move its first member so the whole
+        // group tile lands before/after the target.
+        if (raw is FolderTile draggedFolder)
+        {
+            var draggedAnchor = draggedFolder.Members.FirstOrDefault();
+            var targetAnchor = target switch
+            {
+                ShortcutItem s => s,
+                FolderTile f => f.Members.FirstOrDefault(),
+                _ => null
+            };
+            if (draggedAnchor is null || targetAnchor is null) return;
+            if (ReferenceEquals(draggedAnchor, targetAnchor)) return;
+
+            _library.Reorder(draggedAnchor, targetAnchor, after: rel >= 0.5);
+            RefreshOrder();
+            return;
+        }
+
+        if (raw is not ShortcutItem dragged) return;
+
+        if (target is ShortcutItem targetItem && !ReferenceEquals(targetItem, dragged))
         {
             // Left/right edge → reorder; centre → merge into a folder.
-            var local = e.GetPosition(container);
-            var rel = local.X / Math.Max(1, container.ActualWidth);
             if (rel < 0.32)
             {
                 _library.Reorder(dragged, targetItem, after: false);
@@ -1618,7 +1641,22 @@ public partial class LauncherWindow : Window
         }
         else if (target is FolderTile folder)
         {
-            MoveToFolder(dragged, folder.Name);
+            var anchor = folder.Members.FirstOrDefault();
+            if (anchor is null) return;
+            if (rel < 0.32)
+            {
+                _library.Reorder(dragged, anchor, after: false);
+                RefreshOrder();
+            }
+            else if (rel > 0.68)
+            {
+                _library.Reorder(dragged, anchor, after: true);
+                RefreshOrder();
+            }
+            else
+            {
+                MoveToFolder(dragged, folder.Name);
+            }
         }
     }
 
@@ -1634,7 +1672,7 @@ public partial class LauncherWindow : Window
         _ordered = _library.Ordered();
         Rebuild();
         AnimatePanelHeight();
-        ShowStickyMessage("已调整顺序", "完成", ExitEditMode);
+        ShowStickyMessage("调整布局中 · 已调整 · Esc 退出", "完成", ExitEditMode);
     }
 
     private void MergeIntoFolder(ShortcutItem a, ShortcutItem b)
@@ -1646,7 +1684,7 @@ public partial class LauncherWindow : Window
         _ordered = _library.Ordered();
         Rebuild();
         AnimatePanelHeight();
-        ShowStickyMessage($"已整理到「{name}」· 右键分组可重命名", "完成", ExitEditMode);
+        ShowStickyMessage("调整布局中 · 已分组 · Esc 退出", "完成", ExitEditMode);
     }
 
     private void MoveToFolder(ShortcutItem item, string folderName)
@@ -1656,7 +1694,7 @@ public partial class LauncherWindow : Window
         _ordered = _library.Ordered();
         Rebuild();
         AnimatePanelHeight();
-        ShowStickyMessage($"已加入「{folderName}」", "完成", ExitEditMode);
+        ShowStickyMessage("调整布局中 · 已加入分组 · Esc 退出", "完成", ExitEditMode);
     }
 
     private string NextFolderName()

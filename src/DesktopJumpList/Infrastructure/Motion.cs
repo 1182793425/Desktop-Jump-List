@@ -16,12 +16,16 @@ public static class Motion
     public static readonly IEasingFunction In = new CubicEase { EasingMode = EasingMode.EaseIn };
     public static readonly IEasingFunction InOut = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
+    /// <summary>Small overshoot for the dock's liquid tuck/pop; not for ordinary UI.</summary>
+    public static readonly IEasingFunction Pop = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.18 };
+
     static Motion()
     {
         ((Freezable)Out).Freeze();
         ((Freezable)OutStrong).Freeze();
         ((Freezable)In).Freeze();
         ((Freezable)InOut).Freeze();
+        ((Freezable)Pop).Freeze();
     }
 
     /// <summary>Animates from the *current* value, so interrupted animations never jump.</summary>

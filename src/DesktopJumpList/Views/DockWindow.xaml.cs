@@ -327,16 +327,18 @@ public partial class DockWindow : Window
         _ballGeometry.RadiusY = radius;
     }
 
-    private void AnimateGeometry(Rect rect, double radius, double ms)
+    private void AnimateGeometry(Rect rect, double radius, double ms, IEasingFunction? ease = null, double delayMs = 0)
     {
+        var easing = ease ?? Motion.InOut;
         var rectAnimation = new RectAnimation(rect, TimeSpan.FromMilliseconds(ms))
         {
-            EasingFunction = Motion.InOut,
+            EasingFunction = easing,
+            BeginTime = TimeSpan.FromMilliseconds(delayMs),
             FillBehavior = FillBehavior.HoldEnd
         };
         _ballGeometry.BeginAnimation(RectangleGeometry.RectProperty, rectAnimation, HandoffBehavior.SnapshotAndReplace);
-        _ballGeometry.To(RectangleGeometry.RadiusXProperty, radius, ms, Motion.InOut);
-        _ballGeometry.To(RectangleGeometry.RadiusYProperty, radius, ms, Motion.InOut);
+        _ballGeometry.To(RectangleGeometry.RadiusXProperty, radius, ms, easing, delayMs);
+        _ballGeometry.To(RectangleGeometry.RadiusYProperty, radius, ms, easing, delayMs);
     }
 
     private (double x, double y) TuckVector() => _settings.Edge switch
@@ -371,21 +373,43 @@ public partial class DockWindow : Window
         _tucked = true;
 
         var (x, y) = TuckVector();
-        BallShift.To(TranslateTransform.XProperty, x, 340, Motion.InOut);
-        BallShift.To(TranslateTransform.YProperty, y, 340, Motion.InOut);
-        AnimateGeometry(BarRect(), BarWidth / 2, 340);
-        ScaleBall(1, 200);
+        var horizontal = _settings.Edge is DockEdge.Left or DockEdge.Right;
+        const double pre = 70;
+        const double total = 320;
+        var main = total - pre;
+
+        // Anticipation: squash against the edge, then flow into the slim bar with a
+        // small settle instead of the old straight slide + shrink.
+        BallShift.To(TranslateTransform.XProperty, x * 0.10, pre, Motion.Out);
+        BallShift.To(TranslateTransform.YProperty, y * 0.10, pre, Motion.Out);
+        SquashBall(horizontal ? 0.90 : 1.06, horizontal ? 1.06 : 0.90, pre, Motion.Out);
+
+        BallShift.To(TranslateTransform.XProperty, x, main, Motion.Pop, pre);
+        BallShift.To(TranslateTransform.YProperty, y, main, Motion.Pop, pre);
+        SquashBall(1, 1, main, Motion.Pop, pre);
+        AnimateGeometry(BarRect(), BarWidth / 2, main, Motion.Pop, pre);
     }
 
-    private void Untuck(double ms = 240)
+    private void Untuck(double ms = 260)
     {
         if (!_tucked) return;
         _tucked = false;
 
-        BallShift.To(TranslateTransform.XProperty, 0, ms, Motion.OutStrong);
-        BallShift.To(TranslateTransform.YProperty, 0, ms, Motion.OutStrong);
-        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, ms);
-        ScaleBall(1, 160);
+        var (x, y) = TuckVector();
+        var horizontal = _settings.Edge is DockEdge.Left or DockEdge.Right;
+        var pre = Math.Min(55, ms * 0.25);
+        var main = ms - pre;
+
+        // Wind up into the edge, then pop the circle out with a little overshoot.
+        BallShift.To(TranslateTransform.XProperty, x * 1.06, pre, Motion.In);
+        BallShift.To(TranslateTransform.YProperty, y * 1.06, pre, Motion.In);
+        SquashBall(horizontal ? 0.92 : 1.08, horizontal ? 1.08 : 0.92, pre, Motion.In);
+
+        BallShift.To(TranslateTransform.XProperty, 0, main, Motion.Pop, pre);
+        BallShift.To(TranslateTransform.YProperty, 0, main, Motion.Pop, pre);
+        AnimateGeometry(new Rect(0, 0, _ballSize, _ballSize), _ballSize / 2, main, Motion.Pop, pre);
+        var hoverScale = Root.IsMouseOver ? 1.07 : 1;
+        SquashBall(hoverScale, hoverScale, main, Motion.Pop, pre);
     }
 
     public void HoldOpen(bool hold)
@@ -404,10 +428,16 @@ public partial class DockWindow : Window
         }
     }
 
-    private void ScaleBall(double to, double ms)
+    private void ScaleBall(double to, double ms, IEasingFunction? ease = null)
     {
-        BallScale.To(ScaleTransform.ScaleXProperty, to, ms);
-        BallScale.To(ScaleTransform.ScaleYProperty, to, ms);
+        BallScale.To(ScaleTransform.ScaleXProperty, to, ms, ease);
+        BallScale.To(ScaleTransform.ScaleYProperty, to, ms, ease);
+    }
+
+    private void SquashBall(double scaleX, double scaleY, double ms, IEasingFunction? ease = null, double delayMs = 0)
+    {
+        BallScale.To(ScaleTransform.ScaleXProperty, scaleX, ms, ease, delayMs);
+        BallScale.To(ScaleTransform.ScaleYProperty, scaleY, ms, ease, delayMs);
     }
 
     // ───────────────────────── Hover ─────────────────────────
@@ -527,11 +557,15 @@ public partial class DockWindow : Window
         var (l, t) = EdgePosition(area, edge, _settings.EdgeRatio);
         ApplyEdgeLayout();
         App.Current.SaveSettings();
+
+        // Squash while the window glides to the edge, then spring back on arrival.
+        var horizontal = edge is DockEdge.Left or DockEdge.Right;
+        SquashBall(horizontal ? 0.95 : 1.05, horizontal ? 1.05 : 0.95, 130, Motion.Out);
         _mover.MoveTo(l, t, 240, Done);
 
         void Done()
         {
-            ScaleBall(Root.IsMouseOver ? 1.07 : 1, 160);
+            ScaleBall(Root.IsMouseOver ? 1.07 : 1, 220, Motion.Pop);
             RestartPeekTimer();
         }
     }

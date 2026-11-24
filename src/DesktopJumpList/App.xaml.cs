@@ -480,6 +480,10 @@ public partial class App : Application
             await Task.Delay(400);
             CaptureLauncher(Path.Combine(directory, "launcher-folder-dark.png"), 1.5);
             typeof(LauncherWindow).GetMethod("OpenFolder", privateFlags)?.Invoke(Launcher, new object?[] { null });
+            typeof(LauncherWindow).GetMethod("EnterEditMode", privateFlags)?.Invoke(Launcher, null);
+            await Task.Delay(450);
+            CaptureLauncher(Path.Combine(directory, "launcher-edit-dark.png"), 1.5);
+            typeof(LauncherWindow).GetMethod("ExitEditMode", privateFlags)?.Invoke(Launcher, null);
             Launcher.Close(animated: false);
 
             Settings.Theme = AppTheme.Light;
