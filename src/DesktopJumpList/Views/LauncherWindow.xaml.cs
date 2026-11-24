@@ -319,6 +319,7 @@ public partial class LauncherWindow : Window
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
 
         if (q.Length > 0) Tiles.SelectedIndex = _tiles.Count > 0 ? 0 : -1;
+        else Tiles.SelectedIndex = -1;
     }
 
     private static bool SameFolder(string? a, string? b) =>

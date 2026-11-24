@@ -14,26 +14,26 @@ using Microsoft.Win32;
 namespace DesktopJumpList.Views;
 
 /// <summary>
-/// The floating app tile.
+/// The floating white circle.
 ///
 /// States
 ///   Resting  – fully visible, insetted from whichever screen edge it is docked to.
 ///   Tucked   – slid into the edge after <see cref="AppSettings.PeekDelayMs"/> of no attention;
-///              only a slim gradient handle remains, hovering slides the tile back out.
+///              exactly half of the circle stays on the edge. Hovering slides it back out.
 ///   Dragging – follows the pointer freely; on release it snaps to the nearest edge only when
 ///              dropped close to it (within <see cref="AppSettings.SnapDistance"/>), otherwise it
 ///              stays wherever you left it (free placement).
 ///
-/// The window never moves for tucking: only the tile's TranslateTransform does, so the edge
-/// handle can sit exactly on the screen edge. Multi-monitor: the work area is resolved from
-/// the monitor currently under the tile.
+/// The window never moves for tucking: only the circle's TranslateTransform does, so the half
+/// circle can sit exactly on the screen edge. Multi-monitor: the work area is resolved from
+/// the monitor currently under the circle.
 /// </summary>
 public partial class DockWindow : Window
 {
     private const double WindowSize = 80;
     private const double BallSize = 48;
     private const double Inset = (WindowSize - BallSize) / 2; // 16
-    private const double TuckOffset = WindowSize - Inset + 2; // 66 - ball fully off-screen
+    private const double TuckOffset = Inset + BallSize / 2; // 40 - leaves a half circle on the edge
     private const double DragThreshold = 4;
 
     private readonly AppSettings _settings;
@@ -172,44 +172,31 @@ public partial class DockWindow : Window
 
     private void ApplyEdgeLayout()
     {
-        // The peek hit-strip and the tucked handle sit on the edge the tile is docked to.
+        // The peek hit-strip sits on the edge the tile is docked to.
         switch (_settings.Edge)
         {
             case DockEdge.Left:
                 HitStrip.Width = 18; HitStrip.Height = 64;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Left;
                 HitStrip.VerticalAlignment = VerticalAlignment.Center;
-                Handle.Width = 6; Handle.Height = 36;
-                Handle.HorizontalAlignment = HorizontalAlignment.Left;
-                Handle.VerticalAlignment = VerticalAlignment.Center;
                 break;
             case DockEdge.Top:
                 HitStrip.Width = 64; HitStrip.Height = 18;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Center;
                 HitStrip.VerticalAlignment = VerticalAlignment.Top;
-                Handle.Width = 36; Handle.Height = 6;
-                Handle.HorizontalAlignment = HorizontalAlignment.Center;
-                Handle.VerticalAlignment = VerticalAlignment.Top;
                 break;
             case DockEdge.Bottom:
                 HitStrip.Width = 64; HitStrip.Height = 18;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Center;
                 HitStrip.VerticalAlignment = VerticalAlignment.Bottom;
-                Handle.Width = 36; Handle.Height = 6;
-                Handle.HorizontalAlignment = HorizontalAlignment.Center;
-                Handle.VerticalAlignment = VerticalAlignment.Bottom;
                 break;
             case DockEdge.None:
                 HitStrip.Width = 0; HitStrip.Height = 0; // no tuck when free
-                Handle.Width = 0; Handle.Height = 0;
                 break;
             default:
                 HitStrip.Width = 18; HitStrip.Height = 64;
                 HitStrip.HorizontalAlignment = HorizontalAlignment.Right;
                 HitStrip.VerticalAlignment = VerticalAlignment.Center;
-                Handle.Width = 6; Handle.Height = 36;
-                Handle.HorizontalAlignment = HorizontalAlignment.Right;
-                Handle.VerticalAlignment = VerticalAlignment.Center;
                 break;
         }
     }
@@ -229,8 +216,7 @@ public partial class DockWindow : Window
         var (x, y) = TuckVector();
         BallShift.Set(TranslateTransform.XProperty, tucked ? x : 0);
         BallShift.Set(TranslateTransform.YProperty, tucked ? y : 0);
-        Ball.Set(OpacityProperty, tucked ? 0 : 1);
-        Handle.Set(OpacityProperty, tucked ? 0.92 : 0);
+        Ball.Set(OpacityProperty, tucked ? 0.92 : 1);
     }
 
     private (double x, double y) TuckVector() => _settings.Edge switch
@@ -265,8 +251,7 @@ public partial class DockWindow : Window
         var (x, y) = TuckVector();
         BallShift.To(TranslateTransform.XProperty, x, 360, Motion.InOut);
         BallShift.To(TranslateTransform.YProperty, y, 360, Motion.InOut);
-        Ball.To(OpacityProperty, 0, 260, Motion.InOut);
-        Handle.To(OpacityProperty, 0.92, 260, Motion.Out);
+        Ball.To(OpacityProperty, 0.92, 260, Motion.InOut);
         ScaleBall(1, 200);
     }
 
@@ -277,7 +262,6 @@ public partial class DockWindow : Window
         BallShift.To(TranslateTransform.XProperty, 0, ms, Motion.OutStrong);
         BallShift.To(TranslateTransform.YProperty, 0, ms, Motion.OutStrong);
         Ball.To(OpacityProperty, 1, ms * 0.8);
-        Handle.To(OpacityProperty, 0, 160, Motion.In);
         ScaleBall(1, 160);
     }
 

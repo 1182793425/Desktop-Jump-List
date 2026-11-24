@@ -24,9 +24,9 @@ public sealed class NameToBrushConverter : IValueConverter
 {
     private static readonly (string a, string b)[] Palette =
     {
-        ("#4F80FF", "#6A5CFF"), ("#FF7A59", "#FF5C8A"), ("#10B5A3", "#1D9BF0"),
-        ("#F0A33A", "#FF7A59"), ("#8A5CFF", "#C15CFF"), ("#2DB36B", "#10B5A3"),
-        ("#5C6BFF", "#1D9BF0"), ("#E85C7A", "#8A5CFF")
+        ("#3B82F6", "#2563EB"), ("#FF7A59", "#FF5C8A"), ("#10B5A3", "#1D9BF0"),
+        ("#F0A33A", "#FF7A59"), ("#F43F5E", "#BE123C"), ("#2DB36B", "#10B5A3"),
+        ("#0EA5E9", "#0284C7"), ("#E11D48", "#9F1239")
     };
     private static readonly Dictionary<int, Brush> Cache = new();
 

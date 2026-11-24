@@ -8,26 +8,12 @@
 
     <Grid x:Name="Root" ClipToBounds="True">
 
-        <!-- While tucked, the ball is fully off-screen; only the slim edge handle shows.
-             This translucent strip keeps a comfortable hover target around it. -->
+        <!-- Translucent hit target so a tucked half-circle is still easy to reach. -->
         <Border x:Name="HitStrip" Width="18" Height="64" Background="#01FFFFFF"
                 HorizontalAlignment="Right" VerticalAlignment="Center" />
 
-        <!-- Edge handle shown in the tucked state: a small brand-coloured tab. -->
-        <Border x:Name="Handle" Width="6" Height="36" CornerRadius="3" Opacity="0"
-                HorizontalAlignment="Right" VerticalAlignment="Center" IsHitTestVisible="False">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop Color="#3D6BFF" Offset="0" />
-                    <GradientStop Color="#7C3AED" Offset="1" />
-                </LinearGradientBrush>
-            </Border.Background>
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="#2A2F8A" Opacity="0.55" />
-            </Border.Effect>
-        </Border>
-
-        <!-- The ball: a squircle app tile using the same mark as the app icon. -->
+        <!-- A plain white circle. When tucked, it slides until exactly half of it
+             is off-screen, leaving a clean semicircle on the edge. -->
         <Grid x:Name="Ball" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center"
               RenderTransformOrigin="0.5,0.5" Cursor="Hand"
               AutomationProperties.Name="Jump"
@@ -46,51 +32,12 @@
                 </StackPanel>
             </Grid.ToolTip>
 
-            <Border CornerRadius="14">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0.1,0" EndPoint="0.9,1">
-                        <GradientStop Color="#3D6BFF" Offset="0" />
-                        <GradientStop Color="#5C5AF8" Offset="0.5" />
-                        <GradientStop Color="#7C3AED" Offset="1" />
-                    </LinearGradientBrush>
-                </Border.Background>
-                <Border.Effect>
-                    <DropShadowEffect x:Name="BallShadow" BlurRadius="14" ShadowDepth="3" Direction="270"
-                                      Color="#2A2F8A" Opacity="0.42" />
-                </Border.Effect>
-            </Border>
-
-            <!-- Top light so the tile reads as a physical object, not a flat disc. -->
-            <Border CornerRadius="13" Margin="1" IsHitTestVisible="False">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0.2,0" EndPoint="0.5,1">
-                        <GradientStop Color="#42FFFFFF" Offset="0" />
-                        <GradientStop Color="#00FFFFFF" Offset="0.65" />
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
-            <Border CornerRadius="14" BorderBrush="#2BFFFFFF" BorderThickness="1" IsHitTestVisible="False" />
-
-            <!-- The mark: 2x2 tiles, the top-right one lifted out of the grid. -->
-            <Grid Width="24" Height="24" IsHitTestVisible="False">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <Border Grid.Row="0" Grid.Column="0" Margin="1" CornerRadius="3" Background="#E6FFFFFF" />
-                <Border Grid.Row="1" Grid.Column="0" Margin="1" CornerRadius="3" Background="#E6FFFFFF" />
-                <Border Grid.Row="1" Grid.Column="1" Margin="1" CornerRadius="3" Background="#E6FFFFFF" />
-                <Border Grid.Row="0" Grid.Column="1" Margin="1" CornerRadius="3" Background="#FFFFFF">
-                    <Border.RenderTransform>
-                        <TranslateTransform X="1.6" Y="-1.6" />
-                    </Border.RenderTransform>
-                </Border>
-            </Grid>
+            <Ellipse Fill="White" Stroke="#24000000" StrokeThickness="1">
+                <Ellipse.Effect>
+                    <DropShadowEffect x:Name="BallShadow" BlurRadius="16" ShadowDepth="3" Direction="270"
+                                      Color="#000000" Opacity="0.30" />
+                </Ellipse.Effect>
+            </Ellipse>
         </Grid>
     </Grid>
 </Window>
