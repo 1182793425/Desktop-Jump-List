@@ -617,17 +617,23 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="快捷键" Style="{StaticResource SettingsLabel}" />
                                 <StackPanel Grid.Column="1">
-                                    <Border x:Name="HotkeyBox" Width="190" Height="32" HorizontalAlignment="Left"
-                                            CornerRadius="8" Background="{DynamicResource SegmentBrush}"
-                                            BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
-                                            Cursor="Hand" Focusable="True" FocusVisualStyle="{x:Null}"
-                                            MouseLeftButtonUp="OnHotkeyBoxClick">
-                                        <TextBlock x:Name="HotkeyText" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                   FontSize="12.5" Foreground="{DynamicResource InkBrush}" />
-                                    </Border>
+                                    <StackPanel Orientation="Horizontal">
+                                        <CheckBox x:Name="HotkeySwitch" Style="{StaticResource Switch}"
+                                                  Click="OnHotkeyEnabledClick" />
+                                        <TextBlock Text="启用" Style="{StaticResource SettingsLabel}" FontSize="11.5"
+                                                   Margin="8,0,0,0" />
+                                        <Border x:Name="HotkeyBox" Width="190" Height="32" Margin="12,0,0,0"
+                                                CornerRadius="8" Background="{DynamicResource SegmentBrush}"
+                                                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                                                Cursor="Hand" Focusable="True" FocusVisualStyle="{x:Null}"
+                                                MouseLeftButtonUp="OnHotkeyBoxClick">
+                                            <TextBlock x:Name="HotkeyText" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                       FontSize="12.5" Foreground="{DynamicResource InkBrush}" />
+                                        </Border>
+                                    </StackPanel>
                                     <TextBlock x:Name="HotkeyHint" Margin="2,6,0,0" FontSize="11"
                                                Foreground="{DynamicResource InkFaintBrush}"
-                                               Text="点击后按下新的组合键，Esc 取消" />
+                                               Text="默认关闭；打开开关后生效，点击这里可先改组合键" />
                                 </StackPanel>
                             </Grid>
 

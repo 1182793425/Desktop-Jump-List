@@ -83,8 +83,15 @@ public sealed class TrayIcon : IDisposable
 
         var open = Item("打开面板", _app.ShowLauncher);
         open.Font = new Font(_menu.Font, FontStyle.Bold);
-        open.ShortcutKeyDisplayString = s.Hotkey;
-        open.ShowShortcutKeys = true;
+        if (s.HotkeyEnabled)
+        {
+            open.ShortcutKeyDisplayString = s.Hotkey;
+            open.ShowShortcutKeys = true;
+        }
+        else
+        {
+            open.ShowShortcutKeys = false;
+        }
         _menu.Items.Add(open);
         _menu.Items.Add(Item("设置…", _app.OpenSettings));
         _menu.Items.Add(new Forms.ToolStripSeparator());

@@ -2,7 +2,7 @@
 ; Build with ISCC.exe against the published self-contained output.
 
 #define MyAppName "Jump"
-#define MyAppVersion "3.4.0"
+#define MyAppVersion "3.4.1"
 #define MyAppPublisher "ShiPengbo"
 #define MyAppExeName "Jump.exe"
 
@@ -40,11 +40,14 @@ Name: "autostart"; Description: "登录 Windows 时自动启动（系统托盘�
 
 [Files]
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; A standalone copy of the app icon lets shortcuts point at a fresh icon path,
+; bypassing any stale per-executable Windows icon cache from older versions.
+Source: "..\src\DesktopJumpList\Assets\app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "Jump（系统托盘）"; Tasks: startmenu
+Name: "{autoprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app.ico"; IconIndex: 0; Comment: "Jump（系统托盘）"; Tasks: startmenu
 Name: "{autoprograms}\{#MyAppName}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"; Tasks: startmenu
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "Jump（系统托盘）"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app.ico"; IconIndex: 0; Comment: "Jump（系统托盘）"; Tasks: desktopicon
 
 [Registry]
 ; Per-user autostart, removed again on uninstall. The app's own tray menu writes the same value.
@@ -52,3 +55,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即运行 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure SHChangeNotify(EventId: LongWord; Flags: LongWord; Item1: LongWord; Item2: LongWord);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    SHChangeNotify($08000000, 0, 0, 0); // SHCNE_ASSOCCHANGED: refresh shell/icon caches
+end;

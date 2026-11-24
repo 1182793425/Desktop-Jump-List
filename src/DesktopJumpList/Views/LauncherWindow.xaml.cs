@@ -868,7 +868,9 @@ public partial class LauncherWindow : Window
         if (!_settingsOpen) return;
         _settingsOpen = false;
         _capturingHotkey = false;
-        HotkeyHint.Text = HotkeyHintDefault;
+        HotkeyHint.Text = App.Current.Settings.HotkeyEnabled
+            ? HotkeyHintDefault
+            : "默认关闭；打开左侧开关后生效，点击这里可先改组合键";
         Query.IsEnabled = true;
 
         if (immediate)
@@ -943,8 +945,12 @@ public partial class LauncherWindow : Window
         _settingsRefreshing = false;
 
         HotkeyText.Text = s.Hotkey;
+        HotkeySwitch.IsChecked = s.HotkeyEnabled;
         AutostartSwitch.IsChecked = StartupService.IsEnabled;
-        if (!_capturingHotkey) HotkeyHint.Text = HotkeyHintDefault;
+        if (!_capturingHotkey)
+            HotkeyHint.Text = s.HotkeyEnabled
+                ? HotkeyHintDefault
+                : "默认关闭；打开左侧开关后生效，点击这里可先改组合键";
 
         var version = typeof(App).Assembly.GetName().Version;
         VersionText.Text = version is null ? "Jump" : $"Jump v{version.ToString(3)}";
@@ -976,6 +982,18 @@ public partial class LauncherWindow : Window
 
     private void OnDockSizeMinus(object sender, RoutedEventArgs e) => ChangeDockSize(-4);
     private void OnDockSizePlus(object sender, RoutedEventArgs e) => ChangeDockSize(4);
+
+    private void OnHotkeyEnabledClick(object sender, RoutedEventArgs e)
+    {
+        var want = HotkeySwitch.IsChecked == true;
+        var ok = App.Current.SetHotkeyEnabled(want, out var error);
+        RefreshSettings();
+        if (!ok)
+        {
+            HotkeySwitch.IsChecked = !want;
+            HotkeyHint.Text = error ?? "无法启用该快捷键";
+        }
+    }
 
     private void OnDockVisibleClick(object sender, RoutedEventArgs e)
     {
@@ -1087,7 +1105,9 @@ public partial class LauncherWindow : Window
         if (App.Current.TrySetHotkey(text, out var error))
         {
             EndHotkeyCapture();
-            HotkeyHint.Text = $"已更新为 {text}";
+            HotkeyHint.Text = App.Current.Settings.HotkeyEnabled
+                ? $"已更新为 {text}"
+                : $"已设置为 {text}；打开开关后生效";
         }
         else
         {
@@ -1106,7 +1126,9 @@ public partial class LauncherWindow : Window
     {
         if (!_capturingHotkey) return;
         _capturingHotkey = false;
-        HotkeyHint.Text = HotkeyHintDefault;
+        HotkeyHint.Text = App.Current.Settings.HotkeyEnabled
+            ? HotkeyHintDefault
+            : "默认关闭；打开左侧开关后生效，点击这里可先改组合键";
         HotkeyText.Text = App.Current.Settings.Hotkey;
         Query.IsEnabled = false;
     }

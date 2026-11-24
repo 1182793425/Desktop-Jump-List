@@ -87,8 +87,15 @@ public partial class App : Application
 
         _hotkey = new HotkeyService();
         _hotkey.Pressed += ToggleLauncher;
-        if (!_hotkey.Register(Settings.Hotkey))
-            Launcher.ShowNotice($"全局快捷键 {Settings.Hotkey} 注册失败，可能已被其他程序占用。可右键托盘图标打开面板。");
+        if (Settings.HotkeyEnabled)
+        {
+            if (!_hotkey.Register(Settings.Hotkey))
+            {
+                Settings.HotkeyEnabled = false;
+                SaveSettings();
+                Launcher.ShowNotice($"全局快捷键 {Settings.Hotkey} 注册失败（可能被其他程序占用），已自动关闭。可在设置里更换或重新启用。");
+            }
+        }
 
         _wakeSignal = new EventWaitHandle(false, EventResetMode.AutoReset, InstanceName + ".wake");
         var wakeThread = new Thread(() =>
@@ -259,7 +266,7 @@ public partial class App : Application
         if (!HotkeyService.TryParse(text, out _, out _)) { error = "请至少使用 Ctrl / Alt / Shift / Win 中的一个组合键"; return false; }
 
         var previous = Settings.Hotkey;
-        if (!_hotkey.Register(text))
+        if (Settings.HotkeyEnabled && !_hotkey.Register(text))
         {
             _hotkey.Register(previous);
             error = $"「{text}」已被其他程序占用";
@@ -267,6 +274,38 @@ public partial class App : Application
         }
 
         Settings.Hotkey = text;
+        SaveSettings();
+        return true;
+    }
+
+    /// <summary>Turns the global hotkey on/off. Enabling can fail if the combination is taken.</summary>
+    public bool SetHotkeyEnabled(bool enabled, out string? error)
+    {
+        error = null;
+        if (_hotkey is null) { error = "快捷键服务未就绪"; return false; }
+
+        if (enabled)
+        {
+            if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _))
+            {
+                error = "快捷键格式不正确";
+                return false;
+            }
+            if (!_hotkey.Register(Settings.Hotkey))
+            {
+                Settings.HotkeyEnabled = false;
+                SaveSettings();
+                error = $"「{Settings.Hotkey}」已被其他程序占用，换一个组合键再试";
+                return false;
+            }
+            Settings.HotkeyEnabled = true;
+        }
+        else
+        {
+            _hotkey.Unregister();
+            Settings.HotkeyEnabled = false;
+        }
+
         SaveSettings();
         return true;
     }

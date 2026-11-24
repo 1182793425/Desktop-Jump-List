@@ -39,6 +39,9 @@ public sealed class AppSettings
     /// <summary>Global toggle hotkey, stored as "Ctrl+Alt+J" style text.</summary>
     public string Hotkey { get; set; } = "Ctrl+Alt+J";
 
+    /// <summary>Global hotkey is off by default; the tray icon and floating circle are primary.</summary>
+    public bool HotkeyEnabled { get; set; }
+
     /// <summary>Colour mode: follow system, or force light/dark. Named "themeMode" on disk so
     /// the old v2 "theme" (Light/Dark only) never collides and the default stays System.</summary>
     [JsonPropertyName("themeMode")]
@@ -81,6 +84,7 @@ public sealed class AppSettings
         FreeTop = FreeTop,
         PeekDelayMs = PeekDelayMs,
         Hotkey = Hotkey,
+        HotkeyEnabled = HotkeyEnabled,
         Theme = Theme,
         ShowDock = ShowDock,
         DockSize = DockSize,

@@ -562,7 +562,11 @@ public partial class DockWindow : Window
         var quit = new MenuItem { Header = "退出 Jump" };
         quit.Click += (_, _) => FadeOutAndQuit();
 
-        var open = new MenuItem { Header = "打开面板", InputGestureText = _settings.Hotkey };
+        var open = new MenuItem
+        {
+            Header = "打开面板",
+            InputGestureText = _settings.HotkeyEnabled ? _settings.Hotkey : string.Empty
+        };
         open.Click += (_, _) => App.Current.ShowLauncher();
 
         // 外观主题（扁平展示）
