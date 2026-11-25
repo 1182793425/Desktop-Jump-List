@@ -224,7 +224,12 @@ public partial class LauncherWindow : Window
         // and let navigation keys flush the pending query so the first arrow press is accurate.
         _queryDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
         _queryDelay.Tick += (_, _) => { _queryDelay.Stop(); OnQueryChanged(); };
-        Query.TextChanged += (_, _) => RestartQueryDelay();
+        Query.TextChanged += (_, _) =>
+        {
+            // Show the search box immediately — only the list rebuild is allowed to wait.
+            UpdatePill();
+            RestartQueryDelay();
+        };
 
         Tiles.PreviewMouseMove += OnTilesMouseMove;
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnTileDown), true);
@@ -848,7 +853,12 @@ public partial class LauncherWindow : Window
     private void RestartQueryDelay()
     {
         _queryDelay.Stop();
-        if (Query.Text.Length == 0) { OnQueryChanged(); return; } // clearing must feel instant
+
+        // Clearing, and the jump between the tile grid and the result list, have nothing to
+        // coalesce: apply them now so the first keystroke always lands in the same frame.
+        var listMode = Query.Text.Length > 0;
+        if (Query.Text.Length == 0 || listMode != _listMode) { OnQueryChanged(); return; }
+
         _queryDelay.Start();
     }
 
@@ -877,8 +887,19 @@ public partial class LauncherWindow : Window
     {
         var show = PillWanted;
         Pill.IsHitTestVisible = show;
-        Pill.To(OpacityProperty, show ? 1 : 0, show ? 160 : 140, show ? Motion.Out : Motion.In);
-        PillShift.To(TranslateTransform.YProperty, show ? 0 : 6, show ? 220 : 140, show ? Motion.OutStrong : Motion.In);
+
+        // Coming from "no pill at all" (the first keystroke after opening) must be instant: the
+        // typed character is already inside this box, so any fade reads as input lag.
+        if (show && Pill.Opacity < 0.05)
+        {
+            Pill.Set(OpacityProperty, 1);
+            PillShift.Set(TranslateTransform.YProperty, 0);
+        }
+        else
+        {
+            Pill.To(OpacityProperty, show ? 1 : 0, show ? 160 : 140, show ? Motion.Out : Motion.In);
+            PillShift.To(TranslateTransform.YProperty, show ? 0 : 6, show ? 220 : 140, show ? Motion.OutStrong : Motion.In);
+        }
 
         bool message = MessageRow.IsHitTestVisible && Query.Text.Length == 0;
         SearchRow.To(OpacityProperty, message ? 0 : 1, 120);
