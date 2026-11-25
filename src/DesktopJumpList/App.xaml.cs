@@ -190,7 +190,8 @@ public partial class App : Application
         var roots = Settings.FileSearchRootsCustomized
             ? Settings.FileSearchRoots
             : FileIndex.DefaultRoots();
-        Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits, onDone);
+        Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits,
+            Settings.FileIndexExtensions, onDone);
     }
 
     public void SetFileSearchEnabled(bool enabled)
@@ -225,6 +226,21 @@ public partial class App : Application
     public void SetFileRootLimit(string root, int maxDepth, int maxEntries)
     {
         Settings.FileRootLimits[root] = new RootLimitSetting { MaxDepth = maxDepth, MaxEntries = maxEntries };
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Extension allow-list for the index (".pathactive"): each entry is normalized to a
+    /// lowercase dotted form; empty list = index everything. Applies on the next rebuild.
+    /// </summary>
+    public void SetFileIndexExtensions(IEnumerable<string> extensions)
+    {
+        Settings.FileIndexExtensions = extensions
+            .Select(e => e.Trim())
+            .Where(e => e.Length > 1 && e.StartsWith("."))
+            .Select(e => "." + e.TrimStart('.').ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         SaveSettings();
     }
 
@@ -640,19 +656,6 @@ public partial class App : Application
                 for (var i = 0; i < 300 && !App.Current.Files.IconsWarm; i++) await Task.Delay(100);
                 if (!Launcher.IsOpen) Launcher.Open();
                 await Task.Delay(400);
-
-                // Diagnostic: full shortcut-resolution trace for the seeded QQ tile.
-                try
-                {
-                    var qq = Library.Items.FirstOrDefault(i => i.Name == "QQ");
-                    File.WriteAllText(Path.Combine(directory, "icon-debug.txt"),
-                        $"libraryCount={Library.Items.Count} qqTarget='{qq?.Target}'\n" +
-                        Services.IconService.Diagnose(qq?.Target ?? ""));
-                }
-                catch (Exception ex)
-                {
-                    try { File.WriteAllText(Path.Combine(directory, "icon-debug.txt"), "ERROR: " + ex); } catch { }
-                }
 
                 Launcher.Query.Text = "vs";
                 await Task.Delay(500);

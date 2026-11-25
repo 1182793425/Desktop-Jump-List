@@ -67,6 +67,9 @@ public partial class AdvancedSettingsWindow : Window
         FileLimitBox.Text = App.Current.Settings.FileSearchLimit.ToString();
         FileLimitBox.LostFocus += (_, _) => CommitFileLimit();
         FileLimitBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitFileLimit(); };
+        FileExtBox.Text = string.Join("\n", App.Current.Settings.FileIndexExtensions);
+        FileExtBox.LostFocus += (_, _) => CommitFileExtensions();
+        FileExtBox.KeyDown += (_, e) => { if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control) CommitFileExtensions(); };
         BuildRootRows();
         UpdateFileStatus();
 
@@ -77,6 +80,27 @@ public partial class AdvancedSettingsWindow : Window
         _statusTimer.Tick += (_, _) => UpdateFileStatus();
         _statusTimer.Start();
         Closed += (_, _) => _statusTimer?.Stop();
+    }
+
+    /// <summary>Parses the whitelist editor: one extension per line, # comments, dot-prefixed.</summary>
+    private void CommitFileExtensions()
+    {
+        var extensions = FileExtBox.Text.Split('\n', '\r')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith("#"))
+            .Select(line => line.StartsWith(".") ? line : "." + line)
+            .Select(line => line.ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var normalized = string.Join("\n", extensions);
+        FileExtBox.Text = normalized;
+        FileExtBox.CaretIndex = FileExtBox.Text.Length;
+
+        var current = App.Current.Settings.FileIndexExtensions;
+        if (current.Count == extensions.Count && !current.Except(extensions).Any()) return;
+        App.Current.SetFileIndexExtensions(extensions);
+        UpdateFileStatus();
     }
 
     /// <summary>0 = no cap; anything else applies on the next rebuild.</summary>

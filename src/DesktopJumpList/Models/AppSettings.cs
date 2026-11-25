@@ -119,6 +119,12 @@ public sealed class AppSettings
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Extension allow-list for the file index (the .pathactive idea): only files with these
+    /// extensions are indexed. Empty = index everything. Folders are never filtered.
+    /// </summary>
+    public List<string> FileIndexExtensions { get; set; } = new();
+
+    /// <summary>
     /// Upper bound on indexed entries; 0 (the default) means no cap. Entries are just path
     /// strings (~0.4 KB each), so even hundreds of thousands stay in the tens of MB.
     /// </summary>
@@ -171,6 +177,7 @@ public sealed class AppSettings
                 kv => new RootLimitSetting { MaxDepth = kv.Value.MaxDepth, MaxEntries = kv.Value.MaxEntries }),
             StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
+        FileIndexExtensions = new List<string>(FileIndexExtensions),
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,

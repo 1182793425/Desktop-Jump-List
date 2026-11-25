@@ -50,11 +50,21 @@ public sealed class FileIndex
 
     /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
     public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
-        => Start(roots, limit, null, onDone);
+        => Start(roots, limit, null, null, onDone);
 
     /// <summary>Overload with per-folder depth / entry caps (0 = unlimited).</summary>
     public void Start(IReadOnlyList<string> roots, int limit,
         IReadOnlyDictionary<string, RootLimitSetting>? perRoot, Action? onDone = null)
+        => Start(roots, limit, perRoot, null, onDone);
+
+    /// <summary>
+    /// Full overload. <paramref name="extensionAllowList"/> is the .pathactive-style filter:
+    /// only files whose extension is in the list are indexed (folders and the merged apps are
+    /// never filtered); null or empty means no filtering.
+    /// </summary>
+    public void Start(IReadOnlyList<string> roots, int limit,
+        IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
+        IReadOnlyCollection<string>? extensionAllowList, Action? onDone = null)
     {
         _cancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
@@ -63,13 +73,17 @@ public sealed class FileIndex
         IsBuilding = true;
         IconsWarm = false;
 
+        var extensionFilter = extensionAllowList is { Count: > 0 }
+            ? new HashSet<string>(extensionAllowList, StringComparer.OrdinalIgnoreCase)
+            : null;
+
         Task.Run(() =>
         {
             var found = new List<FileEntry>(4096);
             // limit <= 0 (the default) means no cap: entries are ~0.4 KB of path strings, so
             // even a few hundred thousand stay in the tens of MB.
             var cap = limit <= 0 ? int.MaxValue : Math.Max(500, limit);
-            try { Walk(roots, cap, perRoot, found, token); }
+            try { Walk(roots, cap, perRoot, extensionFilter, found, token); }
             catch { /* cancelled or unreadable root */ }
 
             // The Start Menu shortcuts (classic software) come from the walk when its folders
@@ -118,7 +132,8 @@ public sealed class FileIndex
     }
 
     private static void Walk(IReadOnlyList<string> roots, int limit,
-        IReadOnlyDictionary<string, RootLimitSetting>? perRoot, List<FileEntry> into, CancellationToken token)
+        IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
+        HashSet<string>? extensionFilter, List<FileEntry> into, CancellationToken token)
     {
         // Roots are walked one by one so each can honour its own depth / entry caps.
         foreach (var root in roots)
@@ -132,12 +147,12 @@ public sealed class FileIndex
             var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
             var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
 
-            WalkOne(root, depthCap, entryCap, limit, into, token);
+            WalkOne(root, depthCap, entryCap, limit, extensionFilter, into, token);
         }
     }
 
     private static void WalkOne(string root, int depthCap, int entryCap, int globalLimit,
-        List<FileEntry> into, CancellationToken token)
+        HashSet<string>? extensionFilter, List<FileEntry> into, CancellationToken token)
     {
         var pending = new Stack<(string Path, int Depth)>();
         pending.Push((root, 0));
@@ -170,6 +185,13 @@ public sealed class FileIndex
                     bool isDirectory;
                     try { isDirectory = Directory.Exists(path); }
                     catch { continue; }
+
+                    // .pathactive-style allow-list: files must match, folders always pass.
+                    if (!isDirectory && extensionFilter is { Count: > 0 })
+                    {
+                        var extension = Path.GetExtension(path);
+                        if (extension.Length == 0 || !extensionFilter.Contains(extension)) continue;
+                    }
 
                     into.Add(new FileEntry(
                         path, name, folder, name.ToLowerInvariant(),
