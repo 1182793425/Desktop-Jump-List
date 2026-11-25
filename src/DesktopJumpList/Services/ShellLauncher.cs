@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using DesktopJumpList.Models;
 
@@ -49,6 +49,33 @@ public static class ShellLauncher
         {
             return ex.Message;
         }
+    }
+
+    /// <summary>Opens any path (file or folder) with the shell. Returns an error message or null.</summary>
+    public static string? OpenPath(string path)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    /// <summary>Opens Explorer with the given path selected.</summary>
+    public static void RevealPath(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        }
+        catch { }
     }
 
     /// <summary>Opens Explorer with the target selected.</summary>

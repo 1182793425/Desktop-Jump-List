@@ -1,0 +1,206 @@
+using System.IO;
+
+namespace DesktopJumpList.Services;
+
+/// <summary>One file or folder found under the indexed roots.</summary>
+public sealed record FileEntry(string Path, string Name, string Folder, string Lower, bool IsDirectory);
+
+/// <summary>
+/// A small in-memory index of the user's folders. Built once on a background thread, refreshed
+/// when it goes stale, then searched with plain string work — scanning the disk on every
+/// keystroke would be the one thing guaranteed to make typing feel slow.
+/// </summary>
+public sealed class FileIndex
+{
+    private static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node_modules", "bower_components", ".git", ".svn", ".vs", ".idea", ".vscode",
+        "bin", "obj", "target", "dist", "build", "__pycache__",
+        "AppData", "Windows", "Program Files", "Program Files (x86)", "ProgramData",
+        "$RECYCLE.BIN", "System Volume Information", "OneDriveTemp"
+    };
+
+    private readonly object _gate = new();
+    private List<FileEntry> _entries = new();
+    private CancellationTokenSource? _cancellation;
+
+    public int Count
+    {
+        get { lock (_gate) return _entries.Count; }
+    }
+
+    public bool IsBuilding { get; private set; }
+
+    public DateTime LastBuilt { get; private set; } = DateTime.MinValue;
+
+    public bool IsStale => DateTime.Now - LastBuilt > TimeSpan.FromMinutes(5);
+
+    /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
+    public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
+    {
+        _cancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _cancellation = cancellation;
+        var token = cancellation.Token;
+        IsBuilding = true;
+
+        Task.Run(() =>
+        {
+            var found = new List<FileEntry>(4096);
+            try { Walk(roots, Math.Max(500, limit), found, token); }
+            catch { /* cancelled or unreadable root */ }
+
+            var cancelled = token.IsCancellationRequested;
+            if (!cancelled)
+            {
+                lock (_gate)
+                {
+                    _entries = found;
+                    LastBuilt = DateTime.Now;
+                }
+            }
+
+            // Only the newest run owns the flag. A superseded walk must not clear it for
+            // the replacement that is still running, or the index would never refresh.
+            if (ReferenceEquals(_cancellation, cancellation)) IsBuilding = false;
+            if (!cancelled) onDone?.Invoke();
+        }, token);
+    }
+
+    private static void Walk(IReadOnlyList<string> roots, int limit, List<FileEntry> into, CancellationToken token)
+    {
+        var pending = new Stack<(string Path, int Depth)>();
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root)) continue;
+            if (Directory.Exists(root)) pending.Push((root, 0));
+        }
+
+        while (pending.Count > 0 && into.Count < limit)
+        {
+            token.ThrowIfCancellationRequested();
+            var (folder, depth) = pending.Pop();
+
+            IEnumerator<string> children;
+            try { children = Directory.EnumerateFileSystemEntries(folder).GetEnumerator(); }
+            catch { continue; }
+
+            using (children)
+            {
+                while (true)
+                {
+                    if (into.Count >= limit) break;
+
+                    string path;
+                    try { if (!children.MoveNext()) break; path = children.Current; }
+                    catch { break; }
+
+                    token.ThrowIfCancellationRequested();
+
+                    var name = Path.GetFileName(path);
+                    if (string.IsNullOrEmpty(name) || name.StartsWith('.')) continue;
+
+                    bool isDirectory;
+                    try { isDirectory = Directory.Exists(path); }
+                    catch { continue; }
+
+                    into.Add(new FileEntry(path, name, folder, name.ToLowerInvariant(), isDirectory));
+
+                    if (isDirectory && depth < 6 && !SkipFolders.Contains(name))
+                        pending.Push((path, depth + 1));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A handful of entries for "/s" with no keyword yet: no ranking, just what the walk
+    /// found first, so the command shows something immediately instead of an empty box.
+    /// </summary>
+    public List<FileEntry> Take(int max)
+    {
+        if (max <= 0) return new List<FileEntry>();
+        List<FileEntry> snapshot;
+        lock (_gate) snapshot = _entries;
+        return snapshot.Take(max).ToList();
+    }
+
+    /// <summary>Same ranking idea as shortcuts: prefix, then substring, then subsequence.</summary>
+    public List<FileEntry> Search(string query, int max)
+    {
+        if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
+
+        var needle = query.Trim().ToLowerInvariant();
+        var compact = needle.Replace(" ", string.Empty);
+        var hits = new List<(FileEntry entry, int rank, int length)>();
+
+        List<FileEntry> snapshot;
+        lock (_gate) snapshot = _entries;
+
+        foreach (var entry in snapshot)
+        {
+            var rank = Rank(entry, needle, compact);
+            if (rank < 0) continue;
+            hits.Add((entry, rank, entry.Name.Length));
+        }
+
+        return hits
+            .OrderBy(h => h.rank)
+            .ThenBy(h => h.length)
+            .Take(max)
+            .Select(h => h.entry)
+            .ToList();
+    }
+
+    private static int Rank(FileEntry entry, string needle, string compact)
+    {
+        if (entry.Lower.StartsWith(needle, StringComparison.Ordinal)) return 0;
+        if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 1;
+
+        // "vscode" style abbreviations still work, but only from three characters up so that a
+        // single letter does not drag the whole disk into the list.
+        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 2;
+        return -1;
+    }
+
+    private static bool IsSubsequence(string text, string query)
+    {
+        var from = 0;
+        var first = true;
+        foreach (var ch in query)
+        {
+            if (ch == ' ') continue;
+            var found = text.IndexOf(ch, from);
+            if (first)
+            {
+                while (found > 0 && char.IsLetterOrDigit(text[found - 1])) found = text.IndexOf(ch, found + 1);
+            }
+            if (found < 0) return false;
+            from = found + 1;
+            first = false;
+        }
+        return true;
+    }
+
+    /// <summary>Desktop, Documents and Downloads — the folders people actually look for.</summary>
+    public static List<string> DefaultRoots()
+    {
+        var roots = new List<string>();
+        foreach (var folder in new[]
+                 {
+                     Environment.SpecialFolder.Desktop,
+                     Environment.SpecialFolder.MyDocuments,
+                     Environment.SpecialFolder.MyPictures,
+                     Environment.SpecialFolder.UserProfile
+                 })
+        {
+            var path = Environment.GetFolderPath(folder);
+            if (folder == Environment.SpecialFolder.UserProfile) continue; // too broad on its own
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path) && !roots.Contains(path)) roots.Add(path);
+        }
+
+        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        if (Directory.Exists(downloads) && !roots.Contains(downloads)) roots.Add(downloads);
+        return roots;
+    }
+}

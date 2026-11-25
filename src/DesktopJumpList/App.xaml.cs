@@ -105,6 +105,8 @@ public partial class App : Application
 
         _ = IconService.LoadAsync(Library.Items);
         Dispatcher.BeginInvoke(ScheduleIdleTrim, DispatcherPriority.ApplicationIdle);
+        // No disk walk at startup: the file index is built on demand, the first time the
+        // launcher enters "/s" mode (see LauncherWindow.EnsureFileIndex).
 
         if (!Settings.FirstRunDone)
         {
@@ -135,6 +137,9 @@ public partial class App : Application
         if (revealDock && Settings.ShowDock) Dock.HoldOpen(true);
         Launcher.Open();
     }
+
+    /// <summary>In-memory index of the user's folders, used by the search results.</summary>
+    public FileIndex Files { get; } = new();
 
     private SettingsWindow? _settingsWindow;
     private AdvancedSettingsWindow? _advancedWindow;
@@ -175,6 +180,36 @@ public partial class App : Application
     }
 
     /// <summary>Called by the launcher once it has fully faded out.</summary>
+    /// <summary>
+    /// Builds the file index in the background (no-op when the feature is off). Only "/s"
+    /// triggers this; onDone lets the launcher refresh its results when the walk finishes.
+    /// </summary>
+    public void StartFileIndex(Action? onDone = null)
+    {
+        if (!Settings.FileSearchEnabled) return;
+        var roots = Settings.FileSearchRoots.Count > 0 ? Settings.FileSearchRoots : FileIndex.DefaultRoots();
+        Files.Start(roots, Settings.FileSearchLimit, onDone);
+    }
+
+    public void SetFileSearchEnabled(bool enabled)
+    {
+        Settings.FileSearchEnabled = enabled;
+        SaveSettings();
+        // Toggling the switch must not start a disk walk: the index is built on demand,
+        // the first time the user actually types "/s".
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
+    public void SetFileSearchRoots(IEnumerable<string> roots)
+    {
+        Settings.FileSearchRoots = roots.ToList();
+        SaveSettings();
+        // Keep an already-built index in sync with the new roots. If it has never been built,
+        // stay idle until "/s" needs it.
+        if (Files.LastBuilt != DateTime.MinValue) StartFileIndex();
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
     public void OnLauncherClosed()
     {
         if (Settings.ShowDock) Dock.HoldOpen(false);
@@ -530,15 +565,36 @@ public partial class App : Application
                 Launcher.Query.Text = "vscode";
                 await Task.Delay(450);
                 CaptureLauncher(Path.Combine(directory, $"search-fuzzy-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // Local files: a few placeholders so the row icons and paths are visible.
+                // They are only reachable through "/s"; a plain query must never show them.
+                var sampleFiles = Path.Combine(directory, "_files");
+                Directory.CreateDirectory(sampleFiles);
+                foreach (var name in new[]
+                         {
+                             "季度报告-2026Q4.docx", "设计稿-v3.png", "vscode-cheatsheet.md",
+                             "预算表.xlsx", "会议纪要-1125.txt", "产品原型.sketch"
+                         })
+                    File.WriteAllText(Path.Combine(sampleFiles, name), string.Empty);
+                App.Current.Files.Start(new[] { sampleFiles }, 500);
+                for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
+
+                Launcher.Query.Text = "vs";
+                await Task.Delay(500);
+                CaptureLauncher(Path.Combine(directory, $"search-no-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                Launcher.Query.Text = "/s 设计";
+                await Task.Delay(500);
+                CaptureLauncher(Path.Combine(directory, $"search-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
-                // "/" palette: the single remaining command.
+                // "/" palette: settings plus the /s hint.
                 Launcher.Query.Text = "/";
                 await Task.Delay(900);
                 CaptureLauncher(Path.Combine(directory, $"slash-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
-                Launcher.Query.Text = "/calc 12*(8+3)";
+                Launcher.Query.Text = "/s";
                 await Task.Delay(420);
-                CaptureLauncher(Path.Combine(directory, $"slash-calc-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                CaptureLauncher(Path.Combine(directory, $"slash-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
                 var settingsWindow = new SettingsWindow();

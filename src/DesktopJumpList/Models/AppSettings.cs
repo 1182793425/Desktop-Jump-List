@@ -89,6 +89,15 @@ public sealed class AppSettings
     /// </summary>
     public int SearchDebounceMs { get; set; } = 110;
 
+    /// <summary>Search local files (index of the folders listed in <see cref="FileSearchRoots"/>).</summary>
+    public bool FileSearchEnabled { get; set; } = true;
+
+    /// <summary>Folders the file index walks. Empty means Desktop / Documents / Pictures / Downloads.</summary>
+    public List<string> FileSearchRoots { get; set; } = new();
+
+    /// <summary>Upper bound on indexed entries, so a huge folder cannot blow up memory.</summary>
+    public int FileSearchLimit { get; set; } = 20000;
+
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
 
@@ -127,6 +136,9 @@ public sealed class AppSettings
         PanelItemGap = PanelItemGap,
         SearchEngines = new List<string>(SearchEngines),
         SearchDebounceMs = SearchDebounceMs,
+        FileSearchEnabled = FileSearchEnabled,
+        FileSearchRoots = new List<string>(FileSearchRoots),
+        FileSearchLimit = FileSearchLimit,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,

@@ -23,6 +23,9 @@ public static class IconService
     private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
     private const int SIIGBF_BIGGERSIZEOK = 0x1;
     private const int SIIGBF_ICONONLY = 0x4;
+    private const uint SHGFI_USEFILEATTRIBUTES = 0x10;
+    private const uint FILE_ATTRIBUTE_NORMAL = 0x80;
+    private const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
 
     /// <summary>
     /// Pixel size to ask the shell for. Tiles top out at a few dozen DIPs, so a 256 px bitmap per
@@ -157,16 +160,34 @@ public static class IconService
     /// <summary>Gets the icon Explorer shows: the shell's own HICON, alpha intact, no shortcuts.</summary>
     private static ImageSource? FromShellIcon(string path)
     {
+        var icon = QueryIcon(path, 0, SHGFI_ICON | SHGFI_LARGEICON | SHGFI_SHELLICONSIZE);
+        if (icon != IntPtr.Zero) return FromHandle(icon);
+
+        // Fallback for files the shell cannot map to a live item (empty files, odd paths):
+        // derive the icon from the extension only, which never touches the disk.
+        var attribute = Directory.Exists(path) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        icon = QueryIcon(path, attribute, SHGFI_ICON | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES);
+        return icon != IntPtr.Zero ? FromHandle(icon) : null;
+    }
+
+    private static IntPtr QueryIcon(string path, uint attributes, uint flags)
+    {
         var info = new Native.SHFILEINFO();
-        var res = Native.SHGetFileInfo(path, 0, ref info, (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.SHFILEINFO>(),
-            SHGFI_ICON | SHGFI_LARGEICON | SHGFI_SHELLICONSIZE);
-        if (res == IntPtr.Zero || info.hIcon == IntPtr.Zero) return null;
+        var res = Native.SHGetFileInfo(path, attributes, ref info,
+            (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.SHFILEINFO>(), flags);
+        return res == IntPtr.Zero ? IntPtr.Zero : info.hIcon;
+    }
+
+    private static ImageSource? FromHandle(IntPtr icon)
+    {
+        if (icon == IntPtr.Zero) return null;
         try
         {
-            var src = Imaging.CreateBitmapSourceFromHIcon(info.hIcon, System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            var src = Imaging.CreateBitmapSourceFromHIcon(icon, System.Windows.Int32Rect.Empty,
+                BitmapSizeOptions.FromEmptyOptions());
             src.Freeze();
             return src;
         }
-        finally { Native.DestroyIcon(info.hIcon); }
+        finally { Native.DestroyIcon(icon); }
     }
 }

@@ -288,6 +288,8 @@ public partial class LauncherWindow : Window
             _currentFolder = null;
             _recentView = false;
             _ordered = _library.Ordered();
+            // The disk index is deliberately NOT built here. It is only needed by the "/s"
+            // command, so walking the user's folders on every panel open would be pure cost.
             Rebuild();
             var panelHeight = TargetPanelHeight();
             Panel.Set(HeightProperty, panelHeight);
@@ -383,7 +385,16 @@ public partial class LauncherWindow : Window
     {
         var q = CurrentQuery;
         SetListMode(q.Length > 0);
-        if (q.StartsWith('/')) { RebuildSlash(q); return; }
+        if (q.StartsWith('/'))
+        {
+            // "/s ..." is its own mode: results contain local files and nothing else.
+            // Everything else starting with "/" stays the small command palette.
+            if (TryParseFileQuery(q, out var fileTerms)) RebuildFileSearch(fileTerms);
+            else RebuildSlash(q);
+            return;
+        }
+        // Leaving a slash surface invalidates its "nothing changed" shortcut.
+        _lastSlashSignature = null;
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
         _insertMarker = null;
@@ -433,7 +444,9 @@ public partial class LauncherWindow : Window
             }
             if (q.Length == 0 && _ordered.Count > 0) next.Add(AddTile.Instance);
 
-            // Typing also offers the web: one row per enabled engine, after the local matches.
+            // Typing also offers the web: one row per enabled engine, after the shortcuts.
+            // Local files are NOT searched here — they belong exclusively to the "/s" command,
+            // so a plain query never touches the disk index.
             if (q.Length > 0)
             {
                 foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchEngines))
@@ -786,6 +799,7 @@ public partial class LauncherWindow : Window
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
             case SearchResultTile search: OpenSearch(search); break;
+            case FileEntry file: OpenFoundFile(file); break;
             case ResultRow row: RunResultRow(row); break;
         }
     }
@@ -824,6 +838,12 @@ public partial class LauncherWindow : Window
         e.Handled = true;
         if (!c.IsMouseOver) return;
         Invoke(c.DataContext, c);
+    }
+
+    private void OpenFoundFile(FileEntry file)
+    {
+        if (ShellLauncher.OpenPath(file.Path) is { } error) { ShowMessage(error); return; }
+        Close(animated: true);
     }
 
     private void OpenSearch(SearchResultTile search)
@@ -1060,11 +1080,33 @@ public partial class LauncherWindow : Window
 
         switch (c.DataContext)
         {
+            case ResultRow { Item: FileEntry file }: ShowFileMenu(file); break;
             case ShortcutItem item: ShowShortcutMenu(item, c); break;
             case FolderTile folder: ShowFolderMenu(folder, c); break;
             case AddTile: ShowAddMenu(c); break;
             case BackTile: OpenFolder(null); break;
         }
+    }
+
+    private void ShowFileMenu(FileEntry file)
+    {
+        var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        menu.Items.Add(Item("打开", () => { ShellLauncher.OpenPath(file.Path); Close(animated: true); }, "Enter"));
+        menu.Items.Add(Item("打开所在位置", () => ShellLauncher.RevealPath(file.Path)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("添加到 Jump", () =>
+        {
+            if (ShellLauncher.FromInput(file.Path) is not { } item) return;
+            Commit(new List<ShortcutItem> { item });
+            ShowMessage($"已添加「{item.Name}」");
+        }));
+        menu.Items.Add(Item("复制路径", () =>
+        {
+            try { Clipboard.SetText(file.Path); ShowMessage("路径已复制"); }
+            catch { ShowMessage("复制失败：剪贴板被占用"); }
+        }));
+        menu.Closed += (_, _) => { if (IsOpen && _renaming is null) Keyboard.Focus(Query); };
+        menu.IsOpen = true;
     }
 
     private void ShowFolderMenu(FolderTile folder, FrameworkElement anchor)
