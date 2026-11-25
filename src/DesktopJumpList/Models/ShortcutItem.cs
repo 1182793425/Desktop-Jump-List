@@ -31,18 +31,51 @@ public sealed class ShortcutItem : ObservableObject
             if (!Set(ref _name, value)) return;
             _searchName = null;
             _searchInitials = null;
+            _searchWordInitials = null;
             Raise(nameof(TooltipText));
         }
     }
 
     private string? _searchName;
     private string? _searchInitials;
+    private string? _searchWordInitials;
 
     /// <summary>Lower-cased name, computed once — search runs on every keystroke.</summary>
     public string SearchName => _searchName ??= (_name ?? string.Empty).ToLowerInvariant();
 
     /// <summary>Pinyin initials, also computed once per name.</summary>
     public string SearchInitials => _searchInitials ??= Infrastructure.Pinyin.Initials(_name ?? string.Empty);
+
+    /// <summary>
+    /// First letter of every word (and of camelCase humps): "Visual Studio Code" → "vsc",
+    /// which is what makes an abbreviation like "vsc" or "code" land on the right item.
+    /// </summary>
+    public string SearchWordInitials => _searchWordInitials ??= BuildWordInitials(_name);
+
+    private static string BuildWordInitials(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return string.Empty;
+        var builder = new System.Text.StringBuilder(name.Length);
+        var atWordStart = true;
+        var previous = '\0';
+
+        foreach (var ch in name)
+        {
+            if (!char.IsLetterOrDigit(ch))
+            {
+                atWordStart = true;
+                previous = ch;
+                continue;
+            }
+
+            var hump = char.IsUpper(ch) && (char.IsLower(previous) || char.IsDigit(previous));
+            if (atWordStart || hump) builder.Append(Infrastructure.Pinyin.FirstLetter(ch));
+            atWordStart = false;
+            previous = ch;
+        }
+
+        return builder.ToString();
+    }
 
     /// <summary>Absolute path for file/folder/app, an absolute URI for <see cref="ShortcutKind.Url"/>,
     /// or the AppUserModelId for <see cref="ShortcutKind.AppX"/>.</summary>

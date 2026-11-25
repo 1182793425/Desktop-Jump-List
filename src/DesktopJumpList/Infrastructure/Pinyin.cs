@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace DesktopJumpList.Infrastructure;
 
@@ -25,6 +25,14 @@ public static class Pinyin
             Gb2312 = Encoding.GetEncoding("GB2312");
         }
         catch { Gb2312 = null; }
+    }
+
+    /// <summary>First letter of a word: ASCII letters are lower-cased, Han gets its initial.</summary>
+    public static char FirstLetter(char ch)
+    {
+        if (ch < 0x80) return char.ToLowerInvariant(ch);
+        var initial = Initial(ch);
+        return initial != '\0' ? initial : char.ToLowerInvariant(ch);
     }
 
     public static string Initials(string text)

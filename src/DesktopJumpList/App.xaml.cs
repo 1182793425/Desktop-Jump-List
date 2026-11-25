@@ -527,9 +527,12 @@ public partial class App : Application
                 Launcher.Query.Text = "微";
                 await Task.Delay(450);
                 CaptureLauncher(Path.Combine(directory, $"search-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                Launcher.Query.Text = "vscode";
+                await Task.Delay(450);
+                CaptureLauncher(Path.Combine(directory, $"search-fuzzy-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
-                // "/" palette: the command list and a computed result.
+                // "/" palette: the single remaining command.
                 Launcher.Query.Text = "/";
                 await Task.Delay(900);
                 CaptureLauncher(Path.Combine(directory, $"slash-{mode.ToString().ToLowerInvariant()}.png"), 1.5);

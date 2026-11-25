@@ -99,28 +99,82 @@ public sealed class ShortcutLibrary
         SaveSoon();
     }
 
-    /// <summary>Ranks matches: name prefix &gt; pinyin-initials prefix &gt; substring &gt; initials substring.</summary>
+    /// <summary>
+    /// Ranks matches the way a launcher is expected to behave: prefix, then word initials
+    /// ("vsc" → Visual Studio Code), then substring, then a subsequence match so "vscode" still
+    /// finds "Visual Studio Code". Unmatched items are dropped.
+    /// </summary>
     public static List<ShortcutItem> Search(IEnumerable<ShortcutItem> ordered, string query)
     {
-        query = query.Trim().ToLowerInvariant();
-        if (query.Length == 0) return ordered.ToList();
+        var q = query.Trim().ToLowerInvariant();
+        if (q.Length == 0) return ordered.ToList();
+        var compact = q.Replace(" ", string.Empty);
 
-        var results = new List<(ShortcutItem item, int rank, int order)>();
-        int order = 0;
+        var results = new List<(ShortcutItem item, int rank, int gap, int order)>();
+        var order = 0;
         foreach (var item in ordered)
         {
             order++;
-            var name = item.SearchName;
-            var initials = item.SearchInitials;
-            int rank;
-            if (name.StartsWith(query)) rank = 0;
-            else if (initials.StartsWith(query)) rank = 1;
-            else if (name.Contains(query)) rank = 2;
-            else if (initials.Contains(query)) rank = 3;
-            else if (item.Target.Contains(query, StringComparison.OrdinalIgnoreCase)) rank = 4;
-            else continue;
-            results.Add((item, rank, order));
+            var rank = Rank(item, q, compact, out var gap);
+            if (rank >= 0) results.Add((item, rank, gap, order));
         }
-        return results.OrderBy(r => r.rank).ThenBy(r => r.order).Select(r => r.item).ToList();
+
+        return results
+            .OrderBy(r => r.rank)
+            .ThenBy(r => r.gap)
+            .ThenBy(r => r.order)
+            .Select(r => r.item)
+            .ToList();
+    }
+
+    private static int Rank(ShortcutItem item, string query, string compact, out int gap)
+    {
+        gap = 0;
+        var name = item.SearchName;
+        var initials = item.SearchInitials;
+        var words = item.SearchWordInitials;
+
+        if (name.StartsWith(query, StringComparison.Ordinal)) return 0;
+        if (initials.StartsWith(compact, StringComparison.Ordinal)) return 1;
+        if (words.Length > 0 && words.StartsWith(compact, StringComparison.Ordinal)) return 2;
+        if (name.Contains(query, StringComparison.Ordinal)) return 3;
+        if (initials.Contains(compact, StringComparison.Ordinal)) return 4;
+        if (words.Length > 0 && words.Contains(compact, StringComparison.Ordinal)) return 5;
+
+        // "vscode" is not a substring of "visual studio code", but it is a subsequence of it.
+        // Single-character queries are excluded: they would match almost everything.
+        if (compact.Length >= 3 && IsSubsequence(name, compact, out gap)) return 6;
+
+        gap = 0;
+        return item.Target.Contains(compact, StringComparison.OrdinalIgnoreCase) ? 7 : -1;
+    }
+
+    /// <summary>
+    /// Every character of the query appears in order. The first one must sit on a word boundary,
+    /// so "vscode" finds Visual Studio Code while "ode" does not pile up noise.
+    /// </summary>
+    private static bool IsSubsequence(string text, string query, out int gap)
+    {
+        gap = 0;
+        var from = 0;
+        var previous = -1;
+        var first = true;
+
+        foreach (var ch in query)
+        {
+            if (ch == ' ') continue;
+
+            var found = text.IndexOf(ch, from);
+            while (first && found > 0 && char.IsLetterOrDigit(text[found - 1]))
+                found = text.IndexOf(ch, found + 1);
+
+            if (found < 0) { gap = 0; return false; }
+            if (previous >= 0) gap += found - previous - 1;
+            previous = found;
+            from = found + 1;
+            first = false;
+        }
+
+        return true;
     }
 }
