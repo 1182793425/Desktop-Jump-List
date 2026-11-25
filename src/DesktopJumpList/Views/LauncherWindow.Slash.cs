@@ -40,10 +40,11 @@ public partial class LauncherWindow
 
     private void RebuildSlash(string query)
     {
-        ShowSlashRows(SlashRows(query), $"没有这个命令：{query}");
+        var rows = SlashRows(query);
+        ShowSlashRows(rows, rows.Count == 0 ? $"没有这个命令：{query}" : string.Empty);
     }
 
-    /// <summary>"/s" results: only local files, no shortcuts, no web engines, no commands.</summary>
+    /// <summary>"/s" results: local files and apps, plus the manual rebuild command.</summary>
     private void RebuildFileSearch(string terms)
     {
         EnsureFileIndex();
@@ -57,39 +58,63 @@ public partial class LauncherWindow
             foreach (var file in files) rows.Add(BuildFileRow(file));
         }
 
+        // The index never refreshes on its own, so /s always offers the manual way out.
         var index = App.Current.Files;
+        rows.Add(new ResultRow
+        {
+            Title = index.IsBuilding ? "正在重建索引，完成后自动刷新…" : "重建索引并搜索",
+            Subtitle = index.IsBuilding
+                ? $"已索引 {index.Count} 项"
+                : "重新遍历索引目录与已安装应用，完成后自动搜索当前关键词",
+            Glyph = "↻",
+            Accent = Accent("#0EA5E9"),
+            Run = RebuildFileIndexNow
+        });
+
+        var fileCount = rows.Count - 1; // the rebuild row is always appended last
         var emptyText = !CurrentSettings.FileSearchEnabled
             ? "本地文件搜索已在高级设置中关闭"
-            : rows.Count == 0 && index.IsBuilding
-                ? "正在建立本地索引，稍后会自动刷新…"
-                : terms.Length == 0
-                    ? "索引为空：输入 /s 关键词检索本地文件"
-                    : $"没有找到本地文件：{terms}";
+            : index.IsBuilding
+                ? string.Empty
+                : terms.Length > 0
+                    ? $"没有找到本地文件或应用：{terms}"
+                    : fileCount == 0 ? "索引为空：点「重建索引并搜索」建立索引" : string.Empty;
 
         ShowSlashRows(rows, emptyText);
     }
 
     /// <summary>
-    /// The one place that starts a disk walk. Only "/s" reaches it: opening the panel or typing
-    /// a normal query never builds the index, so there is no background disk cost until asked.
+    /// The one place that starts a disk walk automatically. Only "/s" reaches it and only
+    /// when no index exists yet: opening the panel or typing a normal query never builds
+    /// the index, and once built it stays put until the user rebuilds it on purpose.
     /// </summary>
     private void EnsureFileIndex()
     {
         var index = App.Current.Files;
         if (!CurrentSettings.FileSearchEnabled) return;
-        if (index.IsBuilding || !index.IsStale) return;
+        if (index.IsBuilding || index.LastBuilt != DateTime.MinValue) return;
 
-        App.Current.StartFileIndex(() =>
+        App.Current.StartFileIndex(RefreshAfterIndexBuild);
+    }
+
+    /// <summary>The "重建索引并搜索" row: walk the folders again, then re-run the query.</summary>
+    private void RebuildFileIndexNow()
+    {
+        if (!CurrentSettings.FileSearchEnabled) return;
+        App.Current.StartFileIndex(RefreshAfterIndexBuild);
+        Rebuild(); // immediately swap the command row to its "正在重建…" wording
+    }
+
+    private void RefreshAfterIndexBuild()
+    {
+        // The callback arrives on the worker thread; refresh the list once the user is
+        // still sitting in /s mode so the fresh index answers the current query.
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            // The callback arrives on the worker thread; refresh the list once the user is
-            // still sitting in /s mode so the first "/s foo" is not answered with an empty list.
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (!IsOpen) return;
-                var q = CurrentQuery;
-                if (q.StartsWith('/') && TryParseFileQuery(q, out _)) Rebuild();
-            }));
-        });
+            if (!IsOpen) return;
+            var q = CurrentQuery;
+            if (q.StartsWith('/') && TryParseFileQuery(q, out _)) Rebuild();
+        }));
     }
 
     /// <summary>Shared chrome for both slash surfaces: one-line rows, no recent section.</summary>
@@ -123,7 +148,10 @@ public partial class LauncherWindow
         EmptyState.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
 
-        var none = rows.Count == 0;
+        var none = rows.Count == 0 ||
+                   // A list made purely of command rows (rebuild, palette entries) counts as
+                   // "nothing found": the hint text explains why, the rows stay clickable.
+                   (emptyText.Length > 0 && rows.All(r => r.Run is not null && r.Item is null));
         NoMatch.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
         NoMatch.Text = none ? emptyText : string.Empty;
         ResultCount.Text = rows.Count > 0 ? rows.Count.ToString() : string.Empty;
@@ -158,7 +186,7 @@ public partial class LauncherWindow
             rows.Add(new ResultRow
             {
                 Title = "检索本地文件",
-                Subtitle = "/s 关键词 · 只显示本地文件",
+                Subtitle = "/s 关键词 · 检索本地文件与已安装应用",
                 Glyph = "📁",
                 Accent = Accent("#F59E0B"),
                 Run = EnterFileMode
@@ -180,20 +208,27 @@ public partial class LauncherWindow
     /// <summary>A file found on disk: name plus the folder it lives in.</summary>
     private static ResultRow BuildFileRow(FileEntry file)
     {
-        var where = file.IsDirectory ? $"文件夹 · {file.Folder}" : file.Folder;
-        var when = RelativeTime(file.WriteTime);
+        var isApp = FileIndex.IsAppEntry(file);
+        var where = isApp
+            ? "已安装应用"
+            : file.IsDirectory ? $"文件夹 · {file.Folder}" : file.Folder;
+        var when = isApp ? string.Empty : RelativeTime(file.WriteTime);
         var row = new ResultRow
         {
             Item = file,
             Title = file.Name,
             Subtitle = when.Length > 0 ? $"{when} · {where}" : where,
-            Icon = IconService.Get(file.Path)
+            Icon = isApp
+                ? StoreAppsService.TryGetLogo(file.Path["shell:AppsFolder\\".Length..])
+                : IconService.Get(file.Path)
         };
 
         if (row.Icon is null && file.Name.Length > 0)
         {
             row.Glyph = file.Name[..1];
-            row.Accent = file.IsDirectory ? Accent("#F59E0B") : Accent("#64748B");
+            row.Accent = isApp
+                ? Accent("#0EA5E9")
+                : file.IsDirectory ? Accent("#F59E0B") : Accent("#64748B");
         }
 
         return row;

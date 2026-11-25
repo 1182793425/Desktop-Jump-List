@@ -41,7 +41,8 @@ public sealed class FileIndex
 
     public DateTime LastBuilt { get; private set; } = DateTime.MinValue;
 
-    public bool IsStale => DateTime.Now - LastBuilt > TimeSpan.FromMinutes(5);
+    // No background auto-refresh: the index is rebuilt only when the user asks for it via
+    // the "重建索引并搜索" row in /s, or changes the folders in advanced settings.
 
     /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
     public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
@@ -58,6 +59,12 @@ public sealed class FileIndex
             try { Walk(roots, Math.Max(500, limit), found, token); }
             catch { /* cancelled or unreadable root */ }
 
+            // The Start Menu shortcuts (classic software) come from the walk when its folders
+            // are among the roots; packaged apps (便签, 录音机…) come from this merge instead.
+            var appIds = token.IsCancellationRequested
+                ? new List<string>()
+                : MergeStoreApps(found);
+
             var cancelled = token.IsCancellationRequested;
             if (!cancelled)
             {
@@ -71,7 +78,14 @@ public sealed class FileIndex
             // Only the newest run owns the flag. A superseded walk must not clear it for
             // the replacement that is still running, or the index would never refresh.
             if (ReferenceEquals(_cancellation, cancellation)) IsBuilding = false;
-            if (!cancelled) onDone?.Invoke();
+
+            if (!cancelled)
+            {
+                // Logos load after the entries are already searchable, so a long warm-up never
+                // delays the first /s result — only its icons.
+                if (appIds.Count > 0) _ = StoreAppsService.GetLogos(appIds, 48);
+                onDone?.Invoke();
+            }
         }, token);
     }
 
@@ -192,6 +206,46 @@ public sealed class FileIndex
         catch { return DateTime.MinValue; }
     }
 
+    private const string AppsFolderPrefix = "shell:AppsFolder\\";
+
+    /// <summary>
+    /// Packaged (Store) apps join the index as launchable entries: the folder walk covers
+    /// classic .lnk software through the Start Menu, this merge covers 便签 / 录音机 style
+    /// UWP apps that have no .lnk at all. Returns the merged AppUserModelIds so the caller
+    /// can warm their logos on this worker thread.
+    /// </summary>
+    private static List<string> MergeStoreApps(List<FileEntry> into)
+    {
+        var ids = new List<string>();
+        try
+        {
+            var apps = StoreAppsService.Enumerate();
+            var seen = new HashSet<string>(
+                into.Select(e => e.Lower), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var app in apps)
+            {
+                var lower = app.Name.ToLowerInvariant();
+                if (lower.Length == 0 || !seen.Add(lower)) continue; // same-name .lnk already walked
+                into.Add(new FileEntry(
+                    AppsFolderPrefix + app.AppUserModelId,
+                    app.Name,
+                    "已安装应用",
+                    lower,
+                    Pinyin.Initials(app.Name),
+                    DateTime.MinValue,
+                    IsDirectory: false));
+                ids.Add(app.AppUserModelId);
+            }
+        }
+        catch { /* PackageManager unavailable or denied */ }
+        return ids;
+    }
+
+    /// <summary>True for the packaged-app rows merged by <see cref="MergeStoreApps"/>.</summary>
+    public static bool IsAppEntry(FileEntry entry) =>
+        entry.Path.StartsWith(AppsFolderPrefix, StringComparison.OrdinalIgnoreCase);
+
     private static bool IsSubsequence(string text, string query)
     {
         var from = 0;
@@ -211,7 +265,10 @@ public sealed class FileIndex
         return true;
     }
 
-    /// <summary>Desktop, Documents and Downloads — the folders people actually look for.</summary>
+    /// <summary>
+    /// Desktop, Documents, Downloads, Pictures — plus both Start Menu folders, so the
+    /// installed software (.lnk) is searchable too.
+    /// </summary>
     public static List<string> DefaultRoots()
     {
         var roots = new List<string>();
@@ -228,8 +285,20 @@ public sealed class FileIndex
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path) && !roots.Contains(path)) roots.Add(path);
         }
 
-        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var downloads = Path.Combine(profile, "Downloads");
         if (Directory.Exists(downloads) && !roots.Contains(downloads)) roots.Add(downloads);
+
+        foreach (var menu in new[]
+                 {
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                         @"Microsoft\Windows\Start Menu\Programs"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                         @"Microsoft\Windows\Start Menu\Programs")
+                 })
+        {
+            if (Directory.Exists(menu) && !roots.Contains(menu)) roots.Add(menu);
+        }
         return roots;
     }
 }

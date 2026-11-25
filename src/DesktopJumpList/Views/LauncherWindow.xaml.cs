@@ -1092,6 +1092,16 @@ public partial class LauncherWindow : Window
     {
         var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
         menu.Items.Add(Item("打开", () => { ShellLauncher.OpenPath(file.Path); Close(animated: true); }, "Enter"));
+
+        // Packaged apps have no filesystem location: revealing or copying their shell: path
+        // would only produce an error, so their menu stops at "打开".
+        if (FileIndex.IsAppEntry(file))
+        {
+            menu.Closed += (_, _) => { if (IsOpen && _renaming is null) Keyboard.Focus(Query); };
+            menu.IsOpen = true;
+            return;
+        }
+
         menu.Items.Add(Item("打开所在位置", () => ShellLauncher.RevealPath(file.Path)));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("添加到 Jump", () =>

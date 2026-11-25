@@ -589,6 +589,8 @@ public partial class App : Application
                 }
                 App.Current.Files.Start(new[] { sampleFiles }, 500);
                 for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
+                // Headroom for the packaged-app merge + logo warm-up on the worker thread.
+                await Task.Delay(1500);
 
                 Launcher.Query.Text = "vs";
                 await Task.Delay(500);
@@ -598,6 +600,11 @@ public partial class App : Application
                 Launcher.Query.Text = "/s sjg";
                 await Task.Delay(500);
                 CaptureLauncher(Path.Combine(directory, $"search-pinyin-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // "/s 计算" exercises the installed-app merge (Calculator and friends).
+                Launcher.Query.Text = "/s 计算";
+                await Task.Delay(500);
+                CaptureLauncher(Path.Combine(directory, $"search-apps-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
                 // "/" palette: settings plus the /s hint.

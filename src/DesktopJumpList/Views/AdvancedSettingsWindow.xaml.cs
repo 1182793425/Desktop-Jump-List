@@ -125,7 +125,7 @@ public partial class AdvancedSettingsWindow : Window
         {
             var hint = new TextBlock
             {
-                Text = "索引目录为空：/s 不会返回任何本地文件。点「＋ 添加文件夹…」恢复。",
+                Text = "索引目录为空：/s 仍可搜到已安装应用，但不会有文件结果。点「＋ 添加文件夹…」恢复。",
                 Style = (Style)Resources["Hint"],
                 Margin = new Thickness(2, 3, 0, 3),
                 TextWrapping = TextWrapping.Wrap
@@ -184,7 +184,7 @@ public partial class AdvancedSettingsWindow : Window
         FileIndexStatus.Text = index.IsBuilding
             ? $"正在索引…（已有 {index.Count} 项）"
             : EffectiveRoots().Count == 0
-                ? "索引目录为空，/s 暂时不会有结果"
+                ? "索引目录为空：/s 仍可搜到已安装应用"
                 : index.Count == 0
                     ? "尚未建立索引，输入 /s 时才会开始"
                     : $"已索引 {index.Count} 项 · 更新于 {index.LastBuilt:HH:mm}";
