@@ -641,6 +641,19 @@ public partial class App : Application
                 if (!Launcher.IsOpen) Launcher.Open();
                 await Task.Delay(400);
 
+                // Diagnostic: full shortcut-resolution trace for the seeded QQ tile.
+                try
+                {
+                    var qq = Library.Items.FirstOrDefault(i => i.Name == "QQ");
+                    File.WriteAllText(Path.Combine(directory, "icon-debug.txt"),
+                        $"libraryCount={Library.Items.Count} qqTarget='{qq?.Target}'\n" +
+                        Services.IconService.Diagnose(qq?.Target ?? ""));
+                }
+                catch (Exception ex)
+                {
+                    try { File.WriteAllText(Path.Combine(directory, "icon-debug.txt"), "ERROR: " + ex); } catch { }
+                }
+
                 Launcher.Query.Text = "vs";
                 await Task.Delay(500);
                 CaptureLauncher(Path.Combine(directory, $"search-no-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);

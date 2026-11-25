@@ -132,10 +132,12 @@ public static class IconService
             // A shortcut's own icon is the target's icon: resolve it and run the full
             // pipeline on the target (depth-guarded against .lnk chains).
             var isShortcut = path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && depth < 2;
-            if (isShortcut && TryResolveShortcutTarget(path, out var target)
-                && (File.Exists(target) || Directory.Exists(target)))
+            string? resolvedTarget = null;
+            if (isShortcut && TryResolveShortcutTarget(path, out var shortcutTarget)
+                && (File.Exists(shortcutTarget) || Directory.Exists(shortcutTarget)))
             {
-                result = Get(target, depth + 1);
+                resolvedTarget = shortcutTarget;
+                result = Get(shortcutTarget, depth + 1);
             }
             else if (isShellItem || File.Exists(path) || Directory.Exists(path))
             {
@@ -146,7 +148,17 @@ public static class IconService
                 result = FromHighResFallback(path)
                     ?? FromShellIcon(path);
             }
-            if (result is null && isShortcut) result = FromShellIcon(path);
+            // If the shortcut resolved but the target's own pipeline failed, prefer the
+            // target's *type* icon over the .lnk icon — SHGetFileInfo draws the latter with
+            // the shortcut-arrow overlay, which we never want to show.
+            if (result is null && isShortcut)
+            {
+                result = resolvedTarget is not null
+                    ? TryExtractFromAssociation(resolvedTarget, IconPixels, out var src, out _)
+                        ? src
+                        : FromShellIcon(resolvedTarget)
+                    : FromShellIcon(path);
+            }
         }
         catch { result = null; }
 
@@ -154,46 +166,95 @@ public static class IconService
         return result;
     }
 
-    /// <summary>Resolves a .lnk to its target path via the shell link COM object.</summary>
+    /// <summary>Step-by-step trace of the shortcut resolution + icon pipeline (diagnostics).</summary>
+    public static string Diagnose(string path)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"path={path}");
+        sb.AppendLine($"endsLnk={path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)}");
+        var resolved = TryResolveShortcutTarget(path, out var target);
+        sb.AppendLine($"resolve ok={resolved} target='{target}' exists={(File.Exists(target) || Directory.Exists(target))}");
+        var img = Get(path, 0);
+        sb.AppendLine($"get -> {(img is BitmapSource b ? $"{b.PixelWidth}x{b.PixelHeight}px" : "null")}");
+        sb.AppendLine($"iconPixels={IconPixels}");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Resolves a .lnk to its target path by parsing the shell-link binary structure
+    /// directly (MS-SHLLINK LinkInfo). No COM involved — deterministic on every machine.
+    /// </summary>
     private static bool TryResolveShortcutTarget(string lnkPath, out string target)
     {
         target = string.Empty;
         try
         {
-            var linkType = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046")); // CShellLink
-            if (linkType is null)
+            var bytes = File.ReadAllBytes(lnkPath);
+            if (bytes.Length < 0x4C) return false;
+            var headerSize = BitConverter.ToInt32(bytes, 0);
+            if (headerSize < 0x4C || headerSize + 4 > bytes.Length) return false;
+            var flags = BitConverter.ToInt32(bytes, 0x14);
+
+            var pos = headerSize;
+            if ((flags & 0x1) != 0) // HasTargetIDList: skip the item-id list
             {
-                return false;
+                if (pos + 2 > bytes.Length) return false;
+                var idListSize = BitConverter.ToUInt16(bytes, pos);
+                pos += 2 + idListSize;
+                if (pos >= bytes.Length) return false;
             }
-            var link = (IShellLinkW)Activator.CreateInstance(linkType)!;
-            try
+
+            if ((flags & 0x2) == 0) return false; // HasLinkInfo: no local target to resolve
+            var linkInfoSize = BitConverter.ToInt32(bytes, pos);
+            if (linkInfoSize <= 0 || pos + linkInfoSize > bytes.Length) return false;
+            var linkInfoHeaderSize = BitConverter.ToInt32(bytes, pos + 4);
+            var linkInfoFlags = BitConverter.ToInt32(bytes, pos + 8);
+            if ((linkInfoFlags & 0x1) == 0) return false; // volume id + local base path absent
+
+            // LinkInfo layout (MS-SHLLINK 2.3): size@+0, headerSize@+4, flags@+8,
+            // VolumeIDOffset@+12, LocalBasePathOffset@+16, CommonNetworkRelativeLinkOffset@+20,
+            // CommonPathSuffixOffset@+24, and — when the header is >= 0x24 —
+            // LocalBasePathOffsetUnicode@+28. All offsets are relative to LinkInfo start.
+            string? unicode = null;
+            if (linkInfoHeaderSize >= 0x24)
             {
-                var buffer = new System.Text.StringBuilder(520);
-                var hr = link.GetPath(buffer, buffer.Capacity, IntPtr.Zero, 0);
-                if (hr != 0)
+                var unicodeOffset = BitConverter.ToInt32(bytes, pos + 28);
+                if (unicodeOffset > 0 && pos + unicodeOffset < bytes.Length)
                 {
-                    return false;
+                    unicode = ReadNullTerminated(bytes, pos + unicodeOffset, utf16: true);
                 }
-                target = buffer.ToString();
-                return !string.IsNullOrWhiteSpace(target);
             }
-            finally
-            {
-                Marshal.FinalReleaseComObject(link);
-            }
+
+            var ansiOffset = BitConverter.ToInt32(bytes, pos + 16);
+            var ansi = ansiOffset > 0 && pos + ansiOffset < bytes.Length
+                ? ReadNullTerminated(bytes, pos + ansiOffset, utf16: false)
+                : string.Empty;
+
+            target = string.IsNullOrWhiteSpace(unicode) ? ansi : unicode;
+            return !string.IsNullOrWhiteSpace(target);
         }
-        catch
-        {
-            return false;
-        }
+        catch { return false; }
     }
 
-    [ComImport, Guid("000214EE-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IShellLinkW
+    private static string ReadNullTerminated(byte[] bytes, int start, bool utf16)
     {
-        [PreserveSig] int SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
-        [PreserveSig] int GetPath(System.Text.StringBuilder pszFile, int cch, IntPtr pfd, uint fFlags);
-        // Remaining vtable slots are unused and therefore not declared.
+        if (utf16)
+        {
+            var chars = new List<char>();
+            var i = start;
+            while (i + 1 < bytes.Length)
+            {
+                var c = (char)(bytes[i] | (bytes[i + 1] << 8));
+                if (c == '\0') break;
+                chars.Add(c);
+                i += 2;
+            }
+            return new string(chars.ToArray());
+        }
+
+        var end = start;
+        while (end < bytes.Length && bytes[end] != 0) end++;
+        return System.Text.Encoding.ASCII.GetString(bytes, start, end - start);
     }
 
     /// <summary>
