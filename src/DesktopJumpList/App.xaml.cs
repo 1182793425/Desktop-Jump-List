@@ -552,12 +552,44 @@ public partial class App : Application
         try
         {
             Directory.CreateDirectory(directory);
-            // Keep the preview completely away from the real %LocalAppData% data.
-            Storage = new Storage(Path.Combine(directory, "_preview-data"));
+            // Keep the preview completely away from the real %LocalAppData% data — but start
+            // from a *copy* of the real shortcuts when they exist, so the screenshots show the
+            // user's actual panel (icons included) without touching the running instance.
+            var realData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DesktopJumpList");
+            var realShortcuts = Path.Combine(realData, "shortcuts.json");
+            var previewData = Path.Combine(directory, "_preview-data");
+            Directory.CreateDirectory(previewData);
+            var usingRealTiles = File.Exists(realShortcuts);
+            if (usingRealTiles)
+                File.Copy(realShortcuts, Path.Combine(previewData, "shortcuts.json"), overwrite: true);
+
+            Storage = new Storage(previewData);
             Settings = Storage.LoadSettings();
             ThemeService.Initialize(AppTheme.Dark);
             Library = new ShortcutLibrary(Storage);
-            SeedPreviewItems();
+            if (usingRealTiles)
+            {
+                // Make sure the demo shortcut is on the panel: desktop QQ.lnk, whose icon
+                // exercises the full .lnk → target exe → high-res extraction chain.
+                if (File.Exists(@"C:\Users\Public\Desktop\QQ.lnk")
+                    && Library.Items.All(i => !string.Equals(i.Target, @"C:\Users\Public\Desktop\QQ.lnk", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Library.Items.Add(new ShortcutItem
+                    {
+                        Name = "QQ",
+                        Kind = ShortcutKind.App,
+                        Target = @"C:\Users\Public\Desktop\QQ.lnk"
+                    });
+                    Storage.SaveShortcuts(Library.Items);
+                }
+            }
+            else
+            {
+                SeedPreviewItems();
+            }
+            _ = IconService.LoadAsync(Library.Items);
 
             Launcher = new LauncherWindow(Library);
             Dock = new DockWindow(Settings) { PreviewMode = true };
@@ -732,6 +764,7 @@ public partial class App : Application
         var samples = new (string Name, ShortcutKind Kind, string Folder)[]
         {
             ("Visual Studio Code", ShortcutKind.App, null!),
+            ("QQ", ShortcutKind.App, null!),
             ("微信", ShortcutKind.App, null!),
             ("Figma", ShortcutKind.App, null!),
             ("Windows Terminal", ShortcutKind.App, null!),
@@ -761,6 +794,9 @@ public partial class App : Application
             };
             if (name == "Figma") item.IsUnavailable = true;
             if (name == "Notion") item.Pinned = true;
+            // A real shortcut from the user's desktop: exercises the actual icon pipeline
+            // (lnk → target exe → high-res extraction) in preview screenshots.
+            if (name == "QQ") item.Target = @"C:\Users\Public\Desktop\QQ.lnk";
 
             // Preview only: seed a believable "recently used" row.
             var rank = Array.IndexOf(new[] { "Visual Studio Code", "微信", "Figma", "Windows Terminal", "记事本", "Microsoft Edge", "Notion" }, name);
