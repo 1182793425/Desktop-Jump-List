@@ -92,8 +92,17 @@ public sealed class AppSettings
     /// <summary>Search local files (index of the folders listed in <see cref="FileSearchRoots"/>).</summary>
     public bool FileSearchEnabled { get; set; } = true;
 
-    /// <summary>Folders the file index walks. Empty means Desktop / Documents / Pictures / Downloads.</summary>
+    /// <summary>
+    /// Folders the file index walks. An empty list with
+    /// <see cref="FileSearchRootsCustomized"/> = false means the defaults (Desktop /
+    /// Documents / Pictures / Downloads); customized = true means "exactly this list", so the
+    /// user can remove every folder and the index honours the empty list instead of silently
+    /// re-adding the defaults.
+    /// </summary>
     public List<string> FileSearchRoots { get; set; } = new();
+
+    /// <summary>True once the user has added or removed a folder in advanced settings.</summary>
+    public bool FileSearchRootsCustomized { get; set; }
 
     /// <summary>Upper bound on indexed entries, so a huge folder cannot blow up memory.</summary>
     public int FileSearchLimit { get; set; } = 20000;
@@ -138,6 +147,7 @@ public sealed class AppSettings
         SearchDebounceMs = SearchDebounceMs,
         FileSearchEnabled = FileSearchEnabled,
         FileSearchRoots = new List<string>(FileSearchRoots),
+        FileSearchRootsCustomized = FileSearchRootsCustomized,
         FileSearchLimit = FileSearchLimit,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,

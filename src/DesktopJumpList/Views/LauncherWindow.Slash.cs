@@ -180,11 +180,13 @@ public partial class LauncherWindow
     /// <summary>A file found on disk: name plus the folder it lives in.</summary>
     private static ResultRow BuildFileRow(FileEntry file)
     {
+        var where = file.IsDirectory ? $"文件夹 · {file.Folder}" : file.Folder;
+        var when = RelativeTime(file.WriteTime);
         var row = new ResultRow
         {
             Item = file,
             Title = file.Name,
-            Subtitle = file.IsDirectory ? $"文件夹 · {file.Folder}" : file.Folder,
+            Subtitle = when.Length > 0 ? $"{when} · {where}" : where,
             Icon = IconService.Get(file.Path)
         };
 
@@ -195,6 +197,17 @@ public partial class LauncherWindow
         }
 
         return row;
+    }
+
+    private static string RelativeTime(DateTime time)
+    {
+        if (time <= DateTime.MinValue) return string.Empty;
+        var span = DateTime.Now - time;
+        if (span.TotalSeconds < 60) return "刚刚";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes} 分钟前";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours} 小时前";
+        if (span.TotalDays < 30) return $"{(int)span.TotalDays} 天前";
+        return time.ToString("yyyy-MM-dd");
     }
 
     /// <summary>Maps a shortcut / search-engine row onto the one-line list model.</summary>

@@ -1,9 +1,17 @@
 using System.IO;
+using DesktopJumpList.Infrastructure;
 
 namespace DesktopJumpList.Services;
 
 /// <summary>One file or folder found under the indexed roots.</summary>
-public sealed record FileEntry(string Path, string Name, string Folder, string Lower, bool IsDirectory);
+public sealed record FileEntry(
+    string Path,
+    string Name,
+    string Folder,
+    string Lower,
+    string Initials,
+    DateTime WriteTime,
+    bool IsDirectory);
 
 /// <summary>
 /// A small in-memory index of the user's folders. Built once on a background thread, refreshed
@@ -104,7 +112,11 @@ public sealed class FileIndex
                     try { isDirectory = Directory.Exists(path); }
                     catch { continue; }
 
-                    into.Add(new FileEntry(path, name, folder, name.ToLowerInvariant(), isDirectory));
+                    into.Add(new FileEntry(
+                        path, name, folder, name.ToLowerInvariant(),
+                        Pinyin.Initials(name),
+                        TryWriteTime(path),
+                        isDirectory));
 
                     if (isDirectory && depth < 6 && !SkipFolders.Contains(name))
                         pending.Push((path, depth + 1));
@@ -114,25 +126,31 @@ public sealed class FileIndex
     }
 
     /// <summary>
-    /// A handful of entries for "/s" with no keyword yet: no ranking, just what the walk
-    /// found first, so the command shows something immediately instead of an empty box.
+    /// A handful of entries for "/s" with no keyword yet: newest touched first, so the
+    /// command shows "what did I work on recently" instead of the raw walk order.
     /// </summary>
     public List<FileEntry> Take(int max)
     {
         if (max <= 0) return new List<FileEntry>();
         List<FileEntry> snapshot;
         lock (_gate) snapshot = _entries;
-        return snapshot.Take(max).ToList();
+        return snapshot
+            .OrderByDescending(e => e.WriteTime)
+            .Take(max)
+            .ToList();
     }
 
-    /// <summary>Same ranking idea as shortcuts: prefix, then substring, then subsequence.</summary>
+    /// <summary>
+    /// Ranking ladder, most to least specific: name prefix, name substring, pinyin-initial
+    /// prefix ("sjg" → 设计稿), pinyin-initial substring, then subsequence (3+ chars).
+    /// </summary>
     public List<FileEntry> Search(string query, int max)
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
         var needle = query.Trim().ToLowerInvariant();
         var compact = needle.Replace(" ", string.Empty);
-        var hits = new List<(FileEntry entry, int rank, int length)>();
+        var hits = new List<(FileEntry entry, int rank)>();
 
         List<FileEntry> snapshot;
         lock (_gate) snapshot = _entries;
@@ -141,12 +159,14 @@ public sealed class FileIndex
         {
             var rank = Rank(entry, needle, compact);
             if (rank < 0) continue;
-            hits.Add((entry, rank, entry.Name.Length));
+            hits.Add((entry, rank));
         }
 
+        // Within one rank the file you touched most recently wins; name length only breaks ties.
         return hits
             .OrderBy(h => h.rank)
-            .ThenBy(h => h.length)
+            .ThenByDescending(h => h.entry.WriteTime)
+            .ThenBy(h => h.entry.Name.Length)
             .Take(max)
             .Select(h => h.entry)
             .ToList();
@@ -156,11 +176,20 @@ public sealed class FileIndex
     {
         if (entry.Lower.StartsWith(needle, StringComparison.Ordinal)) return 0;
         if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 1;
+        if (entry.Initials.Length >= needle.Length && entry.Initials.StartsWith(needle, StringComparison.Ordinal)) return 2;
+        if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 3;
 
         // "vscode" style abbreviations still work, but only from three characters up so that a
         // single letter does not drag the whole disk into the list.
-        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 2;
+        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 4;
+        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 4;
         return -1;
+    }
+
+    private static DateTime TryWriteTime(string path)
+    {
+        try { return Directory.GetLastWriteTime(path); }
+        catch { return DateTime.MinValue; }
     }
 
     private static bool IsSubsequence(string text, string query)

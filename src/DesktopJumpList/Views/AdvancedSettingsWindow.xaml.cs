@@ -76,9 +76,13 @@ public partial class AdvancedSettingsWindow : Window
         Closed += (_, _) => _statusTimer?.Stop();
     }
 
-    /// <summary>Shows the folders actually being walked: the configured ones, or the defaults.</summary>
+    /// <summary>
+    /// The folders actually walked: the user's list once customized (empty = index nothing),
+    /// the defaults otherwise. Showing the defaults is a preview only — the list becomes
+    /// user-owned the first time a folder is added or removed.
+    /// </summary>
     private List<string> EffectiveRoots() =>
-        App.Current.Settings.FileSearchRoots.Count > 0
+        App.Current.Settings.FileSearchRootsCustomized
             ? App.Current.Settings.FileSearchRoots.ToList()
             : FileIndex.DefaultRoots();
 
@@ -115,6 +119,18 @@ public partial class AdvancedSettingsWindow : Window
             row.Children.Add(remove);
 
             RootRows.Children.Add(row);
+        }
+
+        if (EffectiveRoots().Count == 0)
+        {
+            var hint = new TextBlock
+            {
+                Text = "索引目录为空：/s 不会返回任何本地文件。点「＋ 添加文件夹…」恢复。",
+                Style = (Style)Resources["Hint"],
+                Margin = new Thickness(2, 3, 0, 3),
+                TextWrapping = TextWrapping.Wrap
+            };
+            RootRows.Children.Add(hint);
         }
     }
 
@@ -167,9 +183,11 @@ public partial class AdvancedSettingsWindow : Window
         var index = App.Current.Files;
         FileIndexStatus.Text = index.IsBuilding
             ? $"正在索引…（已有 {index.Count} 项）"
-            : index.Count == 0
-                ? "尚未建立索引，输入 /s 时才会开始"
-                : $"已索引 {index.Count} 项 · 更新于 {index.LastBuilt:HH:mm}";
+            : EffectiveRoots().Count == 0
+                ? "索引目录为空，/s 暂时不会有结果"
+                : index.Count == 0
+                    ? "尚未建立索引，输入 /s 时才会开始"
+                    : $"已索引 {index.Count} 项 · 更新于 {index.LastBuilt:HH:mm}";
     }
 
     private void CenterOnScreen()

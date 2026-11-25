@@ -187,7 +187,9 @@ public partial class App : Application
     public void StartFileIndex(Action? onDone = null)
     {
         if (!Settings.FileSearchEnabled) return;
-        var roots = Settings.FileSearchRoots.Count > 0 ? Settings.FileSearchRoots : FileIndex.DefaultRoots();
+        var roots = Settings.FileSearchRootsCustomized
+            ? Settings.FileSearchRoots
+            : FileIndex.DefaultRoots();
         Files.Start(roots, Settings.FileSearchLimit, onDone);
     }
 
@@ -203,6 +205,8 @@ public partial class App : Application
     public void SetFileSearchRoots(IEnumerable<string> roots)
     {
         Settings.FileSearchRoots = roots.ToList();
+        // The list is now user-owned: empty means "index nothing", never "fall back to defaults".
+        Settings.FileSearchRootsCustomized = true;
         SaveSettings();
         // Keep an already-built index in sync with the new roots. If it has never been built,
         // stay idle until "/s" needs it.
@@ -570,12 +574,19 @@ public partial class App : Application
                 // They are only reachable through "/s"; a plain query must never show them.
                 var sampleFiles = Path.Combine(directory, "_files");
                 Directory.CreateDirectory(sampleFiles);
-                foreach (var name in new[]
-                         {
-                             "季度报告-2026Q4.docx", "设计稿-v3.png", "vscode-cheatsheet.md",
-                             "预算表.xlsx", "会议纪要-1125.txt", "产品原型.sketch"
-                         })
-                    File.WriteAllText(Path.Combine(sampleFiles, name), string.Empty);
+                var sampleNames = new[]
+                {
+                    "季度报告-2026Q4.docx", "设计稿-v3.png", "vscode-cheatsheet.md",
+                    "预算表.xlsx", "会议纪要-1125.txt", "产品原型.sketch"
+                };
+                for (var i = 0; i < sampleNames.Length; i++)
+                {
+                    var p = Path.Combine(sampleFiles, sampleNames[i]);
+                    File.WriteAllText(p, string.Empty);
+                    // Distinct, descending timestamps so the "/s" empty state (newest first)
+                    // and the in-rank recency ordering are visible in the screenshots.
+                    try { File.SetLastWriteTime(p, DateTime.Now.AddMinutes(-37 * i)); } catch { }
+                }
                 App.Current.Files.Start(new[] { sampleFiles }, 500);
                 for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
 
@@ -583,9 +594,10 @@ public partial class App : Application
                 await Task.Delay(500);
                 CaptureLauncher(Path.Combine(directory, $"search-no-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
 
-                Launcher.Query.Text = "/s 设计";
+                // "/s sjg" must find 设计稿 via pinyin initials — the key new ranking tier.
+                Launcher.Query.Text = "/s sjg";
                 await Task.Delay(500);
-                CaptureLauncher(Path.Combine(directory, $"search-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                CaptureLauncher(Path.Combine(directory, $"search-pinyin-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
                 // "/" palette: settings plus the /s hint.
