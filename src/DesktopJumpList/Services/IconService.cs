@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -44,6 +45,9 @@ public static class IconService
 
     private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Gate = new();
+
+    /// <summary>Diagnostic trace of the last FromShellImage failure (empty on success).</summary>
+    public static string LastPipelineNote { get; private set; } = string.Empty;
 
     public static Task LoadAsync(IEnumerable<ShortcutItem> items)
     {
@@ -127,12 +131,34 @@ public static class IconService
             // skip the existence probe for them — the image factory resolves the item directly.
             var isShellItem = path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase);
             if (isShellItem || File.Exists(path) || Directory.Exists(path))
-                result = FromShellImage(path) ?? FromShellIcon(path);
+            {
+                result = FromShellImage(path)
+                    ?? FromHighResFallback(path)
+                    ?? FromShellIcon(path);
+            }
         }
         catch { result = null; }
 
         lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>
+    /// High-resolution extraction for the types the shell pipelines cannot serve on this
+    /// machine (the image factory QI answers E_NOINTERFACE for unpackaged processes):
+    /// exe/dll/ico read their own resources, documents read the registered DefaultIcon,
+    /// folders read the system folder icon — all at the requested pixel size, so nothing
+    /// gets upscaled from a 32px source.
+    /// </summary>
+    private static ImageSource? FromHighResFallback(string path)
+    {
+        var px = IconPixels;
+        var note = string.Empty;
+        if (TryExtractFromFile(path, px, out var source, out note)) return source;
+        if (TryExtractFromAssociation(path, px, out source, out note)) return source;
+        if (TryExtractFolderIcon(path, px, out source, out note)) return source;
+        _ = note;
+        return null;
     }
 
     /// <summary>
@@ -142,9 +168,191 @@ public static class IconService
     private static ImageSource? FromShellImage(string path)
     {
         var px = IconPixels;
+        // Route 1: parse straight to the image factory. On some setups the QI answers
+        // E_NOINTERFACE, so route 2 goes through IShellItem + BHID_ThumbnailHandler (the
+        // Explorer thumbnail pipeline) with the same GetImage call at the end.
+        if (TryGetFactoryDirect(path, px, out var source, out var note))
+        {
+            LastPipelineNote = note;
+            return source;
+        }
+        var directNote = note;
+        if (TryGetFactoryViaHandler(path, px, out source, out note))
+        {
+            LastPipelineNote = note;
+            return source;
+        }
+        var handlerNote = note;
+        LastPipelineNote = $"{directNote} | {handlerNote}";
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the icon straight out of a PE file's resources at the requested pixel size
+    /// (PrivateExtractIcons), bypassing the shell icon cache entirely.
+    /// </summary>
+    private static bool TryExtractFromFile(string path, int px, out ImageSource? source, out string note)
+    {
+        source = null;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not ".exe" and not ".dll" and not ".ico")
+        {
+            note = $"extract: not a PE ({ext})";
+            return false;
+        }
+
+        var handles = new IntPtr[1];
+        var extracted = PrivateExtractIconsW(path, 0, px, px, handles, null, 1, 0);
+        if (extracted == 0 || handles[0] == IntPtr.Zero)
+        {
+            note = "extract: no icon resource";
+            return false;
+        }
+
+        try
+        {
+            note = $"ok {px}px (extracted)";
+            source = FromHandle(handles[0]);
+            return source is not null;
+        }
+        catch
+        {
+            note = "extract: convert failed";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Documents (txt/docx/pdf…): resolve the registered DefaultIcon of their file type and
+    /// extract that icon at full size — the shell only offers 32px for these.
+    /// </summary>
+    private static bool TryExtractFromAssociation(string path, int px, out ImageSource? source, out string note)
+    {
+        source = null;
+        var ext = Path.GetExtension(path);
+        if (string.IsNullOrEmpty(ext) || ext is ".exe" or ".dll" or ".ico")
+        {
+            note = "assoc: not applicable";
+            return false;
+        }
+
+        try
+        {
+            string? iconRef = null;
+            using (var extKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(ext))
+            {
+                var progId = extKey?.GetValue(null) as string;
+                if (!string.IsNullOrEmpty(progId))
+                    using (var iconKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(progId + @"\DefaultIcon"))
+                        iconRef = iconKey?.GetValue(null) as string;
+                iconRef ??= extKey?.OpenSubKey("DefaultIcon")?.GetValue(null) as string;
+            }
+
+            if (string.IsNullOrWhiteSpace(iconRef))
+            {
+                note = "assoc: no DefaultIcon";
+                return false;
+            }
+
+            // "file,index" / "file" / "%SystemRoot%\system32\imageres.dll,-102"
+            iconRef = Environment.ExpandEnvironmentVariables(iconRef.Trim());
+            var index = 0;
+            var comma = iconRef.LastIndexOf(',');
+            if (comma > 0 && int.TryParse(iconRef[(comma + 1)..].Trim(), out var parsed))
+            {
+                iconRef = iconRef[..comma];
+                index = Math.Abs(parsed);
+            }
+
+            var file = iconRef.Trim('"', ' ');
+            if (string.IsNullOrEmpty(file) || file.StartsWith("@") || !File.Exists(file))
+            {
+                note = "assoc: icon file missing";
+                return false;
+            }
+
+            var handles = new IntPtr[1];
+            var extracted = PrivateExtractIconsW(file, index, px, px, handles, null, 1, 0);
+            if (extracted == 0 || handles[0] == IntPtr.Zero)
+            {
+                Native.DestroyIcon(handles[0]);
+                note = "assoc: extract failed";
+                return false;
+            }
+
+            try
+            {
+                note = $"ok {px}px (assoc)";
+                source = FromHandle(handles[0]);
+                return source is not null;
+            }
+            catch
+            {
+                note = "assoc: convert failed";
+                Native.DestroyIcon(handles[0]);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            note = "assoc: " + ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Folders: the system folder icon lives in imageres.dll (index 2 on Win10/11); extract
+    /// it at full size instead of the 32px shell image list entry.
+    /// </summary>
+    private static bool TryExtractFolderIcon(string path, int px, out ImageSource? source, out string note)
+    {
+        source = null;
+        if (!Directory.Exists(path))
+        {
+            note = "folder: not a directory";
+            return false;
+        }
+
+        var imageres = Path.Combine(Environment.SystemDirectory, "imageres.dll");
+        if (!File.Exists(imageres))
+        {
+            note = "folder: no imageres.dll";
+            return false;
+        }
+
+        var handles = new IntPtr[1];
+        var extracted = PrivateExtractIconsW(imageres, 2, px, px, handles, null, 1, 0);
+        if (extracted == 0 || handles[0] == IntPtr.Zero)
+        {
+            Native.DestroyIcon(handles[0]);
+            note = "folder: extract failed";
+            return false;
+        }
+
+        try
+        {
+            note = $"ok {px}px (folder)";
+            source = FromHandle(handles[0]);
+            return source is not null;
+        }
+        catch
+        {
+            note = "folder: convert failed";
+            Native.DestroyIcon(handles[0]);
+            return false;
+        }
+    }
+
+    private static bool TryGetFactoryDirect(string path, int px, out ImageSource? source, out string note)
+    {
+        source = null;
         var iid = typeof(Native.IShellItemImageFactory).GUID;
-        if (Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory is null)
-            return null;
+        var createHr = Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory);
+        if (createHr != 0 || factory is null)
+        {
+            note = $"create hr=0x{createHr:X8}";
+            return false;
+        }
 
         try
         {
@@ -152,14 +360,19 @@ public static class IconService
                 new Native.SIZE { cx = px, cy = px },
                 SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
                 out var hBitmap);
-            if (hr != 0 || hBitmap == IntPtr.Zero) return null;
+            if (hr != 0 || hBitmap == IntPtr.Zero)
+            {
+                note = $"getimage hr=0x{hr:X8}";
+                return false;
+            }
 
             try
             {
-                var source = Imaging.CreateBitmapSourceFromHBitmap(
+                note = $"ok {px}px";
+                source = Imaging.CreateBitmapSourceFromHBitmap(
                     hBitmap, IntPtr.Zero, System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
                 source.Freeze();
-                return source;
+                return true;
             }
             finally
             {
@@ -169,6 +382,65 @@ public static class IconService
         finally
         {
             System.Runtime.InteropServices.Marshal.ReleaseComObject(factory);
+        }
+    }
+
+    private static bool TryGetFactoryViaHandler(string path, int px, out ImageSource? source, out string note)
+    {
+        source = null;
+        var iidItem = IidIShellItem;
+        var hr = SHCreateItemFromParsingName(path, IntPtr.Zero, ref iidItem, out var item);
+        if (hr != 0 || item is null)
+        {
+            note = $"item hr=0x{hr:X8}";
+            return false;
+        }
+
+        var bhid = BhidThumbnailHandler;
+        var iidFactory = typeof(Native.IShellItemImageFactory).GUID;
+        var bindHr = item.BindToHandler(IntPtr.Zero, ref bhid, ref iidFactory, out var objPtr);
+        if (bindHr != 0 || objPtr == IntPtr.Zero)
+        {
+            note = $"bind hr=0x{bindHr:X8}";
+            return false;
+        }
+
+        try
+        {
+            var factory = (Native.IShellItemImageFactory)Marshal.GetTypedObjectForIUnknown(objPtr, typeof(Native.IShellItemImageFactory));
+            try
+            {
+                var getImageHr = factory.GetImage(
+                    new Native.SIZE { cx = px, cy = px },
+                    SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
+                    out var hBitmap);
+                if (getImageHr != 0 || hBitmap == IntPtr.Zero)
+                {
+                    note = $"getimage hr=0x{getImageHr:X8}";
+                    return false;
+                }
+
+                try
+                {
+                    note = $"ok {px}px (handler)";
+                    source = Imaging.CreateBitmapSourceFromHBitmap(
+                        hBitmap, IntPtr.Zero, System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    source.Freeze();
+                    return true;
+                }
+                finally
+                {
+                    Native.DeleteObject(hBitmap);
+                }
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(factory);
+            }
+        }
+        finally
+        {
+            Marshal.Release(objPtr);
         }
     }
 
@@ -191,6 +463,26 @@ public static class IconService
         var res = Native.SHGetFileInfo(path, attributes, ref info,
             (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.SHFILEINFO>(), flags);
         return res == IntPtr.Zero ? IntPtr.Zero : info.hIcon;
+    }
+
+    // ───────────────── IShellItem fallback interop ─────────────────
+
+    private static readonly Guid IidIShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+    private static readonly Guid BhidThumbnailHandler = new("7AAEC32D-C52A-424F-9BC4-39C069E88EFF");
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHCreateItemFromParsingName(string pszPath, IntPtr pbc, ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellItemForIcon ppv);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PrivateExtractIconsW(string szFileName, int nIconIndex, int cxIcon, int cyIcon,
+        IntPtr[]? phicon, int[]? piconid, int nIcons, int flags);
+
+    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellItemForIcon
+    {
+        [PreserveSig] int BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+        // Remaining vtable slots are unused and therefore not declared.
     }
 
     private static ImageSource? FromHandle(IntPtr icon)
