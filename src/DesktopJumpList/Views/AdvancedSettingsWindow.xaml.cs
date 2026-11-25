@@ -106,9 +106,9 @@ public partial class AdvancedSettingsWindow : Window
         // Column header so the two numeric boxes are self-explanatory.
         var header = new Grid { Margin = new Thickness(2, 3, 0, 0) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         foreach (var (text, column, align) in new[]
                  {
                      ("索引目录", 0, HorizontalAlignment.Left),
@@ -136,9 +136,9 @@ public partial class AdvancedSettingsWindow : Window
 
             var row = new Grid { Margin = new Thickness(2, 3, 0, 3), Tag = root };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var label = new TextBlock
             {
@@ -146,6 +146,7 @@ public partial class AdvancedSettingsWindow : Window
                 Style = (Style)Resources["Hint"],
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
                 ToolTip = root
             };
             Grid.SetColumn(label, 0);
@@ -164,6 +165,7 @@ public partial class AdvancedSettingsWindow : Window
                 Style = (Style)Resources["LinkButton"],
                 Padding = new Thickness(0, 2, 0, 2),
                 FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
                 Tag = root
             };
             remove.Click += OnRemoveRoot;
