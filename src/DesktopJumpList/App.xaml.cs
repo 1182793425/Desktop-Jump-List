@@ -326,6 +326,13 @@ public partial class App : Application
         Launcher.ApplyPanelStyle();
     }
 
+    public void SetSearchDebounce(int milliseconds)
+    {
+        Settings.SearchDebounceMs = Math.Clamp(milliseconds, 0, 400);
+        SaveSettings();
+        Launcher.ApplySearchDebounce();
+    }
+
     public void SetSearchEngines(IEnumerable<string> ids)
     {
         Settings.SearchEngines = ids.ToList();

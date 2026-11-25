@@ -1,5 +1,6 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using DesktopJumpList.Infrastructure;
@@ -19,6 +20,7 @@ public partial class AdvancedSettingsWindow : Window
     {
         InitializeComponent();
         BuildEngineRows();
+        WireDebounce();
 
         SourceInitialized += (_, _) => CenterOnScreen();
         PreviewKeyDown += (_, e) =>
@@ -28,6 +30,29 @@ public partial class AdvancedSettingsWindow : Window
             e.Handled = true;
         };
         Loaded += (_, _) => Refresh();
+    }
+
+    /// <summary>The typing pause is a slider; commit when the drag/key press ends, not per pixel.</summary>
+    private void WireDebounce()
+    {
+        DebounceSlider.Value = Math.Clamp(App.Current.Settings.SearchDebounceMs, 0, 300);
+        UpdateDebounceLabel((int)DebounceSlider.Value);
+
+        DebounceSlider.ValueChanged += (_, e) => UpdateDebounceLabel((int)Math.Round(e.NewValue));
+        DebounceSlider.AddHandler(Thumb.DragCompletedEvent,
+            new DragCompletedEventHandler((_, _) => CommitDebounce()));
+        DebounceSlider.LostMouseCapture += (_, _) => CommitDebounce();
+        DebounceSlider.KeyUp += (_, _) => CommitDebounce();
+    }
+
+    private void UpdateDebounceLabel(int milliseconds) =>
+        DebounceValue.Text = milliseconds <= 0 ? "关闭" : $"{milliseconds} ms";
+
+    private void CommitDebounce()
+    {
+        var milliseconds = (int)Math.Round(DebounceSlider.Value);
+        if (milliseconds == App.Current.Settings.SearchDebounceMs) return;
+        App.Current.SetSearchDebounce(milliseconds);
     }
 
     private void CenterOnScreen()

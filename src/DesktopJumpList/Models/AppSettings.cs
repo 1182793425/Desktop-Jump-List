@@ -83,6 +83,12 @@ public sealed class AppSettings
     /// </summary>
     public List<string> SearchEngines { get; set; } = new() { "baidu", "google", "bing" };
 
+    /// <summary>
+    /// How long typing must pause before the result list is rebuilt (ms). 0 rebuilds on every
+    /// keystroke; the UI echo (search box) is never delayed by this.
+    /// </summary>
+    public int SearchDebounceMs { get; set; } = 110;
+
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
 
@@ -120,6 +126,7 @@ public sealed class AppSettings
         PanelGap = PanelGap,
         PanelItemGap = PanelItemGap,
         SearchEngines = new List<string>(SearchEngines),
+        SearchDebounceMs = SearchDebounceMs,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,

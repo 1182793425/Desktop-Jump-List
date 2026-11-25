@@ -124,6 +124,7 @@ public partial class LauncherWindow : Window
     private readonly DispatcherTimer _messageTimer;
     private DispatcherTimer _queryDelay = null!;
     private string? _lastResultSignature;
+    private bool _debounceEnabled = true;
     private readonly DispatcherTimer _dragScroll;
     private InsertMarker? _insertMarker;
     private int _markerIndex = -1;
@@ -224,6 +225,7 @@ public partial class LauncherWindow : Window
         // and let navigation keys flush the pending query so the first arrow press is accurate.
         _queryDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
         _queryDelay.Tick += (_, _) => { _queryDelay.Stop(); OnQueryChanged(); };
+        ApplySearchDebounce();
         Query.TextChanged += (_, _) =>
         {
             // Show the search box immediately — only the list rebuild is allowed to wait.
@@ -850,6 +852,14 @@ public partial class LauncherWindow : Window
 
     // ───────────────────────── Search ─────────────────────────
 
+    /// <summary>Applies the configured typing pause (0 = rebuild on every keystroke).</summary>
+    public void ApplySearchDebounce()
+    {
+        var ms = Math.Clamp(App.Current.Settings.SearchDebounceMs, 0, 400);
+        _queryDelay.Interval = TimeSpan.FromMilliseconds(Math.Max(1, ms));
+        _debounceEnabled = ms > 0;
+    }
+
     private void RestartQueryDelay()
     {
         _queryDelay.Stop();
@@ -857,7 +867,7 @@ public partial class LauncherWindow : Window
         // Clearing, and the jump between the tile grid and the result list, have nothing to
         // coalesce: apply them now so the first keystroke always lands in the same frame.
         var listMode = Query.Text.Length > 0;
-        if (Query.Text.Length == 0 || listMode != _listMode) { OnQueryChanged(); return; }
+        if (!_debounceEnabled || Query.Text.Length == 0 || listMode != _listMode) { OnQueryChanged(); return; }
 
         _queryDelay.Start();
     }

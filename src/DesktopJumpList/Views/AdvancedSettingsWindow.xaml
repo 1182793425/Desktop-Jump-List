@@ -1,7 +1,7 @@
 ﻿<Window x:Class="DesktopJumpList.Views.AdvancedSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Jump 高级设置" Width="520" Height="474"
+        Title="Jump 高级设置" Width="520" Height="592"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         WindowStartupLocation="Manual"
@@ -50,6 +50,53 @@
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <Style x:Key="ThinSlider" TargetType="Slider">
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
+            <Setter Property="IsSnapToTickEnabled" Value="True" />
+            <Setter Property="TickFrequency" Value="10" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge" Focusable="False"
+                                                  CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="2" Background="{DynamicResource AccentBrush}" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="14" Height="14">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="{DynamicResource PanelOpaqueBrush}"
+                                                         Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" />
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge" Focusable="False"
+                                                  CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="2" Background="{DynamicResource ToggleTrackBrush}" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="Hint" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{DynamicResource InkFaintBrush}" />
@@ -84,9 +131,30 @@
                 <ScrollViewer Grid.Row="1" Margin="20,4,14,0" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" Focusable="False">
                     <StackPanel Margin="0,0,4,0">
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="搜索行为" Style="{StaticResource Section}" />
+                                <Grid Margin="2,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="输入防抖" Style="{StaticResource RowLabel}" />
+                                    <Slider x:Name="DebounceSlider" Grid.Column="1" Margin="12,0"
+                                            Style="{StaticResource ThinSlider}" Minimum="0" Maximum="300" />
+                                    <TextBlock x:Name="DebounceValue" Grid.Column="2" Width="56"
+                                               TextAlignment="Right" Style="{StaticResource RowLabel}"
+                                               Foreground="{DynamicResource InkSubBrush}" />
+                                </Grid>
+                                <TextBlock Style="{StaticResource Hint}" Margin="2,6,0,0"
+                                           Text="停下输入多久后才开始搜索。0 = 每个按键都立即搜索；条目很多时建议 80–150ms。搜索框与已输入的字符永远是即时的，不受这个值影响。" />
+                            </StackPanel>
+                        </Border>
+
                         <Border Style="{StaticResource Card}" Margin="0">
                             <StackPanel>
-                                <TextBlock Text="搜索" Style="{StaticResource Section}" />
+                                <TextBlock Text="搜索引擎" Style="{StaticResource Section}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="打开下面任意一项后，在面板里输入关键词时，结果末尾会多出「百度搜索」「谷歌搜索」等条目；选中回车用系统默认浏览器打开。" />
                                 <StackPanel x:Name="EngineRows" />
