@@ -21,10 +21,13 @@ public sealed record FileEntry(
 /// </summary>
 public sealed class FileIndex
 {
+    // Noise folders that never hold files people search for. "bin" is deliberately NOT here:
+    // toolchains put their executables in bin (D:\jdk-17\bin\java.exe), which is exactly what
+    // "/s java.exe" must find.
     private static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase)
     {
         "node_modules", "bower_components", ".git", ".svn", ".vs", ".idea", ".vscode",
-        "bin", "obj", "target", "dist", "build", "__pycache__",
+        "obj", "target", "dist", "build", "__pycache__",
         "AppData", "Windows", "Program Files", "Program Files (x86)", "ProgramData",
         "$RECYCLE.BIN", "System Volume Information", "OneDriveTemp"
     };
@@ -223,8 +226,9 @@ public sealed class FileIndex
     }
 
     /// <summary>
-    /// Ranking ladder, most to least specific: name prefix, name substring, pinyin-initial
-    /// prefix ("sjg" → 设计稿), pinyin-initial substring, then subsequence (3+ chars).
+    /// Ranking ladder, most to least specific: exact name match, name prefix, name substring,
+    /// pinyin-initial prefix ("sjg" → 设计稿), pinyin-initial substring, subsequence (3+ chars),
+    /// and finally a folder-path match ("jdk" finds D:\jdk-17\bin\java.exe).
     /// </summary>
     public List<FileEntry> Search(string query, int max)
     {
@@ -240,7 +244,7 @@ public sealed class FileIndex
         foreach (var entry in snapshot)
         {
             var rank = Rank(entry, needle, compact);
-            if (rank < 0) continue;
+            if (rank == int.MaxValue) continue;
             hits.Add((entry, rank));
         }
 
@@ -256,16 +260,23 @@ public sealed class FileIndex
 
     private static int Rank(FileEntry entry, string needle, string compact)
     {
-        if (entry.Lower.StartsWith(needle, StringComparison.Ordinal)) return 0;
-        if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 1;
-        if (entry.Initials.Length >= needle.Length && entry.Initials.StartsWith(needle, StringComparison.Ordinal)) return 2;
-        if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 3;
+        // An exact file-name hit is always the first line ("/s java.exe" must not get lost
+        // behind fuzzy matches). int.MaxValue marks "no match".
+        if (string.Equals(entry.Lower, needle, StringComparison.Ordinal)) return 0;
+        if (entry.Lower.StartsWith(needle, StringComparison.Ordinal)) return 1;
+        if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 2;
+        if (entry.Initials.Length >= needle.Length && entry.Initials.StartsWith(needle, StringComparison.Ordinal)) return 3;
+        if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 4;
 
         // "vscode" style abbreviations still work, but only from three characters up so that a
         // single letter does not drag the whole disk into the list.
-        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 4;
-        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 4;
-        return -1;
+        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 5;
+        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 5;
+
+        // Path match: "/s jdk" should find everything inside a jdk folder, ranked last so
+        // name hits always stay on top.
+        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return 6;
+        return int.MaxValue;
     }
 
     private static DateTime TryWriteTime(string path)

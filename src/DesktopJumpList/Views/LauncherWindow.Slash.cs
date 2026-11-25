@@ -71,7 +71,7 @@ public partial class LauncherWindow
                 : !CurrentSettings.FileSearchEnabled
                     ? "本地文件搜索已在高级设置中关闭"
                     : fileCount == 0 && terms.Length > 0
-                        ? $"没有找到「{terms}」· 点此重建索引，完成后自动重新搜索"
+                        ? $"没有找到「{terms}」· 索引只含设置里的目录，点此重建后自动重搜"
                         : "重新遍历索引目录与已安装应用，完成后自动搜索当前关键词",
             Glyph = "↻",
             Accent = Accent("#0EA5E9"),

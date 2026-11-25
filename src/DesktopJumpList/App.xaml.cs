@@ -215,23 +215,25 @@ public partial class App : Application
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
-    /// <summary>Applies on the next rebuild; the running index is left untouched.</summary>
+    /// <summary>Applies immediately to an existing index; otherwise on the next build.</summary>
     public void SetFileSearchLimit(int limit)
     {
         Settings.FileSearchLimit = Math.Max(0, limit);
         SaveSettings();
+        RebuildFileIndexIfBuilt();
     }
 
-    /// <summary>Per-folder caps (0 = unlimited); applies on the next index rebuild.</summary>
+    /// <summary>Per-folder caps (0 = unlimited); rebuilds an existing index so the change lands.</summary>
     public void SetFileRootLimit(string root, int maxDepth, int maxEntries)
     {
         Settings.FileRootLimits[root] = new RootLimitSetting { MaxDepth = maxDepth, MaxEntries = maxEntries };
         SaveSettings();
+        RebuildFileIndexIfBuilt();
     }
 
     /// <summary>
     /// Extension allow-list for the index (".pathactive"): each entry is normalized to a
-    /// lowercase dotted form; empty list = index everything. Applies on the next rebuild.
+    /// lowercase dotted form; empty list = index everything. Rebuilds an existing index.
     /// </summary>
     public void SetFileIndexExtensions(IEnumerable<string> extensions)
     {
@@ -242,6 +244,13 @@ public partial class App : Application
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         SaveSettings();
+        RebuildFileIndexIfBuilt();
+    }
+
+    /// <summary>Settings that shape the index rebuild it right away when one already exists.</summary>
+    private void RebuildFileIndexIfBuilt()
+    {
+        if (Files.LastBuilt != DateTime.MinValue) StartFileIndex();
     }
 
     public void OnLauncherClosed()
@@ -649,6 +658,11 @@ public partial class App : Application
                     // and the in-rank recency ordering are visible in the screenshots.
                     try { File.SetLastWriteTime(p, DateTime.Now.AddMinutes(-37 * i)); } catch { }
                 }
+                // A nested file like the user's JDK: "/s java.exe" must put it first, and
+                // "/s jdk" must find it through the folder-path match.
+                var jdkBin = Path.Combine(sampleFiles, "jdk-17.0.20.1+1", "bin");
+                Directory.CreateDirectory(jdkBin);
+                File.WriteAllText(Path.Combine(jdkBin, "java.exe"), string.Empty);
                 App.Current.Files.Start(new[] { sampleFiles }, 0, null, Settings.FileIndexExtensions);
                 for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
                 // Wait deterministically for the app-icon warm-up on the worker thread; the
@@ -670,6 +684,16 @@ public partial class App : Application
                 Launcher.Query.Text = "/s 计算";
                 await Task.Delay(600);
                 CaptureLauncher(Path.Combine(directory, $"search-apps-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // "/s java.exe": the exact-name hit must be the first row.
+                Launcher.Query.Text = "/s java.exe";
+                await Task.Delay(600);
+                CaptureLauncher(Path.Combine(directory, $"search-exact-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // "/s jdk": the nested file must be found through its folder path.
+                Launcher.Query.Text = "/s jdk";
+                await Task.Delay(600);
+                CaptureLauncher(Path.Combine(directory, $"search-path-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
                 // "/" palette: settings plus the /s hint.
