@@ -21,16 +21,8 @@ public sealed record FileEntry(
 /// </summary>
 public sealed class FileIndex
 {
-    // Noise folders that never hold files people search for. "bin" is deliberately NOT here:
-    // toolchains put their executables in bin (D:\jdk-17\bin\java.exe), which is exactly what
-    // "/s java.exe" must find.
-    private static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "node_modules", "bower_components", ".git", ".svn", ".vs", ".idea", ".vscode",
-        "obj", "target", "dist", "build", "__pycache__",
-        "AppData", "Windows", "Program Files", "Program Files (x86)", "ProgramData",
-        "$RECYCLE.BIN", "System Volume Information", "OneDriveTemp"
-    };
+    // No built-in folder skip list: what enters the index is decided solely by the user's
+    // whitelist (extensions) and blacklist (excluded folders) in advanced settings.
 
     private readonly object _gate = new();
     private List<FileEntry> _entries = new();
@@ -241,8 +233,7 @@ public sealed class FileIndex
                         isDirectory));
                     counted++;
 
-                    if (isDirectory && depth < depthCap && !SkipFolders.Contains(name)
-                        && !IsExcluded(path, excludePrefixes))
+                    if (isDirectory && depth < depthCap && !IsExcluded(path, excludePrefixes))
                         pending.Push((path, depth + 1));
                 }
             }

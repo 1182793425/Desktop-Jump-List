@@ -10,12 +10,18 @@ using DesktopJumpList.Models;
 namespace DesktopJumpList.Services;
 
 /// <summary>
-/// Resolves the exact shell icon Explorer shows for a path — the same pipeline the panel has
-/// always used (v3.12.0): SHGetFileInfo pulls the native HICON out of the shell's icon cache,
-/// which is sharp at every DPI. Extraction runs on an STA worker thread; results are frozen
-/// and cached by path.
-/// Shortcuts resolve to their target first, so a .lnk tile shows the target's real icon
-/// instead of the shortcut-arrow overlay.
+/// Resolves the icon Explorer shows for a path. This machine's shell refuses every hi-res
+/// route (IShellItemImageFactory and SHGetImageList both answer E_NOINTERFACE), and
+/// SHGetFileInfo only ever hands out the 32 px icon — which smears once a tile shows it at
+/// 40-48 dip. So icons come from the source files themselves:
+///   exe/dll/ico → the PE's own icon resources at the requested size (PrivateExtractIcons)
+///   documents   → the registered DefaultIcon of their file type
+///   folders     → the system folder icon in imageres.dll
+///   anything else → the native HICON from SHGetFileInfo (v3.12 behaviour, always sharp)
+/// All HICONs go through CreateBitmapSourceFromHIcon, which keeps the alpha channel intact.
+/// Shortcuts resolve to their target first, so .lnk tiles show the target's icon with no
+/// shortcut-arrow overlay. Extraction runs on an STA worker thread; results are frozen and
+/// cached by path.
 /// </summary>
 public static class IconService
 {
@@ -26,10 +32,7 @@ public static class IconService
     private const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     private const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
 
-    /// <summary>
-    /// Display size used when asking the shell for icons. Kept for diagnostics only — the
-    /// native HICON size is chosen by the shell itself (DPI-aware), never upscaled by us.
-    /// </summary>
+    /// <summary>Pixel size we ask the source files for: just over the displayed tile size.</summary>
     internal static int IconPixels
     {
         get
@@ -132,14 +135,99 @@ public static class IconService
             }
             else if (File.Exists(path) || Directory.Exists(path))
             {
-                // Exactly the v3.12.0 pipeline: the shell's own HICON, alpha intact, sharp.
-                result = FromShellIcon(path);
+                result = FromHighResFallback(path) ?? FromShellIcon(path);
             }
         }
         catch { result = null; }
 
         lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>
+    /// Real high-resolution icons extracted from the source files: PE resources for
+    /// exe/dll/ico, the registered DefaultIcon for documents, imageres.dll for folders.
+    /// </summary>
+    private static ImageSource? FromHighResFallback(string path)
+    {
+        var px = IconPixels;
+        if (TryExtractFromFile(path, px, out var source)) return source;
+        if (TryExtractFromAssociation(path, px, out source)) return source;
+        if (TryExtractFolderIcon(path, px, out source)) return source;
+        return null;
+    }
+
+    /// <summary>exe/dll/ico: read the icon straight out of the PE resources.</summary>
+    private static bool TryExtractFromFile(string path, int px, out ImageSource? source)
+    {
+        source = null;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not ".exe" and not ".dll" and not ".ico") return false;
+        return TryExtractIcons(path, 0, px, out source);
+    }
+
+    /// <summary>Documents: resolve the registered DefaultIcon of their file type and extract it.</summary>
+    private static bool TryExtractFromAssociation(string path, int px, out ImageSource? source)
+    {
+        source = null;
+        var ext = Path.GetExtension(path);
+        if (string.IsNullOrEmpty(ext) || ext is ".exe" or ".dll" or ".ico") return false;
+
+        try
+        {
+            string? iconRef = null;
+            using (var extKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(ext))
+            {
+                var progId = extKey?.GetValue(null) as string;
+                if (!string.IsNullOrEmpty(progId))
+                    using (var iconKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(progId + @"\DefaultIcon"))
+                        iconRef = iconKey?.GetValue(null) as string;
+                iconRef ??= extKey?.OpenSubKey("DefaultIcon")?.GetValue(null) as string;
+            }
+
+            if (string.IsNullOrWhiteSpace(iconRef)) return false;
+
+            // "file,index" / "file" / "%SystemRoot%\system32\imageres.dll,-102"
+            iconRef = Environment.ExpandEnvironmentVariables(iconRef.Trim());
+            var index = 0;
+            var comma = iconRef.LastIndexOf(',');
+            if (comma > 0 && int.TryParse(iconRef[(comma + 1)..].Trim(), out var parsed))
+            {
+                iconRef = iconRef[..comma];
+                index = Math.Abs(parsed);
+            }
+
+            var file = iconRef.Trim('"', ' ');
+            if (string.IsNullOrEmpty(file) || file.StartsWith("@") || !File.Exists(file)) return false;
+            return TryExtractIcons(file, index, px, out source);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Folders: the system folder icon lives in imageres.dll (index 2 on Win10/11).</summary>
+    private static bool TryExtractFolderIcon(string path, int px, out ImageSource? source)
+    {
+        source = null;
+        if (!Directory.Exists(path)) return false;
+        var imageres = Path.Combine(Environment.SystemDirectory, "imageres.dll");
+        return File.Exists(imageres) && TryExtractIcons(imageres, 2, px, out source);
+    }
+
+    /// <summary>Extracts one HICON from a PE file's resources at the requested size.</summary>
+    private static bool TryExtractIcons(string file, int index, int px, out ImageSource? source)
+    {
+        source = null;
+        var handles = new IntPtr[1];
+        if (PrivateExtractIconsW(file, index, px, px, handles, null, 1, 0) == 0 || handles[0] == IntPtr.Zero)
+        {
+            if (handles[0] != IntPtr.Zero) Native.DestroyIcon(handles[0]);
+            return false;
+        }
+
+        // FromHandle keeps the alpha channel intact (CreateBitmapSourceFromHIcon) and destroys
+        // the HICON. The HBITMAP route smeared icon edges with black fringes.
+        source = FromHandle(handles[0]);
+        return source is not null;
     }
 
     /// <summary>Gets the icon Explorer shows: the shell's own HICON, alpha intact, no shortcuts.</summary>
@@ -175,6 +263,21 @@ public static class IconService
         }
         finally { Native.DestroyIcon(icon); }
     }
+
+    /// <summary>Diagnostic: pixel size of each pipeline stage for one path.</summary>
+    public static string DiagnoseSizes(string path)
+    {
+        var highRes = FromHighResFallback(path);
+        var shell = FromShellIcon(path);
+        static string Size(ImageSource? img) =>
+            img is BitmapSource b ? $"{b.PixelWidth}x{b.PixelHeight}" : "null";
+        return $"path={path}\nhighRes={Size(highRes)}\nshellIcon={Size(shell)}\n" +
+               $"iconPixelsSetting={IconPixels} scale={Native.SystemScale:0.##}";
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PrivateExtractIconsW(string szFileName, int nIconIndex, int cxIcon, int cyIcon,
+        IntPtr[]? phicon, int[]? piconid, int nIcons, int flags);
 
     /// <summary>
     /// Resolves a .lnk to its target path by parsing the shell-link binary structure
