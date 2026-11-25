@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using System.Windows.Media;
 using DesktopJumpList.Infrastructure;
 
@@ -26,8 +26,23 @@ public sealed class ShortcutItem : ObservableObject
     public string Name
     {
         get => _name;
-        set { if (Set(ref _name, value)) Raise(nameof(TooltipText)); }
+        set
+        {
+            if (!Set(ref _name, value)) return;
+            _searchName = null;
+            _searchInitials = null;
+            Raise(nameof(TooltipText));
+        }
     }
+
+    private string? _searchName;
+    private string? _searchInitials;
+
+    /// <summary>Lower-cased name, computed once — search runs on every keystroke.</summary>
+    public string SearchName => _searchName ??= (_name ?? string.Empty).ToLowerInvariant();
+
+    /// <summary>Pinyin initials, also computed once per name.</summary>
+    public string SearchInitials => _searchInitials ??= Infrastructure.Pinyin.Initials(_name ?? string.Empty);
 
     /// <summary>Absolute path for file/folder/app, an absolute URI for <see cref="ShortcutKind.Url"/>,
     /// or the AppUserModelId for <see cref="ShortcutKind.AppX"/>.</summary>

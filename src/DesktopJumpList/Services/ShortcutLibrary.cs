@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows.Threading;
 using DesktopJumpList.Infrastructure;
 using DesktopJumpList.Models;
@@ -110,8 +110,8 @@ public sealed class ShortcutLibrary
         foreach (var item in ordered)
         {
             order++;
-            var name = item.Name.ToLowerInvariant();
-            var initials = Pinyin.Initials(item.Name);
+            var name = item.SearchName;
+            var initials = item.SearchInitials;
             int rank;
             if (name.StartsWith(query)) rank = 0;
             else if (initials.StartsWith(query)) rank = 1;

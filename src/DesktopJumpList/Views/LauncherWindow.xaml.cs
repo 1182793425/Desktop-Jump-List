@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Runtime.CompilerServices;
 using System.Collections.Specialized;
 using System.IO;
 using System.Windows;
@@ -121,6 +122,8 @@ public partial class LauncherWindow : Window
     private readonly ObservableCollection<object> _tiles = new();
     private readonly ObservableCollection<object> _recentTiles = new();
     private readonly DispatcherTimer _messageTimer;
+    private DispatcherTimer _queryDelay = null!;
+    private string? _lastResultSignature;
     private readonly DispatcherTimer _dragScroll;
     private InsertMarker? _insertMarker;
     private int _markerIndex = -1;
@@ -217,7 +220,11 @@ public partial class LauncherWindow : Window
             if (e.OriginalSource is DependencyObject source && IsInside(source, HotkeyBox)) return;
             CancelHotkeyCapture();
         };
-        Query.TextChanged += (_, _) => OnQueryChanged();
+        // Typing should not rebuild the list on every keystroke: wait until the input pauses,
+        // and let navigation keys flush the pending query so the first arrow press is accurate.
+        _queryDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
+        _queryDelay.Tick += (_, _) => { _queryDelay.Stop(); OnQueryChanged(); };
+        Query.TextChanged += (_, _) => RestartQueryDelay();
 
         Tiles.PreviewMouseMove += OnTilesMouseMove;
         Tiles.AddHandler(ListBoxItem.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnTileDown), true);
@@ -427,6 +434,16 @@ public partial class LauncherWindow : Window
             }
         }
 
+        // Typing one more character usually narrows nothing: keep the existing rows (and their
+        // containers) instead of rebuilding them for an identical result set.
+        var signature = Signature(next);
+        if (signature == _lastResultSignature)
+        {
+            Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
+            return;
+        }
+        _lastResultSignature = signature;
+
         if (_listMode) next = next.Select(ToResultRow).OfType<ResultRow>().Cast<object>().ToList();
         Sync(_tiles, next);
 
@@ -464,6 +481,15 @@ public partial class LauncherWindow : Window
 
         if (q.Length > 0) Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
         else Tiles.SelectedIndex = -1;
+    }
+
+    /// <summary>Identity of a result set: reference hashes of the items, in order.</summary>
+    private static string Signature(List<object> items)
+    {
+        if (items.Count == 0) return "0";
+        var builder = new System.Text.StringBuilder(items.Count * 9);
+        foreach (var item in items) builder.Append(RuntimeHelpers.GetHashCode(item).ToString("x")).Append(',');
+        return builder.ToString();
     }
 
     /// <summary>
@@ -585,6 +611,15 @@ public partial class LauncherWindow : Window
         rows = Math.Min(rows, fit);
 
         return PanelChrome + rows * CellHeight + recentExtra;
+    }
+
+    /// <summary>Sets the panel height in this frame — no animation while typing.</summary>
+    private void ApplyPanelHeightNow()
+    {
+        var target = TargetPanelHeight();
+        if (Math.Abs(Panel.ActualHeight - target) < 0.5) return;
+        EnsureWindowFits();
+        Panel.Set(System.Windows.Controls.Border.HeightProperty, target);
     }
 
     private void AnimatePanelHeight()
@@ -744,7 +779,6 @@ public partial class LauncherWindow : Window
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
             case SearchResultTile search: OpenSearch(search); break;
-            case SlashRow row: RunSlashRow(row); break;
             case ResultRow row: RunResultRow(row); break;
         }
     }
@@ -811,14 +845,29 @@ public partial class LauncherWindow : Window
 
     // ───────────────────────── Search ─────────────────────────
 
+    private void RestartQueryDelay()
+    {
+        _queryDelay.Stop();
+        if (Query.Text.Length == 0) { OnQueryChanged(); return; } // clearing must feel instant
+        _queryDelay.Start();
+    }
+
+    /// <summary>Applies a pending keystroke right now (used before Enter / arrow handling).</summary>
+    private void FlushQueryDelay()
+    {
+        if (!_queryDelay.IsEnabled) return;
+        _queryDelay.Stop();
+        OnQueryChanged();
+    }
+
     private void OnQueryChanged()
     {
         if (!IsOpen) return;
         if (_editMode && Query.Text.Length > 0) ExitEditMode();
         if (Query.Text.Length > 0 && MessageRow.IsHitTestVisible) HideMessage();
         Rebuild();
-        AnimatePanelHeight();
-        Scroller.ScrollToTop();
+        ApplyPanelHeightNow();
+        if (Scroller.VerticalOffset > 0.5) Scroller.ScrollToTop();
         UpdatePill();
     }
 
@@ -900,15 +949,18 @@ public partial class LauncherWindow : Window
                 break;
 
             case Key.Enter:
+                FlushQueryDelay();
                 if (Tiles.SelectedItem is { } selected) Invoke(selected, null);
                 e.Handled = true;
                 break;
 
-            case Key.Left: MoveSelection(-1); e.Handled = true; break;
-            case Key.Right: MoveSelection(1); e.Handled = true; break;
-            case Key.Up: MoveSelection(-Cols); e.Handled = true; break;
-            case Key.Down: MoveSelection(Cols); e.Handled = true; break;
-            case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1); e.Handled = true; break;
+            // In the one-line list there are no columns: up/down must walk the list one row
+            // at a time (like a search dropdown), otherwise every press skips Cols items.
+            case Key.Left when !_listMode: FlushQueryDelay(); MoveSelection(-1, wrap: true); e.Handled = true; break;
+            case Key.Right when !_listMode: FlushQueryDelay(); MoveSelection(1, wrap: true); e.Handled = true; break;
+            case Key.Up: FlushQueryDelay(); MoveSelection(_listMode ? -1 : -Cols, wrap: false); e.Handled = true; break;
+            case Key.Down: FlushQueryDelay(); MoveSelection(_listMode ? 1 : Cols, wrap: false); e.Handled = true; break;
+            case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true); e.Handled = true; break;
 
             case Key.F2:
                 if (Tiles.SelectedItem is ShortcutItem r) BeginRename(r);
@@ -948,18 +1000,21 @@ public partial class LauncherWindow : Window
         }
     }
 
-    private void MoveSelection(int delta)
+    private void MoveSelection(int delta, bool wrap)
     {
-        if (_tiles.Count == 0) return;
-        var i = Tiles.SelectedIndex;
+        if (_tiles.Count == 0 || delta == 0) return;
+        var count = _tiles.Count;
+        var current = Tiles.SelectedIndex;
+
         int next;
-        if (i < 0) next = delta > 0 ? 0 : _tiles.Count - 1;
+        if (current < 0) next = delta > 0 ? 0 : count - 1;
         else
         {
-            next = i + delta;
-            if (Math.Abs(delta) == 1) next = (next + _tiles.Count) % _tiles.Count;
-            else next = Math.Clamp(next, 0, _tiles.Count - 1);
+            next = current + delta;
+            next = wrap ? ((next % count) + count) % count : Math.Clamp(next, 0, count - 1);
         }
+
+        if (next == current) return; // already at the end: stay there instead of jumping around
         Tiles.SelectedIndex = next;
         if (Tiles.ItemContainerGenerator.ContainerFromIndex(next) is FrameworkElement c) c.BringIntoView();
     }
