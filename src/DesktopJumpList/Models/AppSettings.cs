@@ -120,9 +120,28 @@ public sealed class AppSettings
 
     /// <summary>
     /// Extension allow-list for the file index (the .pathactive idea): only files with these
-    /// extensions are indexed. Empty = index everything. Folders are never filtered.
+    /// extensions are indexed. Folders are never filtered. The default covers the types a
+    /// search actually wants to find — documents, images, media, archives, installers and
+    /// code — and the list is freely editable in advanced settings.
     /// </summary>
-    public List<string> FileIndexExtensions { get; set; } = new();
+    public List<string> FileIndexExtensions { get; set; } = new List<string>
+    {
+        // documents
+        ".doc", ".docx", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx", ".pdf",
+        ".txt", ".md", ".rtf", ".csv", ".wps", ".ofd",
+        // images
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".psd", ".ai",
+        // video / audio
+        ".mp4", ".avi", ".mkv", ".mov", ".wmv",
+        ".mp3", ".wav", ".flac", ".aac", ".m4a",
+        // archives / installers / app shortcuts
+        ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
+        ".exe", ".msi", ".lnk",
+        // code / config
+        ".py", ".js", ".ts", ".java", ".cs", ".cpp", ".c", ".h", ".go", ".rs",
+        ".html", ".css", ".json", ".xml", ".yaml", ".yml", ".ini", ".cfg",
+        ".bat", ".ps1", ".sql", ".log"
+    };
 
     /// <summary>
     /// Upper bound on indexed entries; 0 (the default) means no cap. Entries are just path

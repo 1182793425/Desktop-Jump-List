@@ -190,7 +190,7 @@
                                 <Grid Margin="2,10,0,0">
                                     <TextBlock Text="文件类型白名单" Style="{StaticResource RowLabel}" />
                                     <TextBlock Style="{StaticResource InfoDot}" HorizontalAlignment="Right"
-                                               ToolTip="只索引列出的扩展名的文件，其余全部跳过——大幅减少无用条目。每行一个，如 .exe、.md、.xlsx；行首 # 为注释；留空 = 索引所有文件（文件夹不受影响）。改动在下次重建索引时生效。" />
+                                               ToolTip="只索引列出的扩展名的文件，其余全部跳过——大幅减少无用条目。默认已填好文档 / 图片 / 音视频 / 压缩包 / 安装包 / 代码等常用类型，可自由增删。每行一个，行首 # 为注释；文件夹与已安装应用不受影响。改动在下次重建索引时生效。" />
                                 </Grid>
                                 <TextBox x:Name="FileExtBox" AcceptsReturn="True" Height="72" FontSize="11.5"
                                          Padding="6,4" VerticalScrollBarVisibility="Auto"

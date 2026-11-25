@@ -649,7 +649,7 @@ public partial class App : Application
                     // and the in-rank recency ordering are visible in the screenshots.
                     try { File.SetLastWriteTime(p, DateTime.Now.AddMinutes(-37 * i)); } catch { }
                 }
-                App.Current.Files.Start(new[] { sampleFiles }, 0);
+                App.Current.Files.Start(new[] { sampleFiles }, 0, null, Settings.FileIndexExtensions);
                 for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
                 // Wait deterministically for the app-icon warm-up on the worker thread; the
                 // panel may tuck itself away during the wait, so re-open before capturing.
