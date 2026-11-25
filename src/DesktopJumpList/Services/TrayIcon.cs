@@ -30,7 +30,6 @@ public sealed class TrayIcon : IDisposable
             Font = new Font("Segoe UI", 9f)
         };
         _menu.Opening += (_, _) => BuildMenu();
-        _menu.SizeChanged += (_, _) => RoundMenu();
 
         _ownedIcon = LoadIcon();
         _icon = new Forms.NotifyIcon
@@ -159,26 +158,6 @@ public sealed class TrayIcon : IDisposable
         var item = new Forms.ToolStripMenuItem(text) { Checked = isChecked, CheckOnClick = false };
         item.Click += (_, _) => action();
         return item;
-    }
-
-    private void RoundMenu()
-    {
-        if (_menu.Width <= 0 || _menu.Height <= 0) return;
-        using var path = RoundRect(new Rectangle(0, 0, _menu.Width, _menu.Height), 10);
-        _menu.Region?.Dispose();
-        _menu.Region = new Region(path);
-    }
-
-    private static GraphicsPath RoundRect(Rectangle r, int radius)
-    {
-        var path = new GraphicsPath();
-        var d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
-        path.AddArc(r.X, r.Y, d, d, 180, 90);
-        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
     }
 
     // ───────────────────────── Icon ─────────────────────────

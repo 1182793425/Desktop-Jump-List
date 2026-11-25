@@ -191,7 +191,7 @@ public partial class App : Application
             ? Settings.FileSearchRoots
             : FileIndex.DefaultRoots();
         Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits,
-            Settings.FileIndexExtensions, onDone);
+            Settings.FileIndexExtensions, Settings.FileIndexExcludes, onDone);
     }
 
     public void SetFileSearchEnabled(bool enabled)
@@ -241,6 +241,21 @@ public partial class App : Application
             .Select(e => e.Trim())
             .Where(e => e.Length > 1 && e.StartsWith("."))
             .Select(e => "." + e.TrimStart('.').ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        SaveSettings();
+        RebuildFileIndexIfBuilt();
+    }
+
+    /// <summary>
+    /// Folder blacklist for the index: nothing under these paths is walked or indexed.
+    /// Entries may use environment variables. Rebuilds an existing index.
+    /// </summary>
+    public void SetFileIndexExcludes(IEnumerable<string> excludes)
+    {
+        Settings.FileIndexExcludes = excludes
+            .Select(e => e.Trim())
+            .Where(e => e.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         SaveSettings();

@@ -53,21 +53,28 @@ public sealed class FileIndex
 
     /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
     public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
-        => Start(roots, limit, null, null, onDone);
+        => Start(roots, limit, null, null, null, onDone);
 
     /// <summary>Overload with per-folder depth / entry caps (0 = unlimited).</summary>
     public void Start(IReadOnlyList<string> roots, int limit,
         IReadOnlyDictionary<string, RootLimitSetting>? perRoot, Action? onDone = null)
-        => Start(roots, limit, perRoot, null, onDone);
+        => Start(roots, limit, perRoot, null, null, onDone);
 
     /// <summary>
     /// Full overload. <paramref name="extensionAllowList"/> is the .pathactive-style filter:
     /// only files whose extension is in the list are indexed (folders and the merged apps are
-    /// never filtered); null or empty means no filtering.
+    /// never filtered); null or empty means no filtering. <paramref name="excludedFolders"/>
+    /// is the blacklist: no folder under those paths is walked or indexed.
     /// </summary>
     public void Start(IReadOnlyList<string> roots, int limit,
         IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
         IReadOnlyCollection<string>? extensionAllowList, Action? onDone = null)
+        => Start(roots, limit, perRoot, extensionAllowList, null, onDone);
+
+    public void Start(IReadOnlyList<string> roots, int limit,
+        IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
+        IReadOnlyCollection<string>? extensionAllowList,
+        IReadOnlyCollection<string>? excludedFolders, Action? onDone = null)
     {
         _cancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
@@ -79,6 +86,7 @@ public sealed class FileIndex
         var extensionFilter = extensionAllowList is { Count: > 0 }
             ? new HashSet<string>(extensionAllowList, StringComparer.OrdinalIgnoreCase)
             : null;
+        var excludePrefixes = NormalizeExcludes(excludedFolders);
 
         Task.Run(() =>
         {
@@ -86,7 +94,7 @@ public sealed class FileIndex
             // limit <= 0 (the default) means no cap: entries are ~0.4 KB of path strings, so
             // even a few hundred thousand stay in the tens of MB.
             var cap = limit <= 0 ? int.MaxValue : Math.Max(500, limit);
-            try { Walk(roots, cap, perRoot, extensionFilter, found, token); }
+            try { Walk(roots, cap, perRoot, extensionFilter, excludePrefixes, found, token); }
             catch { /* cancelled or unreadable root */ }
 
             // The Start Menu shortcuts (classic software) come from the walk when its folders
@@ -134,15 +142,44 @@ public sealed class FileIndex
         }
     }
 
+    /// <summary>Expands %VARS%, trims trailing separators and drops empties.</summary>
+    private static List<string> NormalizeExcludes(IReadOnlyCollection<string>? excludedFolders)
+    {
+        var result = new List<string>();
+        if (excludedFolders is null) return result;
+        foreach (var raw in excludedFolders)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var expanded = Environment.ExpandEnvironmentVariables(raw.Trim()).TrimEnd('\\');
+            if (expanded.Length > 2) result.Add(expanded); // never allow "C:\" or a bare drive
+        }
+        return result;
+    }
+
+    /// <summary>True when the path is one of the excluded folders or lives under one.</summary>
+    private static bool IsExcluded(string path, List<string> excludePrefixes)
+    {
+        foreach (var prefix in excludePrefixes)
+        {
+            if (path.Equals(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+            if (path.Length > prefix.Length
+                && path[prefix.Length] == '\\'
+                && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     private static void Walk(IReadOnlyList<string> roots, int limit,
         IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
-        HashSet<string>? extensionFilter, List<FileEntry> into, CancellationToken token)
+        HashSet<string>? extensionFilter, List<string> excludePrefixes,
+        List<FileEntry> into, CancellationToken token)
     {
         // Roots are walked one by one so each can honour its own depth / entry caps.
         foreach (var root in roots)
         {
             if (token.IsCancellationRequested || into.Count >= limit) break;
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+            if (IsExcluded(root.TrimEnd('\\'), excludePrefixes)) continue;
 
             var cfg = perRoot is not null && perRoot.TryGetValue(root, out var found)
                 ? found
@@ -150,12 +187,13 @@ public sealed class FileIndex
             var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
             var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
 
-            WalkOne(root, depthCap, entryCap, limit, extensionFilter, into, token);
+            WalkOne(root, depthCap, entryCap, limit, extensionFilter, excludePrefixes, into, token);
         }
     }
 
     private static void WalkOne(string root, int depthCap, int entryCap, int globalLimit,
-        HashSet<string>? extensionFilter, List<FileEntry> into, CancellationToken token)
+        HashSet<string>? extensionFilter, List<string> excludePrefixes,
+        List<FileEntry> into, CancellationToken token)
     {
         var pending = new Stack<(string Path, int Depth)>();
         pending.Push((root, 0));
@@ -203,7 +241,8 @@ public sealed class FileIndex
                         isDirectory));
                     counted++;
 
-                    if (isDirectory && depth < depthCap && !SkipFolders.Contains(name))
+                    if (isDirectory && depth < depthCap && !SkipFolders.Contains(name)
+                        && !IsExcluded(path, excludePrefixes))
                         pending.Push((path, depth + 1));
                 }
             }

@@ -71,6 +71,7 @@ public partial class AdvancedSettingsWindow : Window
         FileExtBox.LostFocus += (_, _) => CommitFileExtensions();
         FileExtBox.KeyDown += (_, e) => { if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control) CommitFileExtensions(); };
         BuildRootRows();
+        BuildExcludeRows();
         UpdateFileStatus();
 
         _statusTimer = new System.Windows.Threading.DispatcherTimer
@@ -248,6 +249,86 @@ public partial class AdvancedSettingsWindow : Window
         }
 
         App.Current.SetFileRootLimit(root, Parse(boxes.ElementAtOrDefault(0)), Parse(boxes.ElementAtOrDefault(1)));
+        UpdateFileStatus();
+    }
+
+    /// <summary>Blacklist rows: plain paths with a remove link, plus the add button below.</summary>
+    private void BuildExcludeRows()
+    {
+        ExcludeRows.Children.Clear();
+        var excludes = App.Current.Settings.FileIndexExcludes;
+
+        if (excludes.Count == 0)
+        {
+            ExcludeRows.Children.Add(new TextBlock
+            {
+                Text = "未设置排除目录：索引会遍历上面所有目录的全部子文件夹。",
+                Style = (Style)Resources["Hint"],
+                Margin = new Thickness(2, 3, 0, 3),
+                TextWrapping = TextWrapping.Wrap
+            });
+            return;
+        }
+
+        foreach (var exclude in excludes)
+        {
+            var row = new Grid { Margin = new Thickness(2, 2, 0, 2), Tag = exclude };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+
+            var label = new TextBlock
+            {
+                Text = exclude,
+                Style = (Style)Resources["Hint"],
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                ToolTip = Environment.ExpandEnvironmentVariables(exclude)
+            };
+            Grid.SetColumn(label, 0);
+            row.Children.Add(label);
+
+            var remove = new Button
+            {
+                Content = "移除",
+                Style = (Style)Resources["LinkButton"],
+                Padding = new Thickness(0, 2, 0, 2),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Tag = exclude
+            };
+            remove.Click += OnRemoveExclude;
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(remove);
+
+            ExcludeRows.Children.Add(row);
+        }
+    }
+
+    private void OnAddExclude(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = "选择要从索引中排除的文件夹",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false
+        };
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+        if (string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
+
+        var excludes = App.Current.Settings.FileIndexExcludes;
+        if (excludes.Any(x => string.Equals(x, dialog.SelectedPath, StringComparison.OrdinalIgnoreCase))) return;
+        App.Current.SetFileIndexExcludes(excludes.Append(dialog.SelectedPath));
+        BuildExcludeRows();
+        UpdateFileStatus();
+    }
+
+    private void OnRemoveExclude(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string exclude }) return;
+        App.Current.SetFileIndexExcludes(
+            App.Current.Settings.FileIndexExcludes.Where(x => !string.Equals(x, exclude, StringComparison.OrdinalIgnoreCase)));
+        BuildExcludeRows();
         UpdateFileStatus();
     }
 

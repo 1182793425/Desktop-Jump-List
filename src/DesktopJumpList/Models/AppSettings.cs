@@ -144,6 +144,28 @@ public sealed class AppSettings
     };
 
     /// <summary>
+    /// Folder blacklist for the index: nothing under these folders is indexed or walked.
+    /// The default keeps system, cache and log locations out — they never hold files people
+    /// search for and they are the bulk of a full-disk walk. Entries may use environment
+    /// variables; matching is path-prefix based (case-insensitive).
+    /// </summary>
+    public List<string> FileIndexExcludes { get; set; } = new List<string>
+    {
+        "%SystemRoot%",
+        "%ProgramFiles%",
+        "%ProgramFiles(x86)%",
+        "%ProgramData%",
+        "%LOCALAPPDATA%",
+        "%APPDATA%",
+        "%TEMP%",
+        @"C:\$Recycle.Bin",
+        @"C:\System Volume Information",
+        @"C:\Recovery",
+        @"C:\PerfLogs",
+        @"C:\Windows.old"
+    };
+
+    /// <summary>
     /// Upper bound on indexed entries; 0 (the default) means no cap. Entries are just path
     /// strings (~0.4 KB each), so even hundreds of thousands stay in the tens of MB.
     /// </summary>
@@ -197,6 +219,7 @@ public sealed class AppSettings
             StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
         FileIndexExtensions = new List<string>(FileIndexExtensions),
+        FileIndexExcludes = new List<string>(FileIndexExcludes),
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,
