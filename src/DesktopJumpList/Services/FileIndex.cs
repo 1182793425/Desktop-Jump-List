@@ -1,5 +1,6 @@
 using System.IO;
 using DesktopJumpList.Infrastructure;
+using DesktopJumpList.Models;
 
 namespace DesktopJumpList.Services;
 
@@ -39,6 +40,9 @@ public sealed class FileIndex
 
     public bool IsBuilding { get; private set; }
 
+    /// <summary>True once the post-walk icon warm-up finished (preview/screenshot helper).</summary>
+    public bool IconsWarm { get; private set; }
+
     public DateTime LastBuilt { get; private set; } = DateTime.MinValue;
 
     // No background auto-refresh: the index is rebuilt only when the user asks for it via
@@ -46,17 +50,26 @@ public sealed class FileIndex
 
     /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
     public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
+        => Start(roots, limit, null, onDone);
+
+    /// <summary>Overload with per-folder depth / entry caps (0 = unlimited).</summary>
+    public void Start(IReadOnlyList<string> roots, int limit,
+        IReadOnlyDictionary<string, RootLimitSetting>? perRoot, Action? onDone = null)
     {
         _cancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
         _cancellation = cancellation;
         var token = cancellation.Token;
         IsBuilding = true;
+        IconsWarm = false;
 
         Task.Run(() =>
         {
             var found = new List<FileEntry>(4096);
-            try { Walk(roots, Math.Max(500, limit), found, token); }
+            // limit <= 0 (the default) means no cap: entries are ~0.4 KB of path strings, so
+            // even a few hundred thousand stay in the tens of MB.
+            var cap = limit <= 0 ? int.MaxValue : Math.Max(500, limit);
+            try { Walk(roots, cap, perRoot, found, token); }
             catch { /* cancelled or unreadable root */ }
 
             // The Start Menu shortcuts (classic software) come from the walk when its folders
@@ -81,24 +94,56 @@ public sealed class FileIndex
 
             if (!cancelled)
             {
-                // Logos load after the entries are already searchable, so a long warm-up never
-                // delays the first /s result — only its icons.
-                if (appIds.Count > 0) _ = StoreAppsService.GetLogos(appIds, 48);
+                // No icon work here by design: icons render lazily per visible row
+                // (QueueDeferredIconLoad), so indexing stays pure path text.
+                IconsWarm = true;
                 onDone?.Invoke();
             }
         }, token);
     }
 
-    private static void Walk(IReadOnlyList<string> roots, int limit, List<FileEntry> into, CancellationToken token)
+    /// <summary>Rough resident size of the index (path strings + per-entry overhead).</summary>
+    public long MemoryBytes
     {
-        var pending = new Stack<(string Path, int Depth)>();
+        get
+        {
+            lock (_gate)
+            {
+                long bytes = 0;
+                foreach (var e in _entries)
+                    bytes += (e.Path.Length + e.Name.Length + e.Folder.Length + e.Lower.Length + e.Initials.Length) * 2 + 152;
+                return bytes;
+            }
+        }
+    }
+
+    private static void Walk(IReadOnlyList<string> roots, int limit,
+        IReadOnlyDictionary<string, RootLimitSetting>? perRoot, List<FileEntry> into, CancellationToken token)
+    {
+        // Roots are walked one by one so each can honour its own depth / entry caps.
         foreach (var root in roots)
         {
-            if (string.IsNullOrWhiteSpace(root)) continue;
-            if (Directory.Exists(root)) pending.Push((root, 0));
-        }
+            if (token.IsCancellationRequested || into.Count >= limit) break;
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
 
-        while (pending.Count > 0 && into.Count < limit)
+            var cfg = perRoot is not null && perRoot.TryGetValue(root, out var found)
+                ? found
+                : null;
+            var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
+            var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
+
+            WalkOne(root, depthCap, entryCap, limit, into, token);
+        }
+    }
+
+    private static void WalkOne(string root, int depthCap, int entryCap, int globalLimit,
+        List<FileEntry> into, CancellationToken token)
+    {
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((root, 0));
+        var counted = 0;
+
+        while (pending.Count > 0 && counted < entryCap && into.Count < globalLimit)
         {
             token.ThrowIfCancellationRequested();
             var (folder, depth) = pending.Pop();
@@ -111,7 +156,7 @@ public sealed class FileIndex
             {
                 while (true)
                 {
-                    if (into.Count >= limit) break;
+                    if (counted >= entryCap || into.Count >= globalLimit) break;
 
                     string path;
                     try { if (!children.MoveNext()) break; path = children.Current; }
@@ -131,8 +176,9 @@ public sealed class FileIndex
                         Pinyin.Initials(name),
                         TryWriteTime(path),
                         isDirectory));
+                    counted++;
 
-                    if (isDirectory && depth < 6 && !SkipFolders.Contains(name))
+                    if (isDirectory && depth < depthCap && !SkipFolders.Contains(name))
                         pending.Push((path, depth + 1));
                 }
             }
@@ -206,20 +252,20 @@ public sealed class FileIndex
         catch { return DateTime.MinValue; }
     }
 
-    private const string AppsFolderPrefix = "shell:AppsFolder\\";
+    private const string FileEntryAppsPrefix = "shell:AppsFolder\\";
 
     /// <summary>
-    /// Packaged (Store) apps join the index as launchable entries: the folder walk covers
-    /// classic .lnk software through the Start Menu, this merge covers 便签 / 录音机 style
-    /// UWP apps that have no .lnk at all. Returns the merged AppUserModelIds so the caller
-    /// can warm their logos on this worker thread.
+    /// Launchable apps join the index as entries: the folder walk covers classic .lnk software
+    /// through the Start Menu, this merge covers 便签 / 录音机 style Windows apps that have no
+    /// .lnk at all. Returns the merged AUMIDs so the caller can warm their icons on this
+    /// worker thread.
     /// </summary>
     private static List<string> MergeStoreApps(List<FileEntry> into)
     {
         var ids = new List<string>();
         try
         {
-            var apps = StoreAppsService.Enumerate();
+            var apps = AppsFolderService.Enumerate();
             var seen = new HashSet<string>(
                 into.Select(e => e.Lower), StringComparer.OrdinalIgnoreCase);
 
@@ -228,23 +274,26 @@ public sealed class FileIndex
                 var lower = app.Name.ToLowerInvariant();
                 if (lower.Length == 0 || !seen.Add(lower)) continue; // same-name .lnk already walked
                 into.Add(new FileEntry(
-                    AppsFolderPrefix + app.AppUserModelId,
+                    FileEntryAppsPrefix + app.AumId,
                     app.Name,
                     "已安装应用",
                     lower,
                     Pinyin.Initials(app.Name),
                     DateTime.MinValue,
                     IsDirectory: false));
-                ids.Add(app.AppUserModelId);
+                ids.Add(app.AumId);
             }
         }
-        catch { /* PackageManager unavailable or denied */ }
+        catch { /* Shell unavailable — file results still work */ }
         return ids;
     }
 
-    /// <summary>True for the packaged-app rows merged by <see cref="MergeStoreApps"/>.</summary>
+    /// <summary>True for the app rows merged by <see cref="MergeStoreApps"/>.</summary>
     public static bool IsAppEntry(FileEntry entry) =>
-        entry.Path.StartsWith(AppsFolderPrefix, StringComparison.OrdinalIgnoreCase);
+        entry.Path.StartsWith(FileEntryAppsPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The AUMID part of an app row's shell:AppsFolder path.</summary>
+    public static string AppAumId(FileEntry entry) => entry.Path[FileEntryAppsPrefix.Length..];
 
     private static bool IsSubsequence(string text, string query)
     {

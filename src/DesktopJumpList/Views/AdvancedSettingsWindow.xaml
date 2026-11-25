@@ -167,8 +167,21 @@
                                 <Button x:Name="AddRootButton" Content="＋ 添加文件夹…" Style="{StaticResource LinkButton}"
                                         HorizontalAlignment="Left" Padding="0,4" Margin="2,4,0,0" Click="OnAddRoot" />
 
+                                <Grid Margin="2,10,0,0">
+                                    <TextBlock Text="索引条目上限" Style="{StaticResource RowLabel}" ToolTip="0 = 不限制；改动在下次重建索引时生效" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <TextBox x:Name="FileLimitBox" Width="90" TextAlignment="Right" FontSize="12"
+                                                 Padding="6,3" VerticalContentAlignment="Center"
+                                                 Background="{DynamicResource HoverBrush}"
+                                                 Foreground="{DynamicResource InkBrush}"
+                                                 BorderBrush="{DynamicResource CardBorderBrush}" />
+                                        <TextBlock Text=" 条（0 = 不限制）" Style="{StaticResource Hint}"
+                                                   VerticalAlignment="Center" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </Grid>
+
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,6,0,0" TextWrapping="Wrap"
-                                           Text="在搜索框输入 /s 关键词（例如 /s 设计稿）才会检索本地文件与已安装应用（含便签、录音机这类 Windows 程序），结果里只有本地内容，不含快捷项和网页搜索。普通搜索完全不碰磁盘，也不会触发索引。索引在第一次使用 /s 时后台建立，之后不会自动刷新：安装新软件或文件变动后，在 /s 结果里点「重建索引并搜索」即可。默认遍历桌面 / 文档 / 图片 / 下载 / 开始菜单，跳过 node_modules、.git 等目录，最多显示 12 条。" />
+                                           Text="在搜索框输入 /s 关键词（例如 /s 设计稿）才会检索本地文件与已安装应用（含便签、录音机这类 Windows 程序），结果里只有本地内容，不含快捷项和网页搜索。普通搜索完全不碰磁盘，也不会触发索引。索引在第一次使用 /s 时后台建立，之后不会自动刷新：安装新软件或文件变动后，在 /s 结果里点「重建索引并搜索」即可。默认遍历桌面 / 文档 / 图片 / 下载 / 开始菜单，跳过 node_modules、.git 等目录，结果最多显示 12 条。索引条目只是路径文本（约每条 0.4 KB），默认不设上限。" />
                             </StackPanel>
                         </Border>
 

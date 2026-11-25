@@ -190,7 +190,7 @@ public partial class App : Application
         var roots = Settings.FileSearchRootsCustomized
             ? Settings.FileSearchRoots
             : FileIndex.DefaultRoots();
-        Files.Start(roots, Settings.FileSearchLimit, onDone);
+        Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits, onDone);
     }
 
     public void SetFileSearchEnabled(bool enabled)
@@ -212,6 +212,20 @@ public partial class App : Application
         // stay idle until "/s" needs it.
         if (Files.LastBuilt != DateTime.MinValue) StartFileIndex();
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
+    /// <summary>Applies on the next rebuild; the running index is left untouched.</summary>
+    public void SetFileSearchLimit(int limit)
+    {
+        Settings.FileSearchLimit = Math.Max(0, limit);
+        SaveSettings();
+    }
+
+    /// <summary>Per-folder caps (0 = unlimited); applies on the next index rebuild.</summary>
+    public void SetFileRootLimit(string root, int maxDepth, int maxEntries)
+    {
+        Settings.FileRootLimits[root] = new RootLimitSetting { MaxDepth = maxDepth, MaxEntries = maxEntries };
+        SaveSettings();
     }
 
     public void OnLauncherClosed()
@@ -587,10 +601,13 @@ public partial class App : Application
                     // and the in-rank recency ordering are visible in the screenshots.
                     try { File.SetLastWriteTime(p, DateTime.Now.AddMinutes(-37 * i)); } catch { }
                 }
-                App.Current.Files.Start(new[] { sampleFiles }, 500);
+                App.Current.Files.Start(new[] { sampleFiles }, 0);
                 for (var i = 0; i < 20 && App.Current.Files.Count == 0; i++) await Task.Delay(50);
-                // Headroom for the packaged-app merge + logo warm-up on the worker thread.
-                await Task.Delay(1500);
+                // Wait deterministically for the app-icon warm-up on the worker thread; the
+                // panel may tuck itself away during the wait, so re-open before capturing.
+                for (var i = 0; i < 300 && !App.Current.Files.IconsWarm; i++) await Task.Delay(100);
+                if (!Launcher.IsOpen) Launcher.Open();
+                await Task.Delay(400);
 
                 Launcher.Query.Text = "vs";
                 await Task.Delay(500);
@@ -603,7 +620,7 @@ public partial class App : Application
 
                 // "/s 计算" exercises the installed-app merge (Calculator and friends).
                 Launcher.Query.Text = "/s 计算";
-                await Task.Delay(500);
+                await Task.Delay(600);
                 CaptureLauncher(Path.Combine(directory, $"search-apps-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 

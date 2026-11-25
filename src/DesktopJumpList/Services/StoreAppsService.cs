@@ -59,19 +59,6 @@ public static class StoreAppsService
     }
 
     /// <summary>
-    /// Cache-only lookup: returns whatever the warm-up pass already loaded, never enumerates
-    /// packages. The file index warms the cache on its worker thread; the result rows call
-    /// this while typing, so a miss must stay cheap (fallback glyph) rather than blocking.
-    /// </summary>
-    public static ImageSource? TryGetLogo(string appUserModelId)
-    {
-        lock (Gate)
-        {
-            return LogoCache.TryGetValue(appUserModelId, out var logo) ? logo : null;
-        }
-    }
-
-    /// <summary>
     /// Resolves several logos with one package enumeration. Missing or broken packages are
     /// cached as null so startup does not rescan for them on every launch.
     /// </summary>

@@ -58,30 +58,75 @@ public partial class LauncherWindow
             foreach (var file in files) rows.Add(BuildFileRow(file));
         }
 
-        // The index never refreshes on its own, so /s always offers the manual way out.
+        // The index never refreshes on its own, so /s always offers the manual way out. With
+        // no hits the row also carries the "nothing found" message — a separate hint label
+        // would paint right over the single remaining row.
         var index = App.Current.Files;
+        var fileCount = rows.Count;
         rows.Add(new ResultRow
         {
             Title = index.IsBuilding ? "正在重建索引，完成后自动刷新…" : "重建索引并搜索",
             Subtitle = index.IsBuilding
                 ? $"已索引 {index.Count} 项"
-                : "重新遍历索引目录与已安装应用，完成后自动搜索当前关键词",
+                : !CurrentSettings.FileSearchEnabled
+                    ? "本地文件搜索已在高级设置中关闭"
+                    : fileCount == 0 && terms.Length > 0
+                        ? $"没有找到「{terms}」· 点此重建索引，完成后自动重新搜索"
+                        : "重新遍历索引目录与已安装应用，完成后自动搜索当前关键词",
             Glyph = "↻",
             Accent = Accent("#0EA5E9"),
             Run = RebuildFileIndexNow
         });
 
-        var fileCount = rows.Count - 1; // the rebuild row is always appended last
-        var emptyText = !CurrentSettings.FileSearchEnabled
-            ? "本地文件搜索已在高级设置中关闭"
-            : index.IsBuilding
-                ? string.Empty
-                : terms.Length > 0
-                    ? $"没有找到本地文件或应用：{terms}"
-                    : fileCount == 0 ? "索引为空：点「重建索引并搜索」建立索引" : string.Empty;
-
-        ShowSlashRows(rows, emptyText);
+        ShowSlashRows(rows, string.Empty);
+        // Rows are on screen with letter fallbacks now; fill in real icons in the background
+        // so the list never waits on shell icon extraction.
+        QueueDeferredIconLoad(rows);
     }
+
+    /// <summary>
+    /// Fills in real icons for the rows just shown, on a background STA thread. Indexing never
+    /// touches icons and BuildFileRow only reads the cache, so the result list appears with
+    /// letter fallbacks instantly; each extracted icon then lands on its row via INPC.
+    /// </summary>
+    private void QueueDeferredIconLoad(List<ResultRow> rows)
+    {
+        var pending = rows
+            .Where(r => r.Item is FileEntry && r.Icon is null)
+            .Select(r => (r, ((FileEntry)r.Item!).Path))
+            .DistinctBy(r => r.Path)
+            .Where(r => _iconLoadInFlight.Add(r.Path))
+            .ToList();
+        if (pending.Count == 0) return;
+
+        var dispatcher = Dispatcher;
+        var thread = new Thread(() =>
+        {
+            foreach (var (_, path) in pending)
+            {
+                try
+                {
+                    var icon = IconService.Get(path);
+                    if (icon is null) continue;
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _iconLoadInFlight.Remove(path);
+                        // Still displayed? Replace the fallback on every row of that file.
+                        foreach (var live in _tiles.OfType<ResultRow>())
+                            if (live.Item is FileEntry f && string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase))
+                                live.Icon = icon;
+                    }));
+                }
+                catch { /* a missing icon must never break the list */ }
+            }
+            foreach (var (_, path) in pending) _iconLoadInFlight.Remove(path);
+        })
+        { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+    }
+
+    private readonly HashSet<string> _iconLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The one place that starts a disk walk automatically. Only "/s" reaches it and only
@@ -148,10 +193,7 @@ public partial class LauncherWindow
         EmptyState.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
 
-        var none = rows.Count == 0 ||
-                   // A list made purely of command rows (rebuild, palette entries) counts as
-                   // "nothing found": the hint text explains why, the rows stay clickable.
-                   (emptyText.Length > 0 && rows.All(r => r.Run is not null && r.Item is null));
+        var none = rows.Count == 0;
         NoMatch.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
         NoMatch.Text = none ? emptyText : string.Empty;
         ResultCount.Text = rows.Count > 0 ? rows.Count.ToString() : string.Empty;
@@ -205,7 +247,10 @@ public partial class LauncherWindow
         Query.Focus();
     }
 
-    /// <summary>A file found on disk: name plus the folder it lives in.</summary>
+    /// <summary>
+    /// A file found on disk: name plus the folder it lives in. The icon is cache-only here —
+    /// a miss shows the letter fallback and the real icon arrives via the deferred load.
+    /// </summary>
     private static ResultRow BuildFileRow(FileEntry file)
     {
         var isApp = FileIndex.IsAppEntry(file);
@@ -218,9 +263,7 @@ public partial class LauncherWindow
             Item = file,
             Title = file.Name,
             Subtitle = when.Length > 0 ? $"{when} · {where}" : where,
-            Icon = isApp
-                ? StoreAppsService.TryGetLogo(file.Path["shell:AppsFolder\\".Length..])
-                : IconService.Get(file.Path)
+            Icon = IconService.TryGetCached(file.Path)
         };
 
         if (row.Icon is null && file.Name.Length > 0)

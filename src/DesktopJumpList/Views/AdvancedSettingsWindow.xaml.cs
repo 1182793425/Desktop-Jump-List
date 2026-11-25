@@ -64,6 +64,9 @@ public partial class AdvancedSettingsWindow : Window
     private void WireFileSearch()
     {
         FileSearchSwitch.IsChecked = App.Current.Settings.FileSearchEnabled;
+        FileLimitBox.Text = App.Current.Settings.FileSearchLimit.ToString();
+        FileLimitBox.LostFocus += (_, _) => CommitFileLimit();
+        FileLimitBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitFileLimit(); };
         BuildRootRows();
         UpdateFileStatus();
 
@@ -74,6 +77,16 @@ public partial class AdvancedSettingsWindow : Window
         _statusTimer.Tick += (_, _) => UpdateFileStatus();
         _statusTimer.Start();
         Closed += (_, _) => _statusTimer?.Stop();
+    }
+
+    /// <summary>0 = no cap; anything else applies on the next rebuild.</summary>
+    private void CommitFileLimit()
+    {
+        if (!int.TryParse(FileLimitBox.Text.Trim(), out var value) || value < 0) value = 0;
+        FileLimitBox.Text = value.ToString();
+        if (value == App.Current.Settings.FileSearchLimit) return;
+        App.Current.SetFileSearchLimit(value);
+        UpdateFileStatus();
     }
 
     /// <summary>
@@ -90,10 +103,41 @@ public partial class AdvancedSettingsWindow : Window
     {
         RootRows.Children.Clear();
 
+        // Column header so the two numeric boxes are self-explanatory.
+        var header = new Grid { Margin = new Thickness(2, 3, 0, 0) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        foreach (var (text, column, align) in new[]
+                 {
+                     ("索引目录", 0, HorizontalAlignment.Left),
+                     ("层", 1, HorizontalAlignment.Center),
+                     ("条", 2, HorizontalAlignment.Center),
+                     ("", 3, HorizontalAlignment.Left)
+                 })
+        {
+            var h = new TextBlock
+            {
+                Text = text,
+                Style = (Style)Resources["Hint"],
+                FontSize = 10.5,
+                TextAlignment = align == HorizontalAlignment.Center ? TextAlignment.Center : TextAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(h, column);
+            header.Children.Add(h);
+        }
+        RootRows.Children.Add(header);
+
         foreach (var root in EffectiveRoots())
         {
-            var row = new Grid { Margin = new Thickness(2, 3, 0, 3) };
+            var limits = App.Current.Settings.FileRootLimits.TryGetValue(root, out var l) ? l : new RootLimitSetting();
+
+            var row = new Grid { Margin = new Thickness(2, 3, 0, 3), Tag = root };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var label = new TextBlock
@@ -104,7 +148,15 @@ public partial class AdvancedSettingsWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 ToolTip = root
             };
+            Grid.SetColumn(label, 0);
             row.Children.Add(label);
+
+            var depthBox = MakeLimitBox(limits.MaxDepth, "最大层数，0 = 不限制");
+            var entryBox = MakeLimitBox(limits.MaxEntries, "最大索引条数，0 = 不限制");
+            Grid.SetColumn(depthBox, 1);
+            Grid.SetColumn(entryBox, 2);
+            row.Children.Add(depthBox);
+            row.Children.Add(entryBox);
 
             var remove = new Button
             {
@@ -115,7 +167,7 @@ public partial class AdvancedSettingsWindow : Window
                 Tag = root
             };
             remove.Click += OnRemoveRoot;
-            Grid.SetColumn(remove, 1);
+            Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
 
             RootRows.Children.Add(row);
@@ -132,6 +184,45 @@ public partial class AdvancedSettingsWindow : Window
             };
             RootRows.Children.Add(hint);
         }
+    }
+
+    /// <summary>Small numeric box; commits on focus loss or Enter, 0 = unlimited.</summary>
+    private TextBox MakeLimitBox(int value, string tooltip)
+    {
+        var box = new TextBox
+        {
+            Text = value.ToString(),
+            FontSize = 11,
+            Padding = new Thickness(2, 2, 2, 2),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Background = (Brush)FindResource("HoverBrush"),
+            Foreground = (Brush)FindResource("InkBrush"),
+            BorderBrush = (Brush)FindResource("CardBorderBrush"),
+            ToolTip = tooltip + "（改动在下次重建索引时生效）"
+        };
+        box.LostFocus += (_, _) => CommitRootLimits(box);
+        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitRootLimits(box); };
+        return box;
+    }
+
+    /// <summary>Commits both caps of the row the edited box belongs to.</summary>
+    private void CommitRootLimits(TextBox edited)
+    {
+        if (edited.Parent is not Grid { Tag: string root }) return;
+        var boxes = edited.Parent is Grid g
+            ? g.Children.OfType<TextBox>().Take(2).ToList()
+            : new List<TextBox>();
+
+        int Parse(TextBox? box)
+        {
+            if (box is null || !int.TryParse(box.Text.Trim(), out var v) || v < 0) return 0;
+            box.Text = v.ToString();
+            return v;
+        }
+
+        App.Current.SetFileRootLimit(root, Parse(boxes.ElementAtOrDefault(0)), Parse(boxes.ElementAtOrDefault(1)));
+        UpdateFileStatus();
     }
 
     private void OnFileSearchToggled(object sender, RoutedEventArgs e)
@@ -181,14 +272,25 @@ public partial class AdvancedSettingsWindow : Window
 
         AddRootButton.IsEnabled = true;
         var index = App.Current.Files;
+        var cap = App.Current.Settings.FileSearchLimit > 0
+            ? $" · 总上限 {App.Current.Settings.FileSearchLimit:N0} 条"
+            : "";
+        var memory = FormatBytes(index.MemoryBytes);
         FileIndexStatus.Text = index.IsBuilding
-            ? $"正在索引…（已有 {index.Count} 项）"
+            ? $"正在索引…（已有 {index.Count} 项，缓存约 {memory}）"
             : EffectiveRoots().Count == 0
                 ? "索引目录为空：/s 仍可搜到已安装应用"
                 : index.Count == 0
-                    ? "尚未建立索引，输入 /s 时才会开始"
-                    : $"已索引 {index.Count} 项 · 更新于 {index.LastBuilt:HH:mm}";
+                    ? "尚未建立索引，输入 /s 时才会开始" + cap
+                    : $"已索引 {index.Count} 项 · 缓存约 {memory} · 更新于 {index.LastBuilt:HH:mm}" + cap;
     }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0} KB",
+        _ => $"{bytes / 1024.0 / 1024.0:0.0} MB"
+    };
 
     private void CenterOnScreen()
     {

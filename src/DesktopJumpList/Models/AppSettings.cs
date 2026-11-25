@@ -20,6 +20,13 @@ public enum AppTheme
     Dark
 }
 
+/// <summary>Per-folder index caps. Either value 0 (the default) means unlimited.</summary>
+public sealed class RootLimitSetting
+{
+    public int MaxDepth { get; set; }
+    public int MaxEntries { get; set; }
+}
+
 /// <summary>Persisted to settings.json. Everything here is local-only.</summary>
 public sealed class AppSettings
 {
@@ -104,8 +111,18 @@ public sealed class AppSettings
     /// <summary>True once the user has added or removed a folder in advanced settings.</summary>
     public bool FileSearchRootsCustomized { get; set; }
 
-    /// <summary>Upper bound on indexed entries, so a huge folder cannot blow up memory.</summary>
-    public int FileSearchLimit { get; set; } = 20000;
+    /// <summary>
+    /// Per-folder index caps keyed by folder path. A missing entry (or a 0 value) means
+    /// unlimited. Applies on the next index rebuild.
+    /// </summary>
+    public Dictionary<string, RootLimitSetting> FileRootLimits { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Upper bound on indexed entries; 0 (the default) means no cap. Entries are just path
+    /// strings (~0.4 KB each), so even hundreds of thousands stay in the tens of MB.
+    /// </summary>
+    public int FileSearchLimit { get; set; } = 0;
 
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
@@ -148,6 +165,11 @@ public sealed class AppSettings
         FileSearchEnabled = FileSearchEnabled,
         FileSearchRoots = new List<string>(FileSearchRoots),
         FileSearchRootsCustomized = FileSearchRootsCustomized,
+        FileRootLimits = new Dictionary<string, RootLimitSetting>(
+            FileRootLimits.ToDictionary(
+                kv => kv.Key,
+                kv => new RootLimitSetting { MaxDepth = kv.Value.MaxDepth, MaxEntries = kv.Value.MaxEntries }),
+            StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,

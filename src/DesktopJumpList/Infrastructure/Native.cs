@@ -106,7 +106,7 @@ internal static class Native
     [StructLayout(LayoutKind.Sequential)]
     public struct SIZE { public int cx; public int cy; }
 
-    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("bcc18b79-ba16-442f-80c4-7fe59db0da06"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IShellItemImageFactory
     {
         [PreserveSig] int GetImage(SIZE size, int flags, out IntPtr phbm);

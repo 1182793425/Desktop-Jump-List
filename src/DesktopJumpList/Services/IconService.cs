@@ -100,6 +100,18 @@ public static class IconService
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Cache-only lookup for deferred rendering: results show instantly with a letter
+    /// fallback, then this returns the extracted icon once a background pass has it.
+    /// </summary>
+    public static ImageSource? TryGetCached(string path)
+    {
+        lock (Gate)
+        {
+            return Cache.TryGetValue(path, out var cached) ? cached : null;
+        }
+    }
+
     public static ImageSource? Get(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
@@ -111,7 +123,10 @@ public static class IconService
         ImageSource? result = null;
         try
         {
-            if (File.Exists(path) || Directory.Exists(path))
+            // shell:AppsFolder\AUMID entries (from the /s index) have no file behind them, so
+            // skip the existence probe for them — the image factory resolves the item directly.
+            var isShellItem = path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase);
+            if (isShellItem || File.Exists(path) || Directory.Exists(path))
                 result = FromShellImage(path) ?? FromShellIcon(path);
         }
         catch { result = null; }
