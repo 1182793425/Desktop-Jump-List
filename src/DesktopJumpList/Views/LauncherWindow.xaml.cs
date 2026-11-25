@@ -81,7 +81,18 @@ public partial class LauncherWindow : Window
     private const double TileBottomPadding = 8;
     private const double PanelSidePadding = 26; // 14 left + 10 right + 2 border
     private const double LabelWidth = 88;       // wrap width of a tile label
-    private const double RowHeight = 42;        // one-line result row (illustration + two texts)
+    private const double RowPaddingV = 9;       // vertical padding of a one-line result row
+
+    /// <summary>
+    /// One-line result row (icon + two texts), derived from the panel settings so the search
+    /// surface follows the same icon size / font size / gaps as the tile grid.
+    /// </summary>
+    private double RowTitleLine => Math.Round(TileFontSize * 1.35);
+    private double RowSubLine => Math.Round(Math.Max(9, TileFontSize - 2) * 1.3) + 1;
+    private double RowHeight => Math.Round(
+        Math.Max(TileIconSize, RowTitleLine + RowSubLine) + RowPaddingV * 2);
+    /// <summary>Vertical pitch of one list row: the row plus the item gap below it.</summary>
+    private double RowPitch => RowHeight + ItemGap;
 
     private static AppSettings CurrentSettings => App.Current.Settings;
 
@@ -568,7 +579,14 @@ public partial class LauncherWindow : Window
         // be sized exactly as columns*cell and nothing gets squeezed.
         Resources["TileMarginValue"] = new Thickness(0, 0, ItemGap, ItemGap);
         Resources["RecentRowHeightValue"] = CellHeight;
-        Resources["RowHeightValue"] = RowHeight - 2; // the container adds the rest as a gap
+        // Result rows follow the same icon size / font size / gaps as the tiles.
+        Resources["RowIconValue"] = TileIconSize;
+        Resources["RowTitleFontSizeValue"] = TileFontSize;
+        Resources["RowSubFontSizeValue"] = Math.Max(9, TileFontSize - 2);
+        Resources["RowLetterFontSizeValue"] = Math.Round(TileIconSize * 0.42);
+        Resources["RowTextMarginValue"] = new Thickness(TileGap, 0, 12, 0);
+        Resources["RowHeightValue"] = RowHeight;
+        Resources["RowItemMarginValue"] = new Thickness(0, 0, 0, ItemGap);
         Panel.Width = PanelWidth;
     }
 
@@ -616,9 +634,9 @@ public partial class LauncherWindow : Window
         {
             // A list shows up to twice the configured rows before it scrolls.
             var cap = Math.Max(4, MaxRowCount * 2);
-            var fitRows = Math.Max(1, (int)Math.Floor((MaxPanelHeight - PanelChrome) / RowHeight));
+            var fitRows = Math.Max(1, (int)Math.Floor((MaxPanelHeight - PanelChrome) / RowPitch));
             var shown = Math.Min(Math.Min(_tiles.Count, cap), fitRows);
-            return PanelChrome + shown * RowHeight;
+            return PanelChrome + shown * RowPitch;
         }
 
         var rows = Math.Clamp((int)Math.Ceiling(_tiles.Count / (double)Cols), 1, MaxRowCount);
