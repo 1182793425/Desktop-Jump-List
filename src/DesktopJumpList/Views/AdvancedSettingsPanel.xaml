@@ -196,6 +196,42 @@
                                                    ToolTip="所有目录合计的索引条数上限；0 = 不限制。索引只是路径文本（约每条 0.4 KB，十万条约 40 MB）。改动在下次重建索引时生效。" />
                                     </StackPanel>
                                 </Grid>
+
+                                <Border Margin="0,14,0,0" Padding="12,10" CornerRadius="11"
+                                        Background="{DynamicResource HoverBrush}"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                                    <StackPanel>
+                                        <Grid>
+                                            <StackPanel>
+                                                <TextBlock Text="索引数据" Style="{StaticResource RowLabel}" />
+                                                <TextBlock x:Name="IndexStatsStatus" Style="{StaticResource Hint}"
+                                                           Margin="1,3,0,0" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center">
+                                                <Button x:Name="StatsAscButton" Content="数量 ↑"
+                                                        Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="30"
+                                                        Padding="8,3" Margin="0,0,6,0"
+                                                        ToolTip="按文件数量从少到多排序"
+                                                        Click="OnSortStatsAscending" />
+                                                <Button x:Name="StatsDescButton" Content="数量 ↓"
+                                                        Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="30"
+                                                        Padding="8,3" ToolTip="按文件数量从多到少排序"
+                                                        Click="OnSortStatsDescending" />
+                                            </StackPanel>
+                                        </Grid>
+                                        <Grid Margin="2,10,4,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="110" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="扩展名" Style="{StaticResource Hint}" />
+                                            <TextBlock Grid.Column="1" Text="文件数量" Style="{StaticResource Hint}"
+                                                       TextAlignment="Right" />
+                                        </Grid>
+                                        <StackPanel x:Name="IndexStatsRows" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
 

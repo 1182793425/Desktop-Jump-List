@@ -15,6 +15,8 @@ namespace DesktopJumpList.Views;
 public partial class AdvancedSettingsPanel : UserControl
 {
     private Window? _owner;
+    private bool _statsDescending = true;
+    private string? _indexStatsSignature;
 
     public AdvancedSettingsPanel()
     {
@@ -396,6 +398,7 @@ public partial class AdvancedSettingsPanel : UserControl
 
     private void UpdateFileStatus()
     {
+        UpdateIndexStats();
         if (!App.Current.Settings.FileSearchEnabled)
         {
             FileIndexStatus.Text = "已关闭：输入 /s 也不会检索本地文件";
@@ -416,6 +419,80 @@ public partial class AdvancedSettingsPanel : UserControl
                 : index.Count == 0
                     ? "尚未建立索引，输入 /s 时才会开始" + cap
                     : $"已索引 {index.Count} 项 · 缓存约 {memory} · 更新于 {index.LastBuilt:HH:mm}" + cap;
+    }
+
+    private void UpdateIndexStats()
+    {
+        if (IndexStatsRows is null) return;
+        var index = App.Current.Files;
+        var stats = index.GetExtensionStats();
+        var lastBuilt = index.LastBuilt;
+        var signature = $"{lastBuilt.Ticks}:{index.IsBuilding}:{_statsDescending}:" +
+                        string.Join(";", stats.Select(item => $"{item.Extension}={item.Count}"));
+        if (signature == _indexStatsSignature) return;
+        _indexStatsSignature = signature;
+
+        IndexStatsStatus.Text = lastBuilt == DateTime.MinValue
+            ? "索引尚未完成重建"
+            : index.IsBuilding
+                ? $"正在重建 · 下方显示上次完成的数据（{lastBuilt:yyyy-MM-dd HH:mm}）"
+                : $"上次重建：{lastBuilt:yyyy-MM-dd HH:mm}";
+
+        StatsAscButton.Background = (Brush)FindResource(_statsDescending ? "HoverBrush" : "SelectedBrush");
+        StatsDescButton.Background = (Brush)FindResource(_statsDescending ? "SelectedBrush" : "HoverBrush");
+        IndexStatsRows.Children.Clear();
+
+        var ordered = _statsDescending
+            ? stats.OrderByDescending(item => item.Count).ThenBy(item => item.Extension, StringComparer.OrdinalIgnoreCase)
+            : stats.OrderBy(item => item.Count).ThenBy(item => item.Extension, StringComparer.OrdinalIgnoreCase);
+        foreach (var (extension, count) in ordered)
+        {
+            var row = new Grid { Margin = new Thickness(2, 3, 4, 3), MinHeight = 22 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            row.Children.Add(new TextBlock
+            {
+                Text = extension,
+                Style = (Style)Resources["RowLabel"],
+                FontSize = 11.5
+            });
+            var value = new TextBlock
+            {
+                Text = count.ToString("N0"),
+                Style = (Style)Resources["RowLabel"],
+                FontSize = 11.5,
+                TextAlignment = TextAlignment.Right
+            };
+            Grid.SetColumn(value, 1);
+            row.Children.Add(value);
+            IndexStatsRows.Children.Add(row);
+        }
+
+        if (stats.Count == 0)
+        {
+            IndexStatsRows.Children.Add(new TextBlock
+            {
+                Text = lastBuilt == DateTime.MinValue ? "完成首次索引后，这里会显示扩展名和文件数量。" : "上次索引没有可统计扩展名的文件。",
+                Style = (Style)Resources["Hint"],
+                Margin = new Thickness(2, 6, 2, 4)
+            });
+        }
+    }
+
+    private void OnSortStatsAscending(object sender, RoutedEventArgs e)
+    {
+        if (!_statsDescending) return;
+        _statsDescending = false;
+        _indexStatsSignature = null;
+        UpdateIndexStats();
+    }
+
+    private void OnSortStatsDescending(object sender, RoutedEventArgs e)
+    {
+        if (_statsDescending) return;
+        _statsDescending = true;
+        _indexStatsSignature = null;
+        UpdateIndexStats();
     }
 
     private static string FormatBytes(long bytes) => bytes switch

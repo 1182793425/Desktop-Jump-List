@@ -26,6 +26,7 @@ public sealed class FileIndex
 
     private readonly object _gate = new();
     private List<FileEntry> _entries = new();
+    private List<(string Extension, int Count)> _extensionStats = new();
     private CancellationTokenSource? _cancellation;
 
     public int Count
@@ -104,9 +105,11 @@ public sealed class FileIndex
             var cancelled = token.IsCancellationRequested;
             if (!cancelled)
             {
+                var extensionStats = BuildExtensionStats(found, extensionFilter);
                 lock (_gate)
                 {
                     _entries = found;
+                    _extensionStats = extensionStats;
                     LastBuilt = DateTime.Now;
                 }
             }
@@ -138,6 +141,33 @@ public sealed class FileIndex
                 return bytes;
             }
         }
+    }
+
+    /// <summary>Per-extension file counts from the last successfully completed index build.</summary>
+    public List<(string Extension, int Count)> GetExtensionStats()
+    {
+        lock (_gate) return _extensionStats.ToList();
+    }
+
+    private static List<(string Extension, int Count)> BuildExtensionStats(
+        List<FileEntry> entries, HashSet<string>? extensionFilter)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+        {
+            if (entry.IsDirectory || IsAppEntry(entry)) continue;
+            var extension = Path.GetExtension(entry.Path);
+            if (extension.Length == 0) continue;
+            counts[extension] = counts.GetValueOrDefault(extension) + 1;
+        }
+
+        IEnumerable<string> extensions = extensionFilter is { Count: > 0 }
+            ? extensionFilter
+            : counts.Keys;
+        return extensions
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(extension => (extension, counts.GetValueOrDefault(extension)))
+            .ToList();
     }
 
     /// <summary>Expands %VARS%, normalizes separators and trims trailing separators.</summary>
