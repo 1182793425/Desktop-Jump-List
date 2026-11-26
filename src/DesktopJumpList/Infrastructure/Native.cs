@@ -64,6 +64,16 @@ internal static class Native
     [DllImport("psapi.dll")]
     public static extern bool EmptyWorkingSet(IntPtr hProcess);
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetLastInputInfo")]
+    public static extern bool TryGetLastInputInfo(ref LASTINPUTINFO info);
+
     /// <summary>System DPI, for choosing an icon bitmap size instead of always asking for 256 px.</summary>
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
@@ -143,5 +153,25 @@ internal static class Native
         ex &= ~WS_EX_TOOLWINDOW;
         ex |= WS_EX_NOACTIVATE;
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex));
+    }
+}
+
+/// <summary>
+/// How long the user has been away from keyboard and mouse. The live index uses it to decide
+/// between "poll slowly, never rebuild" and "catch up now".
+/// </summary>
+internal static class IdleDetector
+{
+    public static int SecondsSinceInput()
+    {
+        try
+        {
+            var info = new Native.LASTINPUTINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.LASTINPUTINFO>() };
+            if (!Native.TryGetLastInputInfo(ref info)) return 0;
+            // TickCount wraps after ~49 days; unsigned subtraction keeps the delta correct.
+            var idle = unchecked((uint)Environment.TickCount - info.dwTime);
+            return idle > int.MaxValue ? int.MaxValue : (int)(idle / 1000);
+        }
+        catch { return 0; }
     }
 }

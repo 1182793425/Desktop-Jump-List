@@ -168,11 +168,31 @@
                             <StackPanel>
                                 <Grid>
                                     <TextBlock Text="启用" Style="{StaticResource RowLabel}" />
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                VerticalAlignment="Center">
                                         <TextBlock Style="{StaticResource InfoDot}"
-                                                   ToolTip="开启后可在搜索框用 /s 关键词 检索本地文件与已安装应用；普通搜索不查本地、不建索引。首次输入 /s 时后台建立索引；以后可点搜索框右侧刷新图标或按 Ctrl+Enter 重建。默认索引桌面、文档、图片、下载、开始菜单及固定磁盘的浅层目录；要检索更深的其他目录，请在下方添加索引文件夹。" />
+                                                   ToolTip="开启后可在搜索框用 /s 关键词 检索本地文件与已安装应用。索引不会自动建立：点这里的 ⟳ 或搜索框右侧的 ⟳（Ctrl+Enter）手动重建。默认索引桌面、文档、图片、下载、开始菜单及固定磁盘的浅层目录；要检索更深的其他目录，请在下方添加索引文件夹。" />
+                                        <!-- Manual rebuild, immediately left of the enable switch. -->
+                                        <Button x:Name="SettingsRebuildButton" Style="{StaticResource LinkButton}"
+                                                Margin="8,0,2,0" Padding="5,3" VerticalAlignment="Center"
+                                                ToolTip="手动重建本地索引" Click="OnSettingsRebuildIndex">
+                                            <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                                       VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        </Button>
                                         <CheckBox x:Name="FileSearchSwitch" Style="{StaticResource Switch}"
-                                                  Margin="10,0,0,0" Click="OnFileSearchToggled" />
+                                                  VerticalAlignment="Center" Click="OnFileSearchToggled" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,10,0,0">
+                                    <TextBlock Text="普通搜索也检索本地文件" Style="{StaticResource RowLabel}" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Style="{StaticResource InfoDot}"
+                                                   ToolTip="开启后不用输入 /s：普通搜索结果先显示面板内的快捷项，下面用一条分割线隔开，再显示本地文件的命中项。索引仍需手动重建，不会因为输入而自动开始。" />
+                                        <CheckBox x:Name="PlainFileSearchSwitch" Style="{StaticResource Switch}"
+                                                  Margin="10,0,0,0" VerticalAlignment="Center"
+                                                  Click="OnPlainFileSearchToggled" />
                                     </StackPanel>
                                 </Grid>
 
@@ -223,13 +243,20 @@
                                         <Grid Margin="2,10,4,4">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="110" />
+                                                <ColumnDefinition Width="84" />
+                                                <ColumnDefinition Width="26" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="扩展名" Style="{StaticResource Hint}" />
                                             <TextBlock Grid.Column="1" Text="文件数量" Style="{StaticResource Hint}"
                                                        TextAlignment="Right" />
                                         </Grid>
-                                        <StackPanel x:Name="IndexStatsRows" />
+                                        <!-- Bounded height: the list fills the detail pane and scrolls
+                                             inside it instead of stretching the whole settings page. -->
+                                        <ScrollViewer x:Name="IndexStatsScroller" MaxHeight="320" Focusable="False"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="IndexStatsRows" />
+                                        </ScrollViewer>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -255,9 +282,11 @@
 
                         <Border x:Name="ExcludeCard" Style="{StaticResource Card}" Margin="0,0,0,10" Visibility="Collapsed">
                             <StackPanel>
-                                <TextBlock Text="排除文件夹（黑名单）" Style="{StaticResource Section}" />
+                                <TextBlock Text="排除文件夹 / 文件名（黑名单）" Style="{StaticResource Section}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
-                                           Text="索引会跳过这些目录及其子目录。可以添加环境变量路径（如 %ALLUSERSPROFILE%），也可以直接选择文件夹；更改后立即重建索引。" />
+                                           Text="条目可以是文件夹路径（支持 %环境变量%，整棵子树都不索引）、文件名（如 thumbs.db，全盘同名项都排除），也可以是通配符，例如 *.bak、~$*、*\cache\*。更改在下次手动重建索引时生效。" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
+                                           Text="始终生效的内置排除：文件名以 ~$ 开头的 Office 临时文件；带「隐藏」或「系统」属性的文件与文件夹（回收站 $I/$R、系统元数据等）。" />
                                 <StackPanel x:Name="ExcludeRows" Margin="0,2,0,0" />
                                 <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
@@ -265,7 +294,7 @@
                                         <ColumnDefinition Width="8" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Button Content="添加变量路径" Style="{StaticResource ActionButton}"
+                                    <Button Content="添加路径 / 通配符" Style="{StaticResource ActionButton}"
                                             Click="OnAddExcludeVariable" />
                                     <Button Grid.Column="2" Content="选择文件夹…" Style="{StaticResource ActionButton}"
                                             Click="OnAddExcludeFolder" />

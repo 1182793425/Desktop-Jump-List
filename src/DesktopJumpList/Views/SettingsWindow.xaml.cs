@@ -369,8 +369,18 @@ public partial class SettingsWindow : Window
         foreach (var button in SettingsNavList.Children.OfType<Button>())
         {
             var selected = string.Equals(button.Tag as string, name, StringComparison.Ordinal);
-            button.Background = selected ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
-            button.Foreground = selected ? (Brush)FindResource("InkBrush") : (Brush)FindResource("InkSubBrush");
+            // Resource references, not resolved brushes: the nav must follow a theme switch the
+            // moment it happens instead of keeping the palette it was painted with.
+            if (selected)
+            {
+                button.SetResourceReference(Control.BackgroundProperty, "SelectedBrush");
+                button.SetResourceReference(Control.ForegroundProperty, "InkBrush");
+            }
+            else
+            {
+                button.ClearValue(Control.BackgroundProperty);
+                button.ClearValue(Control.ForegroundProperty);
+            }
         }
         SettingsScroll.ScrollToTop();
     }

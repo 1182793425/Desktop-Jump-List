@@ -42,7 +42,19 @@ public sealed class ShortcutLibrary
         var added = new List<ShortcutItem>();
         foreach (var c in candidates)
         {
-            if (Items.Any(i => string.Equals(i.Target, c.Target, StringComparison.OrdinalIgnoreCase))) continue;
+            if (Items.Any(i => !i.RecentOnly && string.Equals(i.Target, c.Target, StringComparison.OrdinalIgnoreCase))) continue;
+
+            // A real tile takes over any recent-only placeholder for the same target, so the
+            // recently-used row keeps pointing at one entry instead of two.
+            var placeholder = Items.FirstOrDefault(i => i.RecentOnly
+                && string.Equals(i.Target, c.Target, StringComparison.OrdinalIgnoreCase));
+            if (placeholder is not null)
+            {
+                c.OpenCount = placeholder.OpenCount;
+                c.LastOpenedAt = placeholder.LastOpenedAt;
+                Items.Remove(placeholder);
+            }
+
             Items.Add(c);
             added.Add(c);
         }
@@ -75,13 +87,67 @@ public sealed class ShortcutLibrary
         SaveSoon();
     }
 
+    /// <summary>At most this many recent-only entries are kept; the oldest ones are dropped.</summary>
+    private const int MaxRecentOnly = 40;
+
+    /// <summary>
+    /// Records a one-off launch that is not a panel tile — a file opened from the local index or
+    /// a click on a search-jump row. The entry lives only in the recently-used row: it is
+    /// persisted, but <see cref="Ordered"/> leaves it out of the grid.
+    /// </summary>
+    public ShortcutItem? RecordRecent(string name, string target, ShortcutKind kind)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return null;
+
+        var item = Items.FirstOrDefault(i => i.RecentOnly
+            && string.Equals(i.Target, target, StringComparison.OrdinalIgnoreCase));
+        var isNew = item is null;
+        if (item is null)
+        {
+            item = new ShortcutItem
+            {
+                Name = string.IsNullOrWhiteSpace(name) ? target : name,
+                Target = target,
+                Kind = kind,
+                RecentOnly = true,
+                Icon = IconService.TryGetCached(target)
+            };
+            Items.Add(item);
+        }
+        else if (!string.IsNullOrWhiteSpace(name) && !string.Equals(item.Name, name, StringComparison.Ordinal))
+        {
+            item.Name = name;
+        }
+
+        MarkOpened(item);
+        // Trim after the timestamp lands, otherwise the brand-new entry (no LastOpenedAt yet)
+        // would sort last and be the first one dropped.
+        if (isNew) TrimRecents();
+        // A recently used row can show the real icon once the shell has it; the tile falls back
+        // to a letter until then.
+        if (item.Icon is null && item.NeedsAvailabilityProbe) _ = IconService.LoadAsync(new[] { item });
+        return item;
+    }
+
+    private void TrimRecents()
+    {
+        var stale = Items
+            .Where(i => i.RecentOnly)
+            .OrderByDescending(i => i.LastOpenedAt ?? DateTimeOffset.MinValue)
+            .Skip(MaxRecentOnly)
+            .ToList();
+        foreach (var item in stale) Items.Remove(item);
+    }
+
     /// <summary>
     /// Display order: pinned first, then the collection order. Manual order is authoritative so
     /// dragging tiles in edit mode actually reorders them; new items append at the end.
+    /// Recent-only bookkeeping entries are never tiles.
     /// </summary>
     public List<ShortcutItem> Ordered()
     {
-        return Items.Where(i => i.Pinned).Concat(Items.Where(i => !i.Pinned)).ToList();
+        var tiles = Items.Where(i => !i.RecentOnly);
+        return tiles.Where(i => i.Pinned).Concat(tiles.Where(i => !i.Pinned)).ToList();
     }
 
     /// <summary>Moves an item to just before (or after) another item in the flat order.</summary>

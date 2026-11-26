@@ -111,6 +111,12 @@ public sealed class ShortcutItem : ObservableObject
         set { if (Set(ref _pinned, value)) Raise(nameof(TooltipText)); }
     }
 
+    /// <summary>
+    /// True for entries that only exist to remember a launch (a file found through the index, a
+    /// search-jump click). They feed the recently-used row but never appear as a panel tile.
+    /// </summary>
+    public bool RecentOnly { get; set; }
+
     public int OpenCount
     {
         get => _openCount;
@@ -220,6 +226,7 @@ public sealed class ShortcutItem : ObservableObject
         Kind = Kind,
         Folder = Folder,
         Pinned = Pinned,
+        RecentOnly = RecentOnly,
         OpenCount = OpenCount,
         LastOpenedAt = LastOpenedAt
     };

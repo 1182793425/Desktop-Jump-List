@@ -128,43 +128,55 @@ public sealed class AppSettings
     /// </summary>
     public List<string> FileIndexExtensions { get; set; } = new List<string>
     {
-        // documents
+        // 文档
         ".doc", ".docx", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx", ".pdf",
         ".txt", ".md", ".rtf", ".csv", ".wps", ".ofd",
-        // images
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".psd", ".ai",
-        // video / audio
-        ".mp4", ".avi", ".mkv", ".mov", ".wmv",
-        ".mp3", ".wav", ".flac", ".aac", ".m4a",
-        // archives / installers / app shortcuts
-        ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
-        ".exe", ".msi", ".lnk",
-        // code / config
-        ".py", ".js", ".ts", ".java", ".cs", ".cpp", ".c", ".h", ".go", ".rs",
-        ".html", ".css", ".json", ".xml", ".yaml", ".yml", ".ini", ".cfg",
-        ".bat", ".ps1", ".sql", ".log"
+        // 图片
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
+        // 视频 / 音频
+        ".mp4", ".avi", ".mkv", ".mov",
+        ".mp3", ".wav", ".flac", ".m4a",
+        // 压缩包 / 镜像 / 安装包 / 快捷方式
+        ".zip", ".rar", ".7z", ".iso",
+        ".exe", ".msi", ".lnk"
     };
 
     /// <summary>
-    /// Folder blacklist for the index: nothing under these folders is indexed or walked.
-    /// The default keeps system, cache and log locations out — they never hold files people
-    /// search for and they are the bulk of a full-disk walk. Entries may use environment
-    /// variables; matching is path-prefix based (case-insensitive).
+    /// 文件夹路径黑名单：这些路径（含子目录）下的任何文件都不索引、不遍历。
+    /// 条目可使用环境变量；匹配为不区分大小写的前缀匹配。
+    /// 补充了符号链接别名（All Users）、默认用户模板、安装临时目录，
+    /// 以及所有盘符下的回收站和系统卷信息目录。
     /// </summary>
     public List<string> FileIndexExcludes { get; set; } = new List<string>
     {
+        // 系统与程序目录
         "%SystemRoot%",
         "%ProgramFiles%",
         "%ProgramFiles(x86)%",
         "%ProgramData%",
+        "%ALLUSERSPROFILE%",
         "%LOCALAPPDATA%",
         "%APPDATA%",
         "%TEMP%",
-        @"C:\$Recycle.Bin",
-        @"C:\System Volume Information",
+
+        // 用户目录下的系统别名与模板
+        @"C:\Users\All Users",     // 指向 C:\ProgramData 的符号链接，之前漏网的根源
+        @"C:\Users\Default",       // 系统默认用户模板
+
+        // 系统隐藏 / 安装临时目录
+        @"C:\$WinREAgent",
+        @"C:\Config.Msi",
         @"C:\Recovery",
         @"C:\PerfLogs",
-        @"C:\Windows.old"
+        @"C:\Windows.old",
+
+        // 回收站与系统卷信息（覆盖常见盘符，按需增删）
+        @"C:\$Recycle.Bin",
+        @"D:\$Recycle.Bin",
+        @"E:\$Recycle.Bin",
+        @"C:\System Volume Information",
+        @"D:\System Volume Information",
+        @"E:\System Volume Information"
     };
 
     /// <summary>
@@ -172,6 +184,13 @@ public sealed class AppSettings
     /// strings (~0.4 KB each), so even hundreds of thousands stay in the tens of MB.
     /// </summary>
     public int FileSearchLimit { get; set; } = 0;
+
+    /// <summary>
+    /// When on, a plain query (no "/s") also searches the local index: the panel's own matches
+    /// stay on top, a divider follows, then the local-file hits. The index itself is still
+    /// built only when the user asks for a rebuild.
+    /// </summary>
+    public bool FileSearchOnPlainQuery { get; set; }
 
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
@@ -221,6 +240,7 @@ public sealed class AppSettings
                 kv => new RootLimitSetting { MaxDepth = kv.Value.MaxDepth, MaxEntries = kv.Value.MaxEntries }),
             StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
+        FileSearchOnPlainQuery = FileSearchOnPlainQuery,
         FileIndexExtensions = new List<string>(FileIndexExtensions),
         FileIndexExcludes = new List<string>(FileIndexExcludes),
         RecentCount = RecentCount,

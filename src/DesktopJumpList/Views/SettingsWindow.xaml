@@ -199,13 +199,9 @@
         </Style>
     </Window.Resources>
 
-    <Grid Margin="14">
+    <Grid>
         <Border CornerRadius="24" Background="{DynamicResource PanelOpaqueBrush}"
                 BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270"
-                                  Color="{DynamicResource ShadowColor}" Opacity="{DynamicResource ShadowOpacity}" />
-            </Border.Effect>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -243,11 +239,6 @@
                         <Button Style="{StaticResource SettingsNavButton}" Content="✓   文件类型白名单" Tag="extensions" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="⊘   排除目录黑名单" Tag="excludes" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="↗   搜索跳转" Tag="engines" Click="OnNavigate" />
-                        <Border Margin="8,18,8,0" Padding="12" CornerRadius="12" Background="{DynamicResource CardBrush}"
-                                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
-                            <TextBlock Text="设置会立即保存，并同步应用到面板。" TextWrapping="Wrap" FontSize="11"
-                                       Foreground="{DynamicResource InkFaintBrush}" />
-                        </Border>
                     </StackPanel>
 
                 <ScrollViewer x:Name="SettingsScroll" Grid.Column="1" Margin="4,0,4,0"

@@ -24,7 +24,7 @@ public partial class PathEntryDialog : Window
     {
         if (string.IsNullOrWhiteSpace(EnteredPath))
         {
-            ErrorText.Text = "请输入要排除的环境变量路径或文件夹路径。";
+            ErrorText.Text = "请输入要排除的路径、文件名或通配符，例如 %TEMP%\\Logs、thumbs.db、*.bak。";
             PathBox.Focus();
             return;
         }

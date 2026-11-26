@@ -52,7 +52,6 @@ public partial class LauncherWindow
     /// <summary>"/s" results: matching local files and apps, loaded in scrollable pages.</summary>
     private void RebuildFileSearch(string terms)
     {
-        EnsureFileIndex();
         _fileQueryGeneration++;
         _fileResultQuery = terms;
         _fileResultsLoaded = 0;
@@ -68,6 +67,16 @@ public partial class LauncherWindow
         else if (index.IsBuilding)
         {
             emptyText = "正在重建索引…";
+        }
+        else if (index.LastBuilt == DateTime.MinValue)
+        {
+            // The index is never built on its own: without a manual rebuild there is nothing to
+            // search, so say exactly where the button is.
+            emptyText = "尚未建立索引：点右上角 ⟳ 或按 Ctrl+Enter 手动重建";
+        }
+        else if (index.Count == 0)
+        {
+            emptyText = "索引中没有可搜索的项目，可检查索引目录与白名单后重建";
         }
         else
         {
@@ -166,16 +175,49 @@ public partial class LauncherWindow
             ? string.Empty
             : _fileResultsHasMore ? $"{_fileResultsLoaded}+" : _fileResultsLoaded.ToString();
 
+    /// <summary>
+    /// Called (debounced) when an incremental index update lands, so an open panel showing file
+    /// results keeps up with the disk instead of freezing on the rows it was built with.
+    /// </summary>
+    public void RefreshFileResults()
+    {
+        if (!IsOpen) return;
+        var query = CurrentQuery;
+        if (TryParseFileQuery(query, out _))
+        {
+            Rebuild();
+            return;
+        }
+
+        if (CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery
+            && query.Trim().Length > 0)
+            Rebuild();
+    }
+
     private void UpdateFileSearchChrome()
     {
         if (RebuildIndexButton is null) return;
-        var inFileSearch = TryParseFileQuery(Query.Text, out _);
-        RebuildIndexButton.Visibility = inFileSearch ? Visibility.Visible : Visibility.Collapsed;
-        RebuildIndexButton.IsEnabled = inFileSearch && CurrentSettings.FileSearchEnabled
-            && !App.Current.Files.IsBuilding;
+        var show = LocalFileSurfaceActive;
+        RebuildIndexButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        RebuildIndexButton.IsEnabled = show && !App.Current.Files.IsBuilding;
         RebuildIndexButton.ToolTip = App.Current.Files.IsBuilding
             ? "索引重建中…"
-            : "重建本地索引（Ctrl+Enter）";
+            : "手动重建本地索引（Ctrl+Enter）";
+    }
+
+    /// <summary>
+    /// True when the current query reads the local index: "/s …" always, and a plain query when
+    ///「普通搜索也检索本地文件」is on. Both surfaces offer the same manual rebuild button.
+    /// </summary>
+    private bool LocalFileSurfaceActive
+    {
+        get
+        {
+            var text = CurrentQuery;
+            if (text.Length == 0 || !CurrentSettings.FileSearchEnabled) return false;
+            if (TryParseFileQuery(text, out _)) return true;
+            return !text.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
+        }
     }
 
     private void OnRebuildIndexClick(object sender, RoutedEventArgs e) => RebuildFileIndexNow();
@@ -235,43 +277,44 @@ public partial class LauncherWindow
     private readonly HashSet<string> _iconLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The one place that starts a disk walk automatically. Only "/s" reaches it and only
-    /// when no index exists yet: opening the panel or typing a normal query never builds
-    /// the index, and once built it stays put until the user rebuilds it on purpose.
+    /// Clear visible hits, rebuild the index, then rerun the active query. This is one of the
+    /// only three ways a walk ever starts (the others are Ctrl+Enter and the settings ⟳).
     /// </summary>
-    private void EnsureFileIndex()
-    {
-        var index = App.Current.Files;
-        if (!CurrentSettings.FileSearchEnabled) return;
-        if (index.IsBuilding || index.LastBuilt != DateTime.MinValue) return;
-
-        App.Current.StartFileIndex(RefreshAfterIndexBuild);
-    }
-
-    /// <summary>Clear visible hits, rebuild the index, then rerun the active /s query.</summary>
     private void RebuildFileIndexNow()
     {
         if (!CurrentSettings.FileSearchEnabled || App.Current.Files.IsBuilding) return;
+        // A plain query keeps its current results and refreshes once the walk is done; /s has
+        // nothing useful to show meanwhile, so it swaps to the "rebuilding" line.
+        var keepResults = !TryParseFileQuery(CurrentQuery, out _);
+
         _fileQueryGeneration++;
+        _plainFileGeneration++;
         _fileLoadingMore = false;
         _fileResultsHasMore = false;
         _fileResultsLoaded = 0;
         _lastSlashSignature = null;
         App.Current.StartFileIndex(RefreshAfterIndexBuild);
-        ShowSlashRows(new List<ResultRow>(), "正在重建索引…");
+
+        if (!keepResults)
+        {
+            ShowSlashRows(new List<ResultRow>(), "正在重建索引…");
+            UpdateFileSearchCount();
+        }
         UpdateFileSearchChrome();
-        UpdateFileSearchCount();
     }
 
     private void RefreshAfterIndexBuild()
     {
         // The callback arrives on the worker thread; refresh the list once the user is
-        // still sitting in /s mode so the fresh index answers the current query.
+        // still looking at results that depend on the fresh index.
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!IsOpen) return;
             var q = CurrentQuery;
-            if (q.StartsWith('/') && TryParseFileQuery(q, out _)) Rebuild();
+            if (q.Length == 0) return;
+            var fileMode = q.StartsWith('/') && TryParseFileQuery(q, out _);
+            var plainMode = !q.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
+            if (fileMode || plainMode) Rebuild();
         }));
     }
 

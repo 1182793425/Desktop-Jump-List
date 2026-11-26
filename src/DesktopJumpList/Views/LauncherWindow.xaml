@@ -290,6 +290,21 @@
 
         
 
+        <!-- ===== Divider between panel matches and local-file matches (plain query) ===== -->
+        <DataTemplate DataType="{x:Type local:DividerRow}">
+            <Grid Height="26" Background="Transparent" IsHitTestVisible="False">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Height="1" VerticalAlignment="Center" Background="{DynamicResource PanelBorderBrush}" />
+                <TextBlock Grid.Column="1" Text="{Binding Title}" Margin="10,0" FontSize="10.5"
+                           VerticalAlignment="Center" Foreground="{DynamicResource InkFaintBrush}" />
+                <Border Grid.Column="2" Height="1" VerticalAlignment="Center" Background="{DynamicResource PanelBorderBrush}" />
+            </Grid>
+        </DataTemplate>
+
         <!-- ===== Drop placeholder: the gap that opens where the tile will land ===== -->
         <DataTemplate DataType="{x:Type local:InsertMarker}">
             <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"
@@ -462,12 +477,18 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock x:Name="ResultCount" VerticalAlignment="Center" FontSize="11.5"
                                        Foreground="{DynamicResource InkFaintBrush}" />
-                            <Button x:Name="RebuildIndexButton" Margin="8,0,0,0" Padding="3,0"
-                                    Style="{StaticResource LinkButton}" Content="⟳" FontSize="18"
+                            <!-- MDL2 refresh glyph: an icon-font glyph sits on the text baseline like
+                                 the count beside it, which a unicode "⟳" did not — that one always
+                                 read a few pixels off. -->
+                            <Button x:Name="RebuildIndexButton" Margin="8,0,0,0" Padding="5,3"
+                                    Style="{StaticResource LinkButton}"
                                     VerticalAlignment="Center" Visibility="Collapsed" IsEnabled="False"
                                     ToolTip="重建本地索引（Ctrl+Enter）"
                                     AutomationProperties.Name="重建本地索引"
-                                    Click="OnRebuildIndexClick" />
+                                    Click="OnRebuildIndexClick">
+                                <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            </Button>
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="MessageRow" Margin="16,0,6,0" Opacity="0" IsHitTestVisible="False">

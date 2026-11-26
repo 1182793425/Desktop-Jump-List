@@ -44,9 +44,9 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <TextBlock Text="添加要排除的路径" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Text="添加要排除的路径或通配符" FontSize="16" FontWeight="SemiBold" />
         <TextBlock Grid.Row="1" Margin="0,10,0,12" Foreground="{DynamicResource InkSubBrush}"
-                   Text="输入环境变量或完整路径，例如 %ALLUSERSPROFILE% 或 %TEMP%\Logs。该路径及其子目录不会进入索引。"
+                   Text="输入环境变量路径（%ALLUSERSPROFILE%）、完整文件夹路径、文件名（thumbs.db），或通配符（如 *.bak、~$*、*\cache\*）。命中的路径及其子目录不会进入索引。"
                    TextWrapping="Wrap" />
         <TextBox x:Name="PathBox" Grid.Row="2" MinHeight="38" Padding="10,7"
                  VerticalContentAlignment="Center" FontSize="13"

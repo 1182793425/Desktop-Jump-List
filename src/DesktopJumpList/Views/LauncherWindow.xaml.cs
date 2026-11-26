@@ -67,6 +67,16 @@ public sealed class MoreRecentTile
 }
 
 /// <summary>
+/// Divider between the panel's own matches and the local-file hits of a plain query. It is a
+/// list item so it scrolls with the results, but it can never be selected or clicked.
+/// </summary>
+public sealed class DividerRow
+{
+    public DividerRow(string title) => Title = title;
+    public string Title { get; }
+}
+
+/// <summary>
 /// The centred panel. Nothing but your shortcuts: a grid of tiles, type-to-filter, click to open.
 /// The search pill only exists while you are typing (or for a brief message).
 /// </summary>
@@ -488,6 +498,52 @@ public partial class LauncherWindow : Window
 
         if (q.Length > 0) Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
         else Tiles.SelectedIndex = -1;
+
+        // Plain query with「普通搜索也检索本地文件」on: the index hits land below a divider, so
+        // the panel's own matches always keep the top of the list.
+        if (q.Length > 0) StartPlainFileResults(q);
+        else _plainFileGeneration++; // leaving the query drops any pending file search
+    }
+
+    /// <summary>How many local-file rows a plain query may append under its divider.</summary>
+    private const int PlainFileResultLimit = 20;
+
+    private int _plainFileGeneration;
+
+    /// <summary>
+    /// Appends local-file hits to a plain query. Runs off the UI thread (the index search walks
+    /// every entry) and bails out if the query changed while it was running.
+    /// </summary>
+    private async void StartPlainFileResults(string query)
+    {
+        var generation = ++_plainFileGeneration;
+        if (!CurrentSettings.FileSearchEnabled || !CurrentSettings.FileSearchOnPlainQuery) return;
+
+        var index = App.Current.Files;
+        if (index.IsBuilding || index.Count == 0) return;
+
+        List<FileEntry> matches;
+        try { matches = await Task.Run(() => index.Search(query, PlainFileResultLimit)); }
+        catch { return; }
+
+        if (generation != _plainFileGeneration || !IsOpen) return;
+        if (!string.Equals(CurrentQuery, query, StringComparison.Ordinal)) return;
+        if (matches.Count == 0) return;
+
+        var rows = matches.Select(BuildFileRow).ToList();
+        _tiles.Add(new DividerRow("本地文件"));
+        foreach (var row in rows) _tiles.Add(row);
+        // The appended rows are not part of the signature, so the next rebuild must resync.
+        _lastResultSignature = null;
+
+        NoMatch.Visibility = Visibility.Collapsed;
+        if (Tiles.SelectedIndex < 0 || _tiles[Tiles.SelectedIndex] is DividerRow)
+            Tiles.SelectedIndex = _tiles.IndexOf(rows[0]);
+        ResultCount.Text = _tiles.Count(item => item is not DividerRow).ToString();
+
+        ApplyPanelHeightNow();
+        EnsureWindowFits();
+        QueueDeferredIconLoad(rows);
     }
 
     /// <summary>Identity of a result set: reference hashes of the items, in order.</summary>
@@ -831,7 +887,21 @@ public partial class LauncherWindow : Window
     private void OpenFoundFile(FileEntry file)
     {
         if (ShellLauncher.OpenPath(file.Path) is { } error) { ShowMessage(error); return; }
+        RecordFileUse(file);
         Close(animated: true);
+    }
+
+    /// <summary>
+    /// Every file opened from the index joins the recently-used row. The entry is recent-only:
+    /// it is remembered and re-launchable, but it never becomes a panel tile.
+    /// </summary>
+    private void RecordFileUse(FileEntry file)
+    {
+        if (FileIndex.IsAppEntry(file))
+            _library.RecordRecent(file.Name, FileIndex.AppAumId(file), ShortcutKind.AppX);
+        else
+            _library.RecordRecent(file.Name, file.Path,
+                file.IsDirectory ? ShortcutKind.Folder : ShortcutKind.File);
     }
 
     private void OpenSearch(SearchResultTile search)
@@ -841,6 +911,8 @@ public partial class LauncherWindow : Window
             ShowMessage(error);
             return;
         }
+        // Search-jump clicks are recorded too, named after the engine and the query.
+        _library.RecordRecent($"{search.Name}：{search.Query}", search.Url, ShortcutKind.Url);
         Close(animated: true);
     }
 
@@ -963,7 +1035,7 @@ public partial class LauncherWindow : Window
         if (_modalDepth > 0) return;
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
 
-        if (ctrl && e.Key == Key.Enter && TryParseFileQuery(Query.Text, out _))
+        if (ctrl && e.Key == Key.Enter && LocalFileSurfaceActive)
         {
             RebuildFileIndexNow();
             e.Handled = true;
@@ -1040,19 +1112,25 @@ public partial class LauncherWindow : Window
 
     private void MoveSelection(int delta, bool wrap)
     {
-        if (_tiles.Count == 0 || delta == 0) return;
-        var count = _tiles.Count;
-        var current = Tiles.SelectedIndex;
+        // A divider is not selectable, so navigation walks the selectable rows only.
+        var selectable = new List<int>(_tiles.Count);
+        for (var i = 0; i < _tiles.Count; i++)
+            if (_tiles[i] is not DividerRow) selectable.Add(i);
+        if (selectable.Count == 0 || delta == 0) return;
 
-        int next;
-        if (current < 0) next = delta > 0 ? 0 : count - 1;
+        var current = selectable.IndexOf(Tiles.SelectedIndex);
+        int position;
+        if (current < 0) position = delta > 0 ? 0 : selectable.Count - 1;
         else
         {
-            next = current + delta;
-            next = wrap ? ((next % count) + count) % count : Math.Clamp(next, 0, count - 1);
+            position = current + delta;
+            position = wrap
+                ? ((position % selectable.Count) + selectable.Count) % selectable.Count
+                : Math.Clamp(position, 0, selectable.Count - 1);
         }
 
-        if (next == current) return; // already at the end: stay there instead of jumping around
+        if (position == current) return; // already at the end: stay there instead of jumping around
+        var next = selectable[position];
         Tiles.SelectedIndex = next;
         if (Tiles.ItemContainerGenerator.ContainerFromIndex(next) is FrameworkElement c) c.BringIntoView();
     }
@@ -1077,7 +1155,7 @@ public partial class LauncherWindow : Window
     private void ShowFileMenu(FileEntry file)
     {
         var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
-        menu.Items.Add(Item("打开", () => { ShellLauncher.OpenPath(file.Path); Close(animated: true); }, "Enter"));
+        menu.Items.Add(Item("打开", () => OpenFoundFile(file), "Enter"));
 
         // Packaged apps have no filesystem location: revealing or copying their shell: path
         // would only produce an error, so their menu stops at "打开".
@@ -1427,11 +1505,12 @@ public partial class LauncherWindow : Window
 
     private void OnLibraryChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (!IsOpen) return;
+        if (!IsOpen || _closing) return;
         // New items join at the end of the current order instead of reshuffling what you see.
         var current = new HashSet<ShortcutItem>(_library.Items);
         var kept = _ordered.Where(current.Contains).ToList();
-        foreach (var i in _library.Items) if (!kept.Contains(i)) kept.Add(i);
+        // Recent-only bookkeeping entries live in the recent row, never in the tile grid.
+        foreach (var i in _library.Items) if (!i.RecentOnly && !kept.Contains(i)) kept.Add(i);
         // Keep pinned first.
         _ordered = kept.Where(i => i.Pinned).Concat(kept.Where(i => !i.Pinned)).ToList();
         Rebuild();

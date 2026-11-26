@@ -30,7 +30,10 @@ public partial class AdvancedSettingsPanel : UserControl
             {
                 _owner = owner;
                 owner.Closed += (_, _) => _statusTimer?.Stop();
+                // The settings window can grow to fit its content; the list fills what is left.
+                owner.SizeChanged += (_, _) => UpdateStatsHeight();
             }
+            UpdateStatsHeight();
         };
     }
 
@@ -64,6 +67,7 @@ public partial class AdvancedSettingsPanel : UserControl
     private void WireFileSearch()
     {
         FileSearchSwitch.IsChecked = App.Current.Settings.FileSearchEnabled;
+        PlainFileSearchSwitch.IsChecked = App.Current.Settings.FileSearchOnPlainQuery;
         FileLimitBox.Text = App.Current.Settings.FileSearchLimit.ToString();
         FileLimitBox.LostFocus += (_, _) => CommitFileLimit();
         FileLimitBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitFileLimit(); };
@@ -230,11 +234,12 @@ public partial class AdvancedSettingsPanel : UserControl
             Padding = new Thickness(2, 2, 2, 2),
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Background = (Brush)FindResource("HoverBrush"),
-            Foreground = (Brush)FindResource("InkBrush"),
-            BorderBrush = (Brush)FindResource("CardBorderBrush"),
             ToolTip = tooltip + "（改动在下次重建索引时生效）"
         };
+        // Resource references, not resolved brushes: the box must follow a theme switch live.
+        box.SetResourceReference(Control.BackgroundProperty, "HoverBrush");
+        box.SetResourceReference(Control.ForegroundProperty, "InkBrush");
+        box.SetResourceReference(Control.BorderBrushProperty, "CardBorderBrush");
         box.LostFocus += (_, _) => CommitRootLimits(box);
         box.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitRootLimits(box); };
         return box;
@@ -366,6 +371,20 @@ public partial class AdvancedSettingsPanel : UserControl
         UpdateFileStatus();
     }
 
+    private void OnPlainFileSearchToggled(object sender, RoutedEventArgs e)
+    {
+        App.Current.SetFileSearchOnPlainQuery(PlainFileSearchSwitch.IsChecked == true);
+        UpdateFileStatus();
+    }
+
+    /// <summary>The settings-side manual rebuild: same entry point as the search pill's ⟳.</summary>
+    private void OnSettingsRebuildIndex(object sender, RoutedEventArgs e)
+    {
+        _indexStatsSignature = null;
+        App.Current.RebuildFileIndex();
+        UpdateFileStatus();
+    }
+
     private void OnRemoveRoot(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string root }) return;
@@ -399,6 +418,13 @@ public partial class AdvancedSettingsPanel : UserControl
     private void UpdateFileStatus()
     {
         UpdateIndexStats();
+        var index = App.Current.Files;
+        if (SettingsRebuildButton is not null)
+        {
+            SettingsRebuildButton.IsEnabled = App.Current.Settings.FileSearchEnabled && !index.IsBuilding;
+            SettingsRebuildButton.ToolTip = index.IsBuilding ? "索引重建中…" : "手动重建本地索引";
+        }
+
         if (!App.Current.Settings.FileSearchEnabled)
         {
             FileIndexStatus.Text = "已关闭：输入 /s 也不会检索本地文件";
@@ -407,18 +433,21 @@ public partial class AdvancedSettingsPanel : UserControl
         }
 
         AddRootButton.IsEnabled = true;
-        var index = App.Current.Files;
         var cap = App.Current.Settings.FileSearchLimit > 0
             ? $" · 总上限 {App.Current.Settings.FileSearchLimit:N0} 条"
             : "";
         var memory = FormatBytes(index.MemoryBytes);
+        var sync = App.Current.FileSync;
+        var live = sync is { IsLive: true, SourceLabel: var label } ? $" · 实时同步（{label}）" : "";
         FileIndexStatus.Text = index.IsBuilding
             ? $"正在索引…（已有 {index.Count} 项，缓存约 {memory}）"
             : EffectiveRoots().Count == 0
                 ? "索引目录为空：/s 仍可搜到已安装应用"
-                : index.Count == 0
-                    ? "尚未建立索引，输入 /s 时才会开始" + cap
-                    : $"已索引 {index.Count} 项 · 缓存约 {memory} · 更新于 {index.LastBuilt:HH:mm}" + cap;
+                : index.LastBuilt == DateTime.MinValue
+                    ? (index.LastLoadError == "rules"
+                        ? "筛选规则已更新：请点上方或搜索框右侧的 ⟳ 手动重建"
+                        : "尚未建立索引：点上方或搜索框右侧的 ⟳ 手动重建") + cap
+                    : $"已索引 {index.Count} 项 · 缓存约 {memory}{live} · 更新于 {index.LastBuilt:HH:mm}" + cap;
     }
 
     private void UpdateIndexStats()
@@ -438,8 +467,10 @@ public partial class AdvancedSettingsPanel : UserControl
                 ? $"正在重建 · 下方显示上次完成的数据（{lastBuilt:yyyy-MM-dd HH:mm}）"
                 : $"上次重建：{lastBuilt:yyyy-MM-dd HH:mm}";
 
-        StatsAscButton.Background = (Brush)FindResource(_statsDescending ? "HoverBrush" : "SelectedBrush");
-        StatsDescButton.Background = (Brush)FindResource(_statsDescending ? "SelectedBrush" : "HoverBrush");
+        StatsAscButton.SetResourceReference(Control.BackgroundProperty,
+            _statsDescending ? "HoverBrush" : "SelectedBrush");
+        StatsDescButton.SetResourceReference(Control.BackgroundProperty,
+            _statsDescending ? "SelectedBrush" : "HoverBrush");
         IndexStatsRows.Children.Clear();
 
         var ordered = _statsDescending
@@ -447,9 +478,10 @@ public partial class AdvancedSettingsPanel : UserControl
             : stats.OrderBy(item => item.Count).ThenBy(item => item.Extension, StringComparer.OrdinalIgnoreCase);
         foreach (var (extension, count) in ordered)
         {
-            var row = new Grid { Margin = new Thickness(2, 3, 4, 3), MinHeight = 22 };
+            var row = new Grid { Margin = new Thickness(2, 3, 2, 3), MinHeight = 22 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             row.Children.Add(new TextBlock
             {
                 Text = extension,
@@ -465,6 +497,24 @@ public partial class AdvancedSettingsPanel : UserControl
             };
             Grid.SetColumn(value, 1);
             row.Children.Add(value);
+
+            // Deleting a row drops its files from the index and the extension from the whitelist.
+            var remove = new Button
+            {
+                Content = "✕",
+                Style = (Style)Resources["LinkButton"],
+                FontSize = 11,
+                Padding = new Thickness(4, 0, 4, 0),
+                Margin = new Thickness(2, 0, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = extension,
+                ToolTip = $"从索引和白名单中删除 {extension}"
+            };
+            remove.Click += OnRemoveIndexExtension;
+            Grid.SetColumn(remove, 2);
+            row.Children.Add(remove);
+
             IndexStatsRows.Children.Add(row);
         }
 
@@ -485,6 +535,21 @@ public partial class AdvancedSettingsPanel : UserControl
         _statsDescending = false;
         _indexStatsSignature = null;
         UpdateIndexStats();
+    }
+
+    /// <summary>
+    /// Per-row delete: the extension leaves the in-memory index right away and is dropped from
+    /// the whitelist, so a later rebuild cannot bring those files back.
+    /// </summary>
+    private void OnRemoveIndexExtension(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string extension }) return;
+
+        App.Current.RemoveIndexedExtension(extension);
+        // Keep the whitelist editor (another module of this panel) in sync.
+        FileExtBox.Text = string.Join(Environment.NewLine, App.Current.Settings.FileIndexExtensions);
+        _indexStatsSignature = null;
+        UpdateFileStatus();
     }
 
     private void OnSortStatsDescending(object sender, RoutedEventArgs e)
@@ -509,6 +574,47 @@ public partial class AdvancedSettingsPanel : UserControl
         FileExtCard.Visibility = module == "extensions" ? Visibility.Visible : Visibility.Collapsed;
         ExcludeCard.Visibility = module == "excludes" ? Visibility.Visible : Visibility.Collapsed;
         EngineCard.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
+        if (module == "files")
+            Dispatcher.BeginInvoke(new Action(UpdateStatsHeight),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// The index-data list takes whatever room is left in the settings pane and scrolls inside
+    /// itself: its height is measured from the outer scroll viewport minus the rows above it, so
+    /// the page itself does not grow a second scrollbar.
+    /// </summary>
+    private void UpdateStatsHeight()
+    {
+        if (IndexStatsScroller is null) return;
+
+        var scroll = FindAncestor<ScrollViewer>(this);
+        if (scroll?.Content is not UIElement content || scroll.ViewportHeight <= 0) return;
+
+        try
+        {
+            var top = IndexStatsScroller.TransformToAncestor(content).Transform(new Point(0, 0)).Y;
+            // Everything below the list (card padding, card/stack margins) is derived from the
+            // current extent, so the list can fill exactly the rest of the pane — one pixel more
+            // and the page itself would grow a second scrollbar.
+            var box = IndexStatsScroller.ActualHeight > 0
+                ? IndexStatsScroller.ActualHeight
+                : IndexStatsScroller.MaxHeight;
+            var chrome = Math.Max(0, scroll.ExtentHeight - top - box);
+            var available = scroll.ViewportHeight - top - chrome - 8;
+            IndexStatsScroller.MaxHeight = Math.Max(140, available);
+        }
+        catch
+        {
+            // Not in the visual tree yet (or mid-layout): keep the XAML default.
+        }
+    }
+
+    private static T? FindAncestor<T>(DependencyObject node) where T : DependencyObject
+    {
+        for (var d = VisualTreeHelper.GetParent(node); d is not null; d = VisualTreeHelper.GetParent(d))
+            if (d is T match) return match;
+        return null;
     }
 
     private void BuildEngineRows()
@@ -523,23 +629,25 @@ public partial class AdvancedSettingsPanel : UserControl
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 7, 12, 7) };
-            details.Children.Add(new TextBlock
+            var title = new TextBlock
             {
                 Text = rule.Name,
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = (Brush)FindResource("InkBrush"),
                 TextTrimming = TextTrimming.CharacterEllipsis
-            });
-            details.Children.Add(new TextBlock
+            };
+            title.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+            details.Children.Add(title);
+            var template = new TextBlock
             {
                 Text = rule.UrlTemplate,
                 FontSize = 10.5,
                 Margin = new Thickness(0, 3, 0, 0),
-                Foreground = (Brush)FindResource("InkFaintBrush"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 ToolTip = rule.UrlTemplate
-            });
+            };
+            template.SetResourceReference(TextBlock.ForegroundProperty, "InkFaintBrush");
+            details.Children.Add(template);
             row.Children.Add(details);
 
             var actions = new StackPanel
@@ -596,12 +704,11 @@ public partial class AdvancedSettingsPanel : UserControl
 
             EngineRows.Children.Add(row);
             if (index < rules.Count - 1)
-                EngineRows.Children.Add(new Border
-                {
-                    Height = 1,
-                    Margin = new Thickness(8, 0, 8, 0),
-                    Background = (Brush)FindResource("CardBorderBrush")
-                });
+            {
+                var separator = new Border { Height = 1, Margin = new Thickness(8, 0, 8, 0) };
+                separator.SetResourceReference(Border.BackgroundProperty, "CardBorderBrush");
+                EngineRows.Children.Add(separator);
+            }
         }
         if (rules.Count == 0)
         {

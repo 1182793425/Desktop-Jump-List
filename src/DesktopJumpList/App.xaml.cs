@@ -38,6 +38,27 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--usn-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            UsnSelfTest.Run(e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview"));
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length > 0 && e.Args[0].Equals("--index-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            IndexSelfTest.Run(e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview"));
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length > 0 && e.Args[0].Equals("--rebuild-index", StringComparison.OrdinalIgnoreCase))
+        {
+            RunRebuildIndex(e.Args.Length > 1 ? e.Args[1] : null);
+            Shutdown();
+            return;
+        }
+
         // Single instance: a second launch just pops the existing panel open.
         _mutex = new Mutex(true, InstanceName, out var isFirst);
         if (!isFirst)
@@ -106,8 +127,29 @@ public partial class App : Application
 
         _ = IconService.LoadAsync(Library.Items);
         Dispatcher.BeginInvoke(ScheduleIdleTrim, DispatcherPriority.ApplicationIdle);
-        // No disk walk at startup: the file index is built on demand, the first time the
-        // launcher enters "/s" mode (see LauncherWindow.EnsureFileIndex).
+
+        // The persisted index answers instantly at startup; nothing is walked here. Only if it
+        // is missing (first run, or another rule set) does an explicit rebuild create it.
+        Files = new FileIndex(Storage.Directory);
+        Files.Changed += OnFileIndexChanged;
+        FileSync = new FileIndexSync(Files, BuildIndexRules, () => Settings.FileSearchEnabled);
+        var rules = BuildIndexRules();
+        Task.Run(() =>
+        {
+            var loaded = false;
+            try { loaded = Files.Load(rules); }
+            catch (Exception ex) { Log(ex); }
+
+            if (loaded && !IsShuttingDown)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (!IsShuttingDown && Launcher.IsOpen) Launcher.RefreshFileResults();
+                }, DispatcherPriority.Background);
+            }
+
+            FileSync.Start();
+        });
 
         if (!Settings.FirstRunDone)
         {
@@ -140,7 +182,10 @@ public partial class App : Application
     }
 
     /// <summary>In-memory index of the user's folders, used by the search results.</summary>
-    public FileIndex Files { get; } = new();
+    public FileIndex Files { get; private set; } = new();
+
+    /// <summary>Keeps <see cref="Files"/> current through the USN journal or directory watchers.</summary>
+    public FileIndexSync FileSync { get; private set; } = null!;
 
     private SettingsWindow? _settingsWindow;
 
@@ -170,28 +215,59 @@ public partial class App : Application
         _settingsWindow.Activate();
     }
 
-    /// <summary>Called by the launcher once it has fully faded out.</summary>
     /// <summary>
-    /// Builds the file index in the background (no-op when the feature is off). Only "/s"
-    /// triggers this; onDone lets the launcher refresh its results when the walk finishes.
+    /// Builds the file index in the background — the only way a full walk ever starts. Every
+    /// caller is a manual gesture (the search pill's ⟳, Ctrl+Enter, the settings ⟳); live
+    /// updates afterwards are incremental and never re-walk the disk.
     /// </summary>
     public void StartFileIndex(Action? onDone = null)
     {
         if (!Settings.FileSearchEnabled) return;
+        Files.Start(BuildIndexRules(), onDone);
+    }
+
+    /// <summary>The filter rules the index must honour right now (roots, extensions, blacklist).</summary>
+    public IndexRules BuildIndexRules()
+    {
         var roots = Settings.FileSearchRootsCustomized
             ? Settings.FileSearchRoots
             : FileIndex.DefaultRoots();
-        Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits,
-            Settings.FileIndexExtensions, Settings.FileIndexExcludes, onDone,
-            discoverDriveRoots: !Settings.FileSearchRootsCustomized);
+        return new IndexRules(roots, Settings.FileRootLimits, Settings.FileIndexExtensions,
+            Settings.FileIndexExcludes, Settings.FileSearchLimit, !Settings.FileSearchRootsCustomized);
+    }
+
+    /// <summary>
+    /// The rules changed, so the stored rows were filtered by an older rule set. They stay
+    /// searchable, but a rebuild is scheduled for the next idle moment instead of blocking now.
+    /// </summary>
+    private void MarkIndexRulesChanged()
+    {
+        Files.MarkStale();
+        FileSync?.RequestRebuild();
+    }
+
+    /// <summary>Manual rebuild; returns false when the feature is off or a walk is already running.</summary>
+    public bool RebuildFileIndex(Action? onDone = null)
+    {
+        if (!Settings.FileSearchEnabled || Files.IsBuilding) return false;
+        StartFileIndex(onDone);
+        return true;
     }
 
     public void SetFileSearchEnabled(bool enabled)
     {
         Settings.FileSearchEnabled = enabled;
         SaveSettings();
-        // Toggling the switch must not start a disk walk: the index is built on demand,
-        // the first time the user actually types "/s".
+        // Toggling the switch must not start a disk walk: the index is only built by the
+        // explicit rebuild button. It does start or stop the live sync.
+        FileSync?.Nudge();
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
+    public void SetFileSearchOnPlainQuery(bool enabled)
+    {
+        Settings.FileSearchOnPlainQuery = enabled;
+        SaveSettings();
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
@@ -201,31 +277,31 @@ public partial class App : Application
         // The list is now user-owned: empty means "index nothing", never "fall back to defaults".
         Settings.FileSearchRootsCustomized = true;
         SaveSettings();
-        // Keep an already-built index in sync with the new roots. If it has never been built,
-        // stay idle until "/s" needs it.
-        if (Files.LastBuilt != DateTime.MinValue) StartFileIndex();
+        // No blocking walk here: the rows on screen keep answering until an idle rebuild
+        // re-filters them, and the watchers are rebound to the new root list.
+        MarkIndexRulesChanged();
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
-    /// <summary>Applies immediately to an existing index; otherwise on the next build.</summary>
+    /// <summary>Entry cap for the index; takes effect on the next rebuild.</summary>
     public void SetFileSearchLimit(int limit)
     {
         Settings.FileSearchLimit = Math.Max(0, limit);
         SaveSettings();
-        RebuildFileIndexIfBuilt();
+        MarkIndexRulesChanged();
     }
 
-    /// <summary>Per-folder caps (0 = unlimited); rebuilds an existing index so the change lands.</summary>
+    /// <summary>Per-folder caps (0 = unlimited); they take effect on the next rebuild.</summary>
     public void SetFileRootLimit(string root, int maxDepth, int maxEntries)
     {
         Settings.FileRootLimits[root] = new RootLimitSetting { MaxDepth = maxDepth, MaxEntries = maxEntries };
         SaveSettings();
-        RebuildFileIndexIfBuilt();
+        MarkIndexRulesChanged();
     }
 
     /// <summary>
     /// Extension allow-list for the index (".pathactive"): each entry is normalized to a
-    /// lowercase dotted form; empty list = index everything. Rebuilds an existing index.
+    /// lowercase dotted form; empty list = index everything.
     /// </summary>
     public void SetFileIndexExtensions(IEnumerable<string> extensions)
     {
@@ -236,12 +312,28 @@ public partial class App : Application
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         SaveSettings();
-        RebuildFileIndexIfBuilt();
+        MarkIndexRulesChanged();
+    }
+
+    /// <summary>
+    /// Deletes one extension everywhere: its files leave the in-memory index at once and the
+    /// extension is dropped from the whitelist, so the next rebuild will not bring it back.
+    /// </summary>
+    public void RemoveIndexedExtension(string extension)
+    {
+        if (string.IsNullOrWhiteSpace(extension)) return;
+        Settings.FileIndexExtensions = Settings.FileIndexExtensions
+            .Where(item => !string.Equals(item, extension, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        SaveSettings();
+        Files.RemoveExtension(extension);
+        Files.Save();
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
     /// <summary>
     /// Folder blacklist for the index: nothing under these paths is walked or indexed.
-    /// Entries may use environment variables. Rebuilds an existing index.
+    /// Entries may use environment variables.
     /// </summary>
     public void SetFileIndexExcludes(IEnumerable<string> excludes)
     {
@@ -251,19 +343,45 @@ public partial class App : Application
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         SaveSettings();
-        RebuildFileIndexIfBuilt();
-    }
-
-    /// <summary>Settings that shape the index rebuild it right away when one already exists.</summary>
-    private void RebuildFileIndexIfBuilt()
-    {
-        if (Files.LastBuilt != DateTime.MinValue) StartFileIndex();
+        MarkIndexRulesChanged();
     }
 
     public void OnLauncherClosed()
     {
         if (Settings.ShowDock) Dock.HoldOpen(false);
         ScheduleIdleTrim();
+    }
+
+    // ───────────────────────── Live index refresh ─────────────────────────
+
+    private DispatcherTimer? _indexRefreshTimer;
+
+    /// <summary>
+    /// An incremental update landed. While the panel is open and showing file results the list
+    /// should follow along, but batched — a folder copy fires hundreds of changes per second.
+    /// </summary>
+    private void OnFileIndexChanged()
+    {
+        if (IsShuttingDown) return;
+        if (!Dispatcher.CheckAccess())
+        {
+            try { Dispatcher.BeginInvoke(OnFileIndexChanged); } catch { }
+            return;
+        }
+
+        if (Launcher is null || !Launcher.IsOpen) return;
+
+        if (_indexRefreshTimer is null)
+        {
+            _indexRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+            _indexRefreshTimer.Tick += (_, _) =>
+            {
+                _indexRefreshTimer!.Stop();
+                if (Launcher.IsOpen) Launcher.RefreshFileResults();
+            };
+        }
+        _indexRefreshTimer.Stop();
+        _indexRefreshTimer.Start();
     }
 
     // ───────────────────────── Idle housekeeping ─────────────────────────
@@ -552,6 +670,9 @@ public partial class App : Application
         if (IsShuttingDown) return;
         IsShuttingDown = true;
         try { Library.SaveNow(); } catch { }
+        // Stop the delta stream before the last write, or a late batch could land mid-save.
+        try { FileSync?.Dispose(); } catch { }
+        try { Files.Save(); } catch { }
         SaveSettings();
         _hotkey?.Dispose();
         _hotkey = null;
@@ -589,6 +710,59 @@ public partial class App : Application
     }
 
     // ───────────────────────── Developer preview ─────────────────────────
+
+    /// <summary>
+    /// `--rebuild-index`: builds the real index against the saved settings and exits. Useful for
+    /// timing a first build on a large tree without opening the panel.
+    /// </summary>
+    private void RunRebuildIndex(string? dataDirectory = null)
+    {
+        try
+        {
+            var storage = new Storage();
+            var settings = storage.LoadSettings();
+            var roots = settings.FileSearchRootsCustomized ? settings.FileSearchRoots : FileIndex.DefaultRoots();
+            var rules = new IndexRules(roots, settings.FileRootLimits, settings.FileIndexExtensions,
+                settings.FileIndexExcludes, settings.FileSearchLimit, !settings.FileSearchRootsCustomized);
+
+            var dataDir = dataDirectory ?? storage.Directory;
+            var index = new FileIndex(dataDir);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            index.Start(rules);
+            while (index.IsBuilding && watch.Elapsed < TimeSpan.FromMinutes(5)) Thread.Sleep(200);
+            watch.Stop();
+
+            var saveWatch = System.Diagnostics.Stopwatch.StartNew();
+            index.Save();
+            saveWatch.Stop();
+            var fileSize = 0L;
+            var indexPath = Path.Combine(dataDir, "index.bin");
+            try { fileSize = new FileInfo(indexPath).Length; } catch { }
+
+            var reload = new FileIndex(dataDir);
+            var reloadWatch = System.Diagnostics.Stopwatch.StartNew();
+            var reloaded = reload.Load(rules);
+            reloadWatch.Stop();
+
+            var report =
+                $"roots ({roots.Count}):\n  " + string.Join("\n  ", roots) +
+                $"\nrows: {index.Count}\nbuild: {watch.ElapsedMilliseconds} ms" +
+                $"\nmemory: {index.MemoryBytes / 1024 / 1024} MB" +
+                $"\nextensions: {index.GetExtensionStats().Count}" +
+                $"\nsample: " + string.Join(" | ", index.Search("doc", 3).Select(entry => entry.Path)) +
+                $"\nvolumes: " + string.Join(", ", index.Meta.Volumes.Select(pair => $"{pair.Key}@0x{pair.Value.NextUsn:X}")) +
+                $"\nsave: {saveWatch.ElapsedMilliseconds} ms, file {fileSize / 1024} KB" +
+                $"\nreload: {reloaded} in {reloadWatch.ElapsedMilliseconds} ms, rows {reload.Count}" +
+                $"\ndata: {indexPath}";
+            Console.WriteLine(report);
+            try { File.WriteAllText(Path.Combine(dataDir, "index-build-report.txt"), report); }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
+    }
 
     /// <summary>
     /// Hidden `--render-preview &lt;dir&gt;` mode: renders the dock, launcher and settings
@@ -739,6 +913,10 @@ public partial class App : Application
                 settingsWindow.NavigateTo("files");
                 await Task.Delay(400);
                 RenderElement(settingsWindow, Path.Combine(directory, $"advanced-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+
+                settingsWindow.NavigateTo("excludes");
+                await Task.Delay(400);
+                RenderElement(settingsWindow, Path.Combine(directory, $"excludes-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
             }
