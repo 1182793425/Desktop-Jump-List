@@ -36,6 +36,7 @@ public partial class SettingsWindow : Window
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
         MouseLeftButtonDown += OnWindowDragDown;
+        DownloadChart.SizeChanged += (_, _) => DrawDownloadChart();
     }
 
     /// <summary>
@@ -503,6 +504,145 @@ public partial class SettingsWindow : Window
         {
             DownloadUpdateButton.IsEnabled = true;
         }
+    }
+
+    // ───────────────────────── 下载统计折线图 ─────────────────────────
+
+    private List<Services.UpdateService.DownloadStat>? _downloadStats;
+    private bool _loadingDownloadStats;
+
+    private void OnRefreshDownloadStatsClick(object sender, RoutedEventArgs e)
+    {
+        if (_loadingDownloadStats) return;
+        _loadingDownloadStats = true;
+        DownloadStatsStatus.Text = "正在加载…";
+        DownloadStatsStatus.Visibility = Visibility.Visible;
+        DownloadChart.Children.Clear();
+        _ = LoadDownloadStatsAsync();
+    }
+
+    private async Task LoadDownloadStatsAsync()
+    {
+        try
+        {
+            var stats = await Services.UpdateService.GetDownloadStatsAsync();
+            _downloadStats = stats;
+            DownloadStatsStatus.Visibility = Visibility.Collapsed;
+            DownloadSummary.Text = $"共 {stats.Count} 个版本，累计 {stats.Sum(s => s.Downloads)} 次下载";
+            DrawDownloadChart();
+        }
+        catch (Exception ex)
+        {
+            DownloadStatsStatus.Text = $"加载失败：{ex.Message}";
+            DownloadStatsStatus.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            _loadingDownloadStats = false;
+        }
+    }
+
+    /// <summary>Draws the per-release download-count line on <see cref="DownloadChart"/>.
+    /// Redrawn on refresh and whenever the card resizes (it starts collapsed → zero size).</summary>
+    private void DrawDownloadChart()
+    {
+        var stats = _downloadStats;
+        if (stats is null || stats.Count == 0) return;
+
+        DownloadChart.Children.Clear();
+        var w = DownloadChart.ActualWidth;
+        var h = DownloadChart.ActualHeight;
+        if (w < 60 || h < 60) return;
+
+        var accent = (Brush)FindResource("AccentBrush");
+        var hint = (Style)FindResource("InlineHint");
+        var grid = new SolidColorBrush(Color.FromArgb(38, 128, 128, 128));
+
+        double left = 44, right = 12, top = 16, bottom = 32;
+        var plotW = Math.Max(10, w - left - right);
+        var plotH = Math.Max(10, h - top - bottom);
+
+        var maxV = Math.Max(1, stats.Max(s => s.Downloads));
+        var step = NiceStep(maxV);
+        var maxTick = Math.Max(step, (int)Math.Ceiling(maxV / (double)step) * step);
+
+        for (var v = 0; v <= maxTick; v += step)
+        {
+            var y = top + plotH * (1 - v / (double)maxTick);
+            DownloadChart.Children.Add(new System.Windows.Shapes.Line
+            {
+                X1 = left, X2 = w - right, Y1 = y, Y2 = y,
+                Stroke = grid, StrokeThickness = 1, SnapsToDevicePixels = true
+            });
+            var label = new TextBlock { Text = v.ToString(), Style = hint, FontSize = 10 };
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(label, left - 8 - label.DesiredSize.Width);
+            Canvas.SetTop(label, y - label.DesiredSize.Height / 2);
+            DownloadChart.Children.Add(label);
+        }
+
+        var points = new List<Point>(stats.Count);
+        for (var i = 0; i < stats.Count; i++)
+        {
+            var x = stats.Count == 1 ? left + plotW / 2 : left + plotW * i / (stats.Count - 1);
+            var y = top + plotH * (1 - stats[i].Downloads / (double)maxTick);
+            points.Add(new Point(x, y));
+        }
+
+        var line = new System.Windows.Shapes.Polyline
+        {
+            Points = new PointCollection(points),
+            Stroke = accent, StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round
+        };
+        DownloadChart.Children.Add(line);
+
+        // x labels: skip so neighbours never overlap (tags are ~52px wide at this size)
+        var stride = Math.Max(1, (int)Math.Ceiling(52 * stats.Count / plotW));
+        for (var i = 0; i < stats.Count; i++)
+        {
+            if (i % stride != 0 && i != stats.Count - 1) continue;
+            var label = new TextBlock { Text = stats[i].Tag, Style = hint, FontSize = 10 };
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var x = Math.Min(Math.Max(points[i].X - label.DesiredSize.Width / 2, 2), w - label.DesiredSize.Width - 2);
+            Canvas.SetLeft(label, x);
+            Canvas.SetTop(label, top + plotH + 6);
+            DownloadChart.Children.Add(label);
+        }
+
+        for (var i = 0; i < stats.Count; i++)
+        {
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 8, Height = 8, Fill = accent,
+                ToolTip = $"{stats[i].Tag}: {stats[i].Downloads} 次"
+            };
+            Canvas.SetLeft(dot, points[i].X - 4);
+            Canvas.SetTop(dot, points[i].Y - 4);
+            DownloadChart.Children.Add(dot);
+        }
+
+        // highlight the newest release's count so the total is readable without hovering
+        var last = new TextBlock
+        {
+            Text = $"{stats[^1].Tag} · {stats[^1].Downloads} 次",
+            Style = hint, FontSize = 10
+        };
+        last.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Canvas.SetLeft(last, Math.Max(2, w - right - last.DesiredSize.Width));
+        Canvas.SetTop(last, Math.Max(0, points[^1].Y - last.DesiredSize.Height - 8));
+        DownloadChart.Children.Add(last);
+    }
+
+    /// <summary>Smallest of 1/2/5×10^n keeping the y axis at ≤ 5 ticks.</summary>
+    private static int NiceStep(int max)
+    {
+        foreach (var base0 in new[] { 1, 2, 5 })
+            for (var e = 0; e < 5; e++)
+            {
+                var s = base0 * (int)Math.Pow(10, e);
+                if (max / s <= 4) return s;
+            }
+        return Math.Max(1, max);
     }
 
     private static bool IsInside(DependencyObject node, DependencyObject ancestor)

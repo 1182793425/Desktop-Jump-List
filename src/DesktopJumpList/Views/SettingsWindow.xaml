@@ -569,6 +569,31 @@
                                 </Grid>
                                 <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
                                            Margin="0,6,0,0" TextWrapping="Wrap" />
+
+                                <!-- 下载统计：各历史版本安装包下载量折线 -->
+                                <Grid Margin="0,18,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="下载统计" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="DownloadSummary" Grid.Column="1" VerticalAlignment="Center"
+                                               Style="{StaticResource InlineHint}" Margin="0"
+                                               Text="各版本安装包下载量（GitHub Releases）" TextTrimming="CharacterEllipsis" />
+                                    <Button Grid.Column="2" Style="{StaticResource LinkButton}" Padding="8,4"
+                                            Click="OnRefreshDownloadStatsClick" Content="刷新" />
+                                </Grid>
+                                <Border Background="{DynamicResource HoverBrush}" CornerRadius="10"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                                        Margin="0,8,0,0" Padding="10,8" ClipToBounds="True">
+                                    <Grid>
+                                        <TextBlock x:Name="DownloadStatsStatus" Style="{StaticResource InlineHint}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Text="点击「刷新」加载" />
+                                        <Canvas x:Name="DownloadChart" Height="190" MinHeight="190" />
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </StackPanel>

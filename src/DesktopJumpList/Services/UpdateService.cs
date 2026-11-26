@@ -14,8 +14,45 @@ public static class UpdateService
     public const string ReleasesUrl = RepoUrl + "/releases";
 
     private const string LatestApi = "https://api.github.com/repos/1182793425/Desktop-Jump-List/releases/latest";
+    private const string ReleasesApi = "https://api.github.com/repos/1182793425/Desktop-Jump-List/releases";
 
     public sealed record ReleaseInfo(string Tag, Version Version, string? AssetUrl, string? AssetFileName);
+
+    /// <summary>One release's download stats: tag name, version and total downloads of its setup assets.</summary>
+    public sealed record DownloadStat(string Tag, Version? Version, int Downloads);
+
+    /// <summary>Download counts for every published release, oldest first. Null version when the tag is not semver.</summary>
+    public static async Task<List<DownloadStat>> GetDownloadStatsAsync(CancellationToken ct = default)
+    {
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("DesktopJumpList-UpdateCheck");
+        http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+
+        var json = await http.GetStringAsync(ReleasesApi + "?per_page=100", ct);
+        using var doc = JsonDocument.Parse(json);
+
+        var list = new List<DownloadStat>();
+        foreach (var rel in doc.RootElement.EnumerateArray())
+        {
+            if (rel.GetProperty("draft").GetBoolean()) continue;
+            var tag = rel.GetProperty("tag_name").GetString() ?? string.Empty;
+            var version = Version.TryParse(tag.TrimStart('v', 'V'), out var v) ? v : null;
+            var downloads = 0;
+            if (rel.TryGetProperty("assets", out var assets))
+            {
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    var name = asset.GetProperty("name").GetString() ?? string.Empty;
+                    if (name.EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase))
+                        downloads += asset.GetProperty("download_count").GetInt32();
+                }
+            }
+            list.Add(new DownloadStat(tag, version, downloads));
+        }
+
+        list.Sort((a, b) => (a.Version ?? new Version()).CompareTo(b.Version ?? new Version()));
+        return list;
+    }
 
     /// <summary>Returns the latest published release, or null when the payload makes no sense.</summary>
     public static async Task<ReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
