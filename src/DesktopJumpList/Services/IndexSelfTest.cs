@@ -131,7 +131,25 @@ internal static class IndexSelfTest
             var sync = new FileIndexSync(reloaded, () => rules, () => true);
             sync.Start();
             WaitFor(() => sync.IsLive, 5000);
-            Log.AppendLine($"source: {sync.SourceLabel} live={sync.IsLive} pending={sync.PendingCount} error={sync.LastError ?? "-"}");
+
+            // The journal is only a valid source when a record can actually be read from it;
+            // otherwise the sync must fall back to the directory watchers.
+            var probeVolume = Path.GetPathRoot(root) ?? @"C:\";
+            var journalReadable = false;
+            using (var probeHandle = UsnApi.OpenJournal(probeVolume, out _))
+            {
+                if (!probeHandle.IsInvalid && UsnApi.TryQueryJournal(probeHandle, out var probeJournal, out _)
+                    && probeJournal.FirstUsn < probeJournal.NextUsn)
+                {
+                    var probeRecords = UsnApi.ReadJournal(probeHandle, probeJournal.FirstUsn,
+                        probeJournal.UsnJournalID, 1, out _, out var probeError);
+                    journalReadable = probeError == 0 && probeRecords.Count > 0;
+                }
+            }
+            Log.AppendLine($"source: {sync.SourceLabel} journalReadable={journalReadable} " +
+                           $"anchors={reloaded.Meta.Volumes.Count} pending={sync.PendingCount} error={sync.LastError ?? "-"}");
+            Check("source matches journal access", (sync.SourceLabel == "USN 日志") == journalReadable,
+                $"{sync.SourceLabel} readable={journalReadable}");
 
             File.WriteAllText(Path.Combine(root, "a", "watched.txt"), "w");
             WaitFor(() => reloaded.Search("watched", 10).Count == 1, 8000);

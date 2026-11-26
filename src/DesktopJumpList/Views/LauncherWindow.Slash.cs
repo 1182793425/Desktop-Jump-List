@@ -113,6 +113,7 @@ public partial class LauncherWindow
             || !TryParseFileQuery(CurrentQuery, out var liveQuery)
             || !string.Equals(liveQuery, terms, StringComparison.Ordinal)) return;
 
+        matches = KeepExistingFiles(matches);
         _fileResultsHasMore = matches.Count > FileResultPageSize;
         var rows = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
         _fileResultsLoaded = rows.Count;
@@ -160,6 +161,7 @@ public partial class LauncherWindow
             || !string.Equals(liveQuery, query, StringComparison.Ordinal)) return;
 
         _fileLoadingMore = false;
+        matches = KeepExistingFiles(matches);
         _fileResultsHasMore = matches.Count > FileResultPageSize;
         var next = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
         foreach (var row in next) _tiles.Add(row);

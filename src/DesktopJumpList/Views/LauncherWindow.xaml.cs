@@ -528,6 +528,7 @@ public partial class LauncherWindow : Window
 
         if (generation != _plainFileGeneration || !IsOpen) return;
         if (!string.Equals(CurrentQuery, query, StringComparison.Ordinal)) return;
+        matches = KeepExistingFiles(matches);
         if (matches.Count == 0) return;
 
         var rows = matches.Select(BuildFileRow).ToList();
@@ -544,6 +545,37 @@ public partial class LauncherWindow : Window
         ApplyPanelHeightNow();
         EnsureWindowFits();
         QueueDeferredIconLoad(rows);
+    }
+
+    /// <summary>
+    /// Drops local-file rows whose path is gone. The index can lag behind the disk (the app was
+    /// closed, or the watcher buffer overflowed), and showing a file that no longer exists is
+    /// worse than a slightly shorter list — the stale rows are also evicted from the index.
+    /// </summary>
+    private List<FileEntry> KeepExistingFiles(List<FileEntry> files)
+    {
+        if (files.Count == 0) return files;
+
+        var alive = new List<FileEntry>(files.Count);
+        var gone = new List<string>();
+        foreach (var file in files)
+        {
+            // Store apps are virtual entries (shell:AppsFolder\…): they have no path on disk.
+            if (FileIndex.IsAppEntry(file) || ExistsOnDisk(file.Path)) alive.Add(file);
+            else gone.Add(file.Path);
+        }
+
+        if (gone.Count > 0) App.Current.Files.RemovePaths(gone, notify: false);
+        return alive;
+    }
+
+    /// <summary>True unless the path is definitely gone; access errors keep the row.</summary>
+    private static bool ExistsOnDisk(string path)
+    {
+        try { System.IO.File.GetAttributes(path); return true; }
+        catch (System.IO.FileNotFoundException) { return false; }
+        catch (System.IO.DirectoryNotFoundException) { return false; }
+        catch { return true; }
     }
 
     /// <summary>Identity of a result set: reference hashes of the items, in order.</summary>

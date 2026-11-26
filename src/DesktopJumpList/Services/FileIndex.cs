@@ -1070,6 +1070,30 @@ public sealed class FileIndex
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Drops rows whose path no longer exists. A closed app or an overflowed watcher buffer can
+    /// miss a delete, and this is the cheap way to correct it without a full rebuild: the caller
+    /// has already touched the filesystem, so it knows they are gone.
+    /// </summary>
+    public int RemovePaths(IEnumerable<string> paths, bool notify = true)
+    {
+        var removed = 0;
+        lock (_gate)
+        {
+            foreach (var path in paths)
+                if (_byPath.TryGetValue(path, out var entry))
+                    removed += RemoveSubtreeLocked(entry.Id);
+            if (removed > 0)
+            {
+                RebuildStatsLocked();
+                _searchListDirty = true;
+                _dirty = true;
+            }
+        }
+        if (removed > 0 && notify) Changed?.Invoke();
+        return removed;
+    }
+
     // ───────────────────────────── Persistence ─────────────────────────────
 
     private const string Magic = "JIDX3";

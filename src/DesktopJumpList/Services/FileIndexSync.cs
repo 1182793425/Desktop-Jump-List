@@ -21,6 +21,9 @@ namespace DesktopJumpList.Services;
 public sealed class FileIndexSync : IDisposable
 {
     private const int IdleSecondsForRebuild = 45;
+    // An index inherited from an earlier run is known to have a hole (the app was closed), so its
+    // reconcile should not wait as long as one triggered while the app was running.
+    private const int IdleSecondsForStartupReconcile = 5;
     private const int ActivePollMs = 5000;
     private const int IdlePollMs = 1200;
 
@@ -38,6 +41,9 @@ public sealed class FileIndexSync : IDisposable
     private volatile bool _rebuildRequested;
     private volatile bool _reconcileRequested;
     private SourceKind _source = SourceKind.None;
+
+    /// <summary>Used to tell "index built earlier" from "index built by this session".</summary>
+    private readonly DateTime _startedAt = DateTime.Now;
 
     public FileIndexSync(FileIndex index, Func<IndexRules> rules, Func<bool> enabled)
     {
@@ -152,18 +158,25 @@ public sealed class FileIndexSync : IDisposable
         }
 
         var idle = IdleDetector.SecondsSinceInput();
+        var rebuildPending = false;
 
         if ((_rebuildRequested || _reconcileRequested) && !_index.IsBuilding)
         {
             // Silent rebuilds wait for the user to step away; when there is nothing to serve
-            // yet there is no reason to wait at all.
-            var threshold = _index.Count == 0 ? 0 : IdleSecondsForRebuild;
+            // yet there is no reason to wait at all. A rebuild requested because the rules
+            // changed can afford to wait longer than a startup reconcile of a stale index.
+            var startupGap = !_rebuildRequested && _index.LastBuilt < _startedAt;
+            var threshold = _index.Count == 0
+                ? 0
+                : startupGap ? IdleSecondsForStartupReconcile : IdleSecondsForRebuild;
             if (idle >= threshold)
             {
                 FullRebuild();
                 return 2000;
             }
-            return 3000;
+            // Waiting for idle must not freeze the live updates: a pending rebuild is exactly the
+            // moment the index is known to be behind, so keep applying deltas in the meantime.
+            rebuildPending = true;
         }
 
         if (!_index.HasIndex)
@@ -181,6 +194,7 @@ public sealed class FileIndexSync : IDisposable
         else DrainWatchers();
 
         SaveIfNeeded();
+        if (rebuildPending) return 3000;
         return idle >= IdleSecondsForRebuild ? IdlePollMs : ActivePollMs;
     }
 
@@ -188,35 +202,59 @@ public sealed class FileIndexSync : IDisposable
     {
         var rules = _rules();
         var volumes = VolumesOf(rules.Roots);
-        if (volumes.Count > 0)
+        if (volumes.Count > 0 && CanConsumeJournal(volumes))
         {
-            var usable = true;
-            foreach (var volume in volumes)
-            {
-                if (_index.GetAnchor(volume) is null) { usable = false; break; }
-                using var handle = UsnApi.OpenJournal(volume, out _);
-                if (handle.IsInvalid) { usable = false; break; }
-                if (!UsnApi.TryQueryJournal(handle, out var journal, out _)) { usable = false; break; }
-                // Prove a read from the stored position is actually permitted before committing:
-                // an unelevated process passes the query but is denied the records.
-                UsnApi.ReadJournal(handle, journal.NextUsn, journal.UsnJournalID, 1, out _, out var error);
-                if (error != 0) { usable = false; break; }
-            }
-
-            if (usable)
-            {
-                _source = SourceKind.Usn;
-                DisposeWatchers();
-                return;
-            }
+            _source = SourceKind.Usn;
+            DisposeWatchers();
+            return;
         }
 
         _source = SourceKind.Watchers;
         BuildWatchers(rules);
 
-        // Watchers only see the future: if the stored index predates this run by a while, the
-        // gap is covered by one silent reconcile once the machine goes idle.
-        if (DateTime.Now - _index.LastBuilt > TimeSpan.FromMinutes(30)) RequestReconcile();
+        // Watchers only see the future. An index from an earlier run has a gap that the journal
+        // cannot fill without privileges, so mark it for one silent reconcile.
+        if (_index.LastBuilt < _startedAt) RequestReconcile();
+    }
+
+    /// <summary>
+    /// Whether the journal can really be consumed, not just queried. An unelevated process is
+    /// allowed to query (journal id, first/next usn) but the record read is denied — and that
+    /// denial is reported as *zero records without an error* for some positions. So the only
+    /// trustworthy proof is a read that actually returns a record; anything less falls back to
+    /// the directory watchers, which do work without privileges.
+    /// </summary>
+    private bool CanConsumeJournal(List<string> volumes)
+    {
+        foreach (var volume in volumes)
+        {
+            var anchor = _index.GetAnchor(volume);
+            if (anchor is null)
+            {
+                // No anchor means the delta stream has no start position: only a rebuild creates one.
+                RequestReconcile();
+                return false;
+            }
+
+            using var handle = UsnApi.OpenJournal(volume, out _);
+            if (handle.IsInvalid) return false;
+            if (!UsnApi.TryQueryJournal(handle, out var journal, out _)) return false;
+
+            // Journal restarted or the anchor fell off the front: the stream has a hole.
+            if (journal.UsnJournalID != anchor.JournalId || anchor.NextUsn < journal.FirstUsn)
+            {
+                RequestReconcile();
+                return false;
+            }
+
+            // An empty journal cannot prove read access; the watcher is always safe.
+            if (journal.FirstUsn >= journal.NextUsn) return false;
+
+            var probe = UsnApi.ReadJournal(handle, journal.FirstUsn, journal.UsnJournalID, 1,
+                out _, out var error);
+            if (error != 0 || probe.Count == 0) return false;
+        }
+        return true;
     }
 
     // ───────────────────────────── USN source ─────────────────────────────
@@ -250,9 +288,10 @@ public sealed class FileIndexSync : IDisposable
                 var records = UsnApi.ReadJournal(handle, position, anchor.JournalId, 20_000, out var next, out var error);
                 if (error != 0)
                 {
-                    // Lost the right to read (or a transient failure): fall back to watchers
-                    // instead of rebuilding in a loop.
+                    // Lost the right to read (or a transient failure): drop to the watchers right
+                    // away instead of waiting for the next tick, so the gap stays small.
                     _source = SourceKind.None;
+                    ChooseSource();
                     return;
                 }
                 if (next <= position) break;
