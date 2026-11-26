@@ -451,7 +451,7 @@ public partial class SettingsWindow : Window
         UpdateStatus.Text = "正在检查更新…";
         try
         {
-            var snapshot = await Services.UpdateService.GetReleasesAsync();
+            var snapshot = await Services.UpdateService.CheckLatestAsync();
             var latest = await Services.UpdateService.GetLatestReleaseAsync();
             var current = typeof(App).Assembly.GetName().Version;
             if (snapshot is null || latest is null || current is null)
@@ -530,7 +530,7 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            var snapshot = await Services.UpdateService.GetReleasesAsync();
+            var snapshot = await Services.UpdateService.GetDownloadStatsAsync();
             if (snapshot is null)
             {
                 DownloadStatsStatus.Text = "加载失败：网络不可用且没有本地缓存";
@@ -545,7 +545,7 @@ public partial class SettingsWindow : Window
             _downloadStats = stats;
             DownloadStatsStatus.Visibility = Visibility.Collapsed;
             DownloadSummary.Text = $"共 {stats.Count} 个版本，累计 {stats.Sum(s => s.Downloads)} 次下载"
-                + UpdateServiceExtensions.CacheNotice(snapshot);
+                + UpdateServiceExtensions.StatsNotice(snapshot);
             DrawDownloadChart();
         }
         catch (Exception ex)
