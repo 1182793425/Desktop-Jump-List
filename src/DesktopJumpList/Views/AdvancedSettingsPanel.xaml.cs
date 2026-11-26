@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -402,9 +402,10 @@ public partial class AdvancedSettingsPanel : UserControl
     {
         DebounceCard.Visibility = module == "search" ? Visibility.Visible : Visibility.Collapsed;
         FileIndexCard.Visibility = module == "files" ? Visibility.Visible : Visibility.Collapsed;
+        FileExtCard.Visibility = module == "extensions" ? Visibility.Visible : Visibility.Collapsed;
+        ExcludeCard.Visibility = module == "excludes" ? Visibility.Visible : Visibility.Collapsed;
         EngineCard.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
         ResetDefaultsRow.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
-        AdvancedScroll.ScrollToTop();
     }
 
     private void BuildEngineRows()

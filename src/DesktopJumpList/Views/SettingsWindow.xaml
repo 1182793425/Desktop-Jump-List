@@ -240,6 +240,8 @@
                                    Foreground="{DynamicResource InkFaintBrush}" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="⌕   输入防抖" Tag="search" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="▤   本地文件索引" Tag="files" Click="OnNavigate" />
+                        <Button Style="{StaticResource SettingsNavButton}" Content="✓   文件类型白名单" Tag="extensions" Click="OnNavigate" />
+                        <Button Style="{StaticResource SettingsNavButton}" Content="⊘   排除目录黑名单" Tag="excludes" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="◎   搜索引擎" Tag="engines" Click="OnNavigate" />
                         <Border Margin="8,18,8,0" Padding="12" CornerRadius="12" Background="{DynamicResource CardBrush}"
                                 BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">

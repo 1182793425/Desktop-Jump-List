@@ -66,7 +66,8 @@ public sealed class FileIndex
     public void Start(IReadOnlyList<string> roots, int limit,
         IReadOnlyDictionary<string, RootLimitSetting>? perRoot,
         IReadOnlyCollection<string>? extensionAllowList,
-        IReadOnlyCollection<string>? excludedFolders, Action? onDone = null)
+        IReadOnlyCollection<string>? excludedFolders, Action? onDone = null,
+        bool discoverDriveRoots = true)
     {
         _cancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
@@ -86,7 +87,12 @@ public sealed class FileIndex
             // limit <= 0 (the default) means no cap: entries are ~0.4 KB of path strings, so
             // even a few hundred thousand stay in the tens of MB.
             var cap = limit <= 0 ? int.MaxValue : Math.Max(500, limit);
-            try { Walk(roots, cap, perRoot, extensionFilter, excludePrefixes, found, token); }
+            try
+            {
+                Walk(roots, cap, perRoot, extensionFilter, excludePrefixes, found, token);
+                if (discoverDriveRoots && roots.Count > 0 && !token.IsCancellationRequested)
+                    WalkDriveRoots(roots, cap, extensionFilter, excludePrefixes, found, token);
+            }
             catch { /* cancelled or unreadable root */ }
 
             // The Start Menu shortcuts (classic software) come from the walk when its folders
@@ -175,17 +181,42 @@ public sealed class FileIndex
 
             RootLimitSetting? cfg = null;
             if (perRoot is not null) perRoot.TryGetValue(root, out cfg);
-            // Fixed drive roots are included so top-level folders such as D:\code3 are
-            // discoverable without walking an entire drive by default. Their direct contents
-            // are indexed too; users can add a specific folder or raise its depth cap for more.
-            var isDriveRoot = string.Equals(Path.GetPathRoot(root), root, StringComparison.OrdinalIgnoreCase);
-            var depthCap = cfg is not null
-                ? cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth
-                : isDriveRoot ? 1 : int.MaxValue;
+            // Preserve the selected root's full recursive walk unless the user set a depth cap.
+            var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
             var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
 
             WalkOne(root, depthCap, entryCap, limit, extensionFilter, excludePrefixes, into, token);
         }
+    }
+
+    /// <summary>
+    /// Also surface the immediate children of fixed drives so an unconfigured top-level folder
+    /// such as D:\code3 is discoverable. This supplemental pass never descends into those
+    /// folders; explicitly selected roots above retain their previous unlimited walk behavior.
+    /// </summary>
+    private static void WalkDriveRoots(IReadOnlyList<string> roots, int limit,
+        HashSet<string>? extensionFilter, List<string> excludePrefixes,
+        List<FileEntry> into, CancellationToken token)
+    {
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    if (drive.DriveType != DriveType.Fixed || !drive.IsReady) continue;
+                    var path = drive.RootDirectory.FullName;
+                    var alreadyCovered = roots.Any(root => string.Equals(
+                        Path.GetPathRoot(root), path, StringComparison.OrdinalIgnoreCase));
+                    if (!alreadyCovered)
+                        WalkOne(path, depthCap: 0, entryCap: int.MaxValue, globalLimit: limit,
+                            extensionFilter, excludePrefixes, into, token);
+                }
+                catch { /* an unavailable drive is skipped */ }
+            }
+        }
+        catch { }
     }
 
     private static void WalkOne(string root, int depthCap, int entryCap, int globalLimit,
@@ -385,8 +416,8 @@ public sealed class FileIndex
     }
 
     /// <summary>
-    /// Desktop, Documents, Downloads, Pictures, both Start Menu folders, and a shallow pass
-    /// over fixed drive roots so top-level work folders are searchable without a full-disk walk.
+    /// Desktop, Documents, Downloads, Pictures, and both Start Menu folders. Fixed drive roots
+    /// get a separate shallow discovery pass; selected roots recurse by their configured caps.
     /// </summary>
     public static List<string> DefaultRoots()
     {
@@ -419,22 +450,6 @@ public sealed class FileIndex
             if (Directory.Exists(menu) && !roots.Contains(menu)) roots.Add(menu);
         }
 
-        // Surface the first level of every local fixed disk. Walk() caps drive roots at depth
-        // one by default to make root folders searchable without turning /s into a full-disk scan.
-        try
-        {
-            foreach (var drive in DriveInfo.GetDrives())
-            {
-                try
-                {
-                    var path = drive.RootDirectory.FullName;
-                    if (drive.DriveType == DriveType.Fixed && drive.IsReady && !roots.Contains(path))
-                        roots.Add(path);
-                }
-                catch { /* an unavailable drive is skipped */ }
-            }
-        }
-        catch { }
         return roots;
     }
 }

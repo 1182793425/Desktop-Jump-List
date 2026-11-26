@@ -362,7 +362,7 @@ public partial class SettingsWindow : Window
         LayoutCard.Visibility = name == "layout" ? Visibility.Visible : Visibility.Collapsed;
         DockCard.Visibility = name == "dock" ? Visibility.Visible : Visibility.Collapsed;
         StartupCard.Visibility = name == "startup" ? Visibility.Visible : Visibility.Collapsed;
-        var advanced = name is "search" or "files" or "engines";
+        var advanced = name is "search" or "files" or "extensions" or "excludes" or "engines";
         AdvancedDetails.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
         if (advanced) AdvancedDetails.ShowModule(name);
 

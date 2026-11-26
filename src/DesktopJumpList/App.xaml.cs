@@ -181,7 +181,8 @@ public partial class App : Application
             ? Settings.FileSearchRoots
             : FileIndex.DefaultRoots();
         Files.Start(roots, Settings.FileSearchLimit, Settings.FileRootLimits,
-            Settings.FileIndexExtensions, Settings.FileIndexExcludes, onDone);
+            Settings.FileIndexExtensions, Settings.FileIndexExcludes, onDone,
+            discoverDriveRoots: !Settings.FileSearchRootsCustomized);
     }
 
     public void SetFileSearchEnabled(bool enabled)
