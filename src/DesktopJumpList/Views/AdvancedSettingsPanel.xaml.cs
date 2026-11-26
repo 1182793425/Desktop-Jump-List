@@ -14,7 +14,6 @@ namespace DesktopJumpList.Views;
 /// </summary>
 public partial class AdvancedSettingsPanel : UserControl
 {
-    private bool _buildingEngineRows;
     private Window? _owner;
 
     public AdvancedSettingsPanel()
@@ -303,33 +302,23 @@ public partial class AdvancedSettingsPanel : UserControl
         }
     }
 
-    private void OnExcludeVariableKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter) return;
-        OnAddExcludeVariable(sender, e);
-        e.Handled = true;
-    }
-
     private void OnAddExcludeVariable(object sender, RoutedEventArgs e)
     {
-        var value = ExcludeVariableBox.Text.Trim();
-        if (value.Length == 0) return;
-        AddExclude(value);
-        ExcludeVariableBox.Clear();
+        var dialog = new PathEntryDialog { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() == true) AddExclude(dialog.EnteredPath);
     }
 
     private void OnAddExcludeFolder(object sender, RoutedEventArgs e)
     {
-        using var dialog = new System.Windows.Forms.FolderBrowserDialog
+        var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Description = "选择要从索引中排除的文件夹",
-            UseDescriptionForTitle = true,
-            ShowNewFolderButton = false
+            Title = "选择要排除的文件夹",
+            Multiselect = false
         };
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-        if (string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+        if (string.IsNullOrWhiteSpace(dialog.FolderName)) return;
 
-        AddExclude(dialog.SelectedPath);
+        AddExclude(dialog.FolderName);
     }
 
     private void AddExclude(string value)
@@ -431,83 +420,95 @@ public partial class AdvancedSettingsPanel : UserControl
 
     private void BuildEngineRows()
     {
-        _buildingEngineRows = true;
         EngineRows.Children.Clear();
         var rules = App.Current.Settings.SearchJumpRules ?? new List<SearchJumpRule>();
-        foreach (var rule in rules)
+        for (var index = 0; index < rules.Count; index++)
         {
-            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+            var rule = rules[index];
+            var row = new Grid { Margin = new Thickness(0), MinHeight = 64 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var name = MakeJumpEditor(rule.Name, rule.Id, "name", "显示名称");
-            name.Margin = new Thickness(0, 0, 5, 0);
-            row.Children.Add(name);
+            var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 7, 12, 7) };
+            details.Children.Add(new TextBlock
+            {
+                Text = rule.Name,
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("InkBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            details.Children.Add(new TextBlock
+            {
+                Text = rule.UrlTemplate,
+                FontSize = 10.5,
+                Margin = new Thickness(0, 3, 0, 0),
+                Foreground = (Brush)FindResource("InkFaintBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = rule.UrlTemplate
+            });
+            row.Children.Add(details);
 
-            var url = MakeJumpEditor(rule.UrlTemplate, rule.Id, "url", "URL 模板，包含 {input}");
-            Grid.SetColumn(url, 1);
-            row.Children.Add(url);
-
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 5, 0)
+            };
             var toggle = new CheckBox
             {
                 Style = (Style)FindResource("Switch"),
                 VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
                 IsChecked = rule.IsEnabled,
                 Tag = rule.Id
             };
             toggle.Click += OnEngineToggled;
-            Grid.SetColumn(toggle, 2);
-            row.Children.Add(toggle);
+            actions.Children.Add(toggle);
+
+            var edit = new Button
+            {
+                Content = "编辑",
+                Style = (Style)Resources["LinkButton"],
+                Padding = new Thickness(9, 5, 9, 5),
+                Margin = new Thickness(7, 0, 0, 0),
+                FontSize = 11,
+                Tag = rule.Id
+            };
+            edit.Click += OnEditSearchJump;
+            actions.Children.Add(edit);
 
             var remove = new Button
             {
-                Content = "移除",
+                Content = "删除",
                 Style = (Style)Resources["LinkButton"],
-                Padding = new Thickness(0, 2, 0, 2),
+                Padding = new Thickness(8, 5, 8, 5),
                 FontSize = 11,
-                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(2, 0, 0, 0),
                 Tag = rule.Id
             };
             remove.Click += OnRemoveSearchJump;
-            Grid.SetColumn(remove, 3);
-            row.Children.Add(remove);
+            actions.Children.Add(remove);
+            Grid.SetColumn(actions, 1);
+            row.Children.Add(actions);
+
             EngineRows.Children.Add(row);
+            if (index < rules.Count - 1)
+                EngineRows.Children.Add(new Border
+                {
+                    Height = 1,
+                    Margin = new Thickness(8, 0, 8, 0),
+                    Background = (Brush)FindResource("CardBorderBrush")
+                });
         }
-        _buildingEngineRows = false;
-    }
-
-    private TextBox MakeJumpEditor(string value, string id, string field, string hint)
-    {
-        var box = new TextBox
+        if (rules.Count == 0)
         {
-            Text = value,
-            MinHeight = 32,
-            FontSize = 11.5,
-            Padding = new Thickness(7, 5, 7, 5),
-            VerticalContentAlignment = VerticalAlignment.Center,
-            ToolTip = hint,
-            Tag = (id, field),
-            Background = (Brush)FindResource("HoverBrush"),
-            Foreground = (Brush)FindResource("InkBrush"),
-            BorderBrush = (Brush)FindResource("CardBorderBrush")
-        };
-        box.TextChanged += OnSearchJumpTextChanged;
-        return box;
-    }
-
-    private void OnSearchJumpTextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (_buildingEngineRows || sender is not TextBox { Tag: ValueTuple<string, string> tag } box) return;
-        var rules = App.Current.Settings.SearchJumpRules;
-        if (rules is null) return;
-        var rule = rules.FirstOrDefault(item => string.Equals(item.Id, tag.Item1, StringComparison.Ordinal));
-        if (rule is null) return;
-        if (tag.Item2 == "name") rule.Name = box.Text;
-        else rule.UrlTemplate = box.Text;
-        App.Current.SetSearchJumpRules(rules);
+            EngineRows.Children.Add(new TextBlock
+            {
+                Text = "还没有搜索跳转，点击下方按钮添加。",
+                Style = (Style)Resources["Hint"],
+                Margin = new Thickness(8, 12, 8, 12)
+            });
+        }
     }
 
     private void OnEngineToggled(object sender, RoutedEventArgs e)
@@ -520,46 +521,27 @@ public partial class AdvancedSettingsPanel : UserControl
         App.Current.SetSearchJumpRules(rules!);
     }
 
-    private void OnNewEngineUrlKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter) return;
-        OnAddSearchJump(sender, e);
-        e.Handled = true;
-    }
-
     private void OnAddSearchJump(object sender, RoutedEventArgs e)
     {
-        var name = NewEngineNameBox.Text.Trim();
-        var template = NewEngineUrlBox.Text.Trim();
-        if (name.Length == 0)
-        {
-            EngineFormStatus.Text = "请填写显示名称。";
-            NewEngineNameBox.Focus();
-            return;
-        }
-        if (!template.Contains("{input}", StringComparison.Ordinal)
-            || !Uri.TryCreate(template.Replace("{input}", "query", StringComparison.Ordinal), UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            EngineFormStatus.Text = "请输入有效的 http/https URL，并包含 {input} 占位符。";
-            NewEngineUrlBox.Focus();
-            return;
-        }
+        EditSearchJump(null);
+    }
 
-        var rules = App.Current.Settings.SearchJumpRules ?? new List<SearchJumpRule>();
-        var glyph = name[..1];
-        rules.Add(new SearchJumpRule
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Name = name,
-            UrlTemplate = template,
-            Monogram = glyph,
-            IsEnabled = true
-        });
+    private void OnEditSearchJump(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string id })
+            EditSearchJump(App.Current.Settings.SearchJumpRules?.FirstOrDefault(rule => rule.Id == id));
+    }
+
+    private void EditSearchJump(SearchJumpRule? rule)
+    {
+        var dialog = new SearchJumpEditorDialog(rule) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true || dialog.ResultRule is not { } result) return;
+
+        var rules = App.Current.Settings.SearchJumpRules?.ToList() ?? new List<SearchJumpRule>();
+        var index = rules.FindIndex(item => item.Id == result.Id);
+        if (index < 0) rules.Add(result);
+        else rules[index] = result;
         App.Current.SetSearchJumpRules(rules);
-        NewEngineNameBox.Clear();
-        NewEngineUrlBox.Clear();
-        EngineFormStatus.Text = "已添加，输入关键词即可使用。";
         BuildEngineRows();
     }
 

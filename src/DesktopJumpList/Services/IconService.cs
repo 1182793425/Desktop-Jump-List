@@ -135,7 +135,11 @@ public static class IconService
         }
         catch { result = null; }
 
-        lock (Gate) { Cache[path] = result; }
+        // Keep successful results only. Shell associations and removable/virtual file providers
+        // can briefly fail while their caches wake up; a null must remain retryable on the next
+        // visible search instead of poisoning this path for the whole process lifetime.
+        if (result is not null)
+            lock (Gate) { Cache[path] = result; }
         return result;
     }
 

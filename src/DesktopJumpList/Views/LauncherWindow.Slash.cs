@@ -200,22 +200,32 @@ public partial class LauncherWindow
         {
             foreach (var (_, path) in pending)
             {
+                ImageSource? icon = null;
                 try
                 {
-                    var icon = IconService.Get(path);
-                    if (icon is null) continue;
+                    icon = IconService.Get(path);
+                }
+                catch { /* a missing icon must never break the list */ }
+
+                try
+                {
+                    var loadedIcon = icon;
                     dispatcher.BeginInvoke(new Action(() =>
                     {
                         _iconLoadInFlight.Remove(path);
-                        // Still displayed? Replace the fallback on every row of that file.
+                        if (loadedIcon is null) return;
+                        // Update the visible row as soon as extraction finishes. If the result
+                        // disappeared meanwhile, the successful icon remains in IconService's cache.
                         foreach (var live in _tiles.OfType<ResultRow>())
                             if (live.Item is FileEntry f && string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase))
-                                live.Icon = icon;
+                            {
+                                live.Icon = loadedIcon;
+                                live.Glyph = null; // collapse the letter overlay after the image arrives
+                            }
                     }));
                 }
-                catch { /* a missing icon must never break the list */ }
+                catch { /* the window may be closing */ }
             }
-            foreach (var (_, path) in pending) _iconLoadInFlight.Remove(path);
         })
         { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA);

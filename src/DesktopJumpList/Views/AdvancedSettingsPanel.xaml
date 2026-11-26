@@ -26,6 +26,31 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9" Padding="10,6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource CardBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
@@ -174,12 +199,14 @@
                             </StackPanel>
                         </Border>
 
-                        <Border x:Name="FileExtCard" Style="{StaticResource Card}" Margin="0,0,0,10" Visibility="Collapsed">
+                        <Border x:Name="FileExtCard" Style="{StaticResource Card}" Margin="0,0,0,10"
+                                HorizontalAlignment="Stretch" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="文件类型白名单" Style="{StaticResource Section}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,10"
                                            Text="只索引列出的文件扩展名；文件夹和已安装应用不受影响。每行一个扩展名，行首 # 表示注释。修改后重建索引生效。" />
-                                <TextBox x:Name="FileExtBox" AcceptsReturn="True" Height="280" MinHeight="240" FontSize="12.5"
+                                <TextBox x:Name="FileExtBox" AcceptsReturn="True" Height="420" MinHeight="320"
+                                         HorizontalAlignment="Stretch" FontSize="12.5"
                                          Padding="10,8" VerticalScrollBarVisibility="Auto"
                                          Background="{DynamicResource HoverBrush}"
                                          Foreground="{DynamicResource InkBrush}"
@@ -193,25 +220,17 @@
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="索引会跳过这些目录及其子目录。可以添加环境变量路径（如 %ALLUSERSPROFILE%），也可以直接选择文件夹；更改后立即重建索引。" />
                                 <StackPanel x:Name="ExcludeRows" Margin="0,2,0,0" />
-                                <Grid Margin="0,8,0,0">
+                                <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="ExcludeVariableBox" MinHeight="34" FontSize="12.5"
-                                             Padding="9,6" VerticalContentAlignment="Center"
-                                             ToolTip="输入环境变量路径，例如 %ALLUSERSPROFILE% 或 %TEMP%\Logs"
-                                             Background="{DynamicResource HoverBrush}"
-                                             Foreground="{DynamicResource InkBrush}"
-                                             BorderBrush="{DynamicResource CardBorderBrush}"
-                                             KeyDown="OnExcludeVariableKeyDown" />
-                                    <Button Grid.Column="1" Content="添加路径" Style="{StaticResource LinkButton}"
-                                            Padding="10,5" Margin="8,0,0,0" Click="OnAddExcludeVariable" />
+                                    <Button Content="添加变量路径" Style="{StaticResource ActionButton}"
+                                            Click="OnAddExcludeVariable" />
+                                    <Button Grid.Column="2" Content="选择文件夹…" Style="{StaticResource ActionButton}"
+                                            Click="OnAddExcludeFolder" />
                                 </Grid>
-                                <Button x:Name="AddExcludeButton" Content="＋ 选择要排除的文件夹…"
-                                        Style="{StaticResource LinkButton}"
-                                        HorizontalAlignment="Left" Padding="0,5" Margin="0,5,0,0"
-                                        Click="OnAddExcludeFolder" />
                             </StackPanel>
                         </Border>
 
@@ -224,32 +243,14 @@
                                 </Grid>
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="每条规则可独立启用、编辑名称和 URL 模板。搜索词以 {input} 替换并自动编码，例如京东可用 https://search.jd.com/Search?keyword={input}。" />
-                                <StackPanel x:Name="EngineRows" />
-                                <Border Margin="0,10,0,0" Padding="10" CornerRadius="9"
-                                        Background="{DynamicResource HoverBrush}"
-                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
-                                    <StackPanel>
-                                        <TextBlock Text="添加自定义跳转" Style="{StaticResource RowLabel}" Margin="0,0,0,7" />
-                                        <TextBox x:Name="NewEngineNameBox" MinHeight="34" FontSize="12.5"
-                                                 Padding="9,6" VerticalContentAlignment="Center"
-                                                 ToolTip="显示名称，例如 京东"
-                                                 Background="{DynamicResource CardBrush}"
-                                                 Foreground="{DynamicResource InkBrush}"
-                                                 BorderBrush="{DynamicResource CardBorderBrush}" />
-                                        <TextBox x:Name="NewEngineUrlBox" MinHeight="34" FontSize="12.5"
-                                                 Padding="9,6" Margin="0,6,0,0" VerticalContentAlignment="Center"
-                                                 ToolTip="URL 模板，例如 https://search.jd.com/Search?keyword={input}"
-                                                 Background="{DynamicResource CardBrush}"
-                                                 Foreground="{DynamicResource InkBrush}"
-                                                 BorderBrush="{DynamicResource CardBorderBrush}"
-                                                 KeyDown="OnNewEngineUrlKeyDown" />
-                                        <TextBlock x:Name="EngineFormStatus" Style="{StaticResource Hint}"
-                                                   Margin="1,5,0,0" TextWrapping="Wrap" />
-                                        <Button Content="＋ 添加搜索跳转" Style="{StaticResource LinkButton}"
-                                                HorizontalAlignment="Left" Padding="0,5" Margin="0,4,0,0"
-                                                Click="OnAddSearchJump" />
-                                    </StackPanel>
+                                <Border Background="{DynamicResource HoverBrush}" CornerRadius="10"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                                        Padding="6">
+                                    <StackPanel x:Name="EngineRows" />
                                 </Border>
+                                <Button Content="＋ 添加搜索跳转" Style="{StaticResource ActionButton}"
+                                        HorizontalAlignment="Stretch" Margin="0,10,0,0"
+                                        Click="OnAddSearchJump" />
                             </StackPanel>
                         </Border>
         </StackPanel>

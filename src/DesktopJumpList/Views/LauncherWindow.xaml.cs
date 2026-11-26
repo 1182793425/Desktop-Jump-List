@@ -444,18 +444,16 @@ public partial class LauncherWindow : Window
             }
         }
 
-        // Typing one more character usually narrows nothing: keep the existing rows (and their
-        // containers) instead of rebuilding them for an identical result set.
-        var signature = Signature(next);
-        if (signature == _lastResultSignature)
+        // The tile list can remain unchanged while layout settings alter the recent row, so only
+        // skip syncing the main list here; continue through the recent-row and visibility updates.
+        var signature = $"{_listMode}:{Signature(next)}";
+        var resultsChanged = signature != _lastResultSignature;
+        if (resultsChanged)
         {
-            Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
-            return;
+            _lastResultSignature = signature;
+            if (_listMode) next = next.Select(ToResultRow).OfType<ResultRow>().Cast<object>().ToList();
+            Sync(_tiles, next);
         }
-        _lastResultSignature = signature;
-
-        if (_listMode) next = next.Select(ToResultRow).OfType<ResultRow>().Cast<object>().ToList();
-        Sync(_tiles, next);
 
         // One-row recently-used header above the divider. It keeps showing inside a folder, so
         // opening one only ever swaps the grid below it.
@@ -465,11 +463,10 @@ public partial class LauncherWindow : Window
             _recentItems = RecentItems();
             if (_recentItems.Count > 0)
             {
-                var shown = _recentItems.Count > Cols
-                    ? _recentItems.Take(Cols - 1).ToList()
-                    : _recentItems;
+                var hasMore = _recentItems.Count > Cols;
+                var shown = _recentItems.Take(Math.Max(0, Cols - (hasMore ? 1 : 0))).ToList();
                 foreach (var item in shown) nextRecent.Add(item);
-                if (_recentItems.Count > Cols) nextRecent.Add(MoreRecentTile.Instance);
+                if (hasMore) nextRecent.Add(MoreRecentTile.Instance);
             }
         }
         Sync(_recentTiles, nextRecent);
@@ -484,7 +481,7 @@ public partial class LauncherWindow : Window
         EmptyState.Visibility = empty && q.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         Scroller.Visibility = EmptyState.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
 
-        bool noMatch = q.Length > 0 && items.Count == 0;
+        bool noMatch = q.Length > 0 && next.Count == 0;
         NoMatch.Visibility = noMatch ? Visibility.Visible : Visibility.Collapsed;
         NoMatch.Text = noMatch ? $"没有找到 “{q}”" : string.Empty;
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
