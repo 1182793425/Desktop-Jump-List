@@ -51,6 +51,7 @@ public partial class DockWindow : Window
     private bool _holdOpen;
     private bool _menuOpen;
     private bool _hiddenForFullscreen;
+    private bool _fileDragShownPanel; // the current OLE drag already popped the panel open
     private Native.POINT _pressCursor;
     private double _pressLeft, _pressTop;
 
@@ -82,6 +83,16 @@ public partial class DockWindow : Window
         Root.PreviewMouseLeftButtonUp += OnUp;
         Root.LostMouseCapture += (_, _) => { if (_pressed) EndPress(cancelled: true); };
         Root.MouseRightButtonUp += OnRightClick;
+
+        // Entry-point drops: dragging files out of Explorer onto the ball highlights it,
+        // pops the panel open (so the drag can continue onto a tile), and a plain drop
+        // here adds the files as shortcuts. Mouse enter/leave do not fire during an
+        // OLE drag, so the highlight and untuck are driven by DragOver/DragLeave.
+        Root.AllowDrop = true;
+        Root.DragEnter += OnFileDragOver;
+        Root.DragOver += OnFileDragOver;
+        Root.DragLeave += OnFileDragLeave;
+        Root.Drop += OnFileDrop;
 
         SystemEvents.DisplaySettingsChanged += (_, _) =>
         {
@@ -450,6 +461,44 @@ public partial class DockWindow : Window
         _peekTimer.Stop();
         if (_tucked) Untuck();
         else if (!_pressed) ScaleBall(1.07, 160);
+    }
+
+    // ───────────────────────── External file drag (the ball as drop target) ─────────────────────────
+
+    private void OnFileDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = DragDropEffects.Copy | DragDropEffects.Link;
+        e.Handled = true;
+
+        _peekTimer.Stop(); // hold the ball out for the whole drag
+        if (_tucked) Untuck();
+        ScaleBall(1.14, 140);
+
+        if (!_fileDragShownPanel)
+        {
+            _fileDragShownPanel = true;
+            App.Current.ShowLauncher();
+        }
+    }
+
+    private void OnFileDragLeave(object sender, DragEventArgs e)
+    {
+        _fileDragShownPanel = false;
+        ScaleBall(1, 180);
+        RestartPeekTimer();
+    }
+
+    private void OnFileDrop(object sender, DragEventArgs e)
+    {
+        _fileDragShownPanel = false;
+        ScaleBall(1, 180);
+        RestartPeekTimer();
+
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0) return;
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+        App.Current.Launcher.ReceiveExternalFiles(files);
     }
 
     private void OnLeave(object sender, MouseEventArgs e)

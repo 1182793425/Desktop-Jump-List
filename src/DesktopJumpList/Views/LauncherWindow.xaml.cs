@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+ ﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Collections.Specialized;
 using System.IO;
@@ -8,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using DesktopJumpList.Infrastructure;
 using DesktopJumpList.Models;
@@ -152,6 +154,7 @@ public partial class LauncherWindow : Window
     private Point _lastDragPoint;
     private bool _draggingTile;
     private bool _listMode; // search results / palette use a one-line list instead of the tile grid
+    private bool _externalFileDrag; // an OLE file drag from another app is in progress: don't auto-close
 
     // Anchor of the pointer's last real movement — see OnTilesMouseMove.
     private Point _hoverAnchor;
@@ -234,7 +237,7 @@ public partial class LauncherWindow : Window
             Close(animated: true);
         };
 
-        Deactivated += (_, _) => { if (IsOpen && _modalDepth == 0) Close(animated: true); };
+        Deactivated += (_, _) => { if (IsOpen && _modalDepth == 0 && !_externalFileDrag) Close(animated: true); };
         PreviewKeyDown += OnKey;
         Scroller.ScrollChanged += OnFileResultsScrollChanged;
         // Typing should not rebuild the list on every keystroke: wait until the input pauses,
@@ -2037,6 +2040,7 @@ public partial class LauncherWindow : Window
             return;
         }
         if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; return; }
+        _externalFileDrag = true; // keep the panel open for the whole external drag
         e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
         SetDropOverlay(true);
     }
@@ -2050,8 +2054,57 @@ public partial class LauncherWindow : Window
             e.Handled = true;
             return;
         }
-        e.Effects = HasDroppable(e) ? DragDropEffects.Link | DragDropEffects.Copy : DragDropEffects.None;
+        if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; ClearDropTile(); e.Handled = true; return; }
+
+        // Dropping files onto a tile means "open with this tile", not "add a shortcut".
+        // Only file drops get tile semantics; text always lands as a new entry.
+        if (e.Data.GetDataPresent(DataFormats.FileDrop) && ContainerFrom(e.OriginalSource) is { } c
+            && c.DataContext is ShortcutItem item)
+        {
+            var effect = TileDropEffect(item);
+            if (effect == DragDropEffects.None) ClearDropTile();
+            else SetDropTile(c);
+            e.Effects = effect;
+        }
+        else
+        {
+            ClearDropTile();
+            e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
+        }
         e.Handled = true;
+    }
+
+    /// <summary>What happens when files are dropped onto <paramref name="item"/>: apps open the
+    /// files, folders open themselves; URL / AppX tiles accept nothing.</summary>
+    private static DragDropEffects TileDropEffect(ShortcutItem item)
+    {
+        return item.Kind switch
+        {
+            ShortcutKind.Folder => DragDropEffects.Link,
+            ShortcutKind.App => DragDropEffects.Copy,
+            ShortcutKind.File when Path.GetExtension(item.Target).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                => DragDropEffects.Copy,
+            _ => DragDropEffects.None,
+        };
+    }
+
+    private ListBoxItem? _dropTile;
+
+    private void SetDropTile(ListBoxItem c)
+    {
+        if (_dropTile == c) return;
+        ClearDropTile();
+        _dropTile = c;
+        if (c.Template.FindName("Highlight", c) is Border b)
+            b.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(90)));
+    }
+
+    private void ClearDropTile()
+    {
+        if (_dropTile is null) return;
+        if (_dropTile.Template.FindName("Highlight", _dropTile) is Border b)
+            b.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(140)));
+        _dropTile = null;
     }
 
     private void OnDragLeave(object sender, DragEventArgs e)
@@ -2059,6 +2112,8 @@ public partial class LauncherWindow : Window
         // DragLeave also fires when moving between child elements; only hide when truly outside.
         var p = e.GetPosition(Panel);
         if (p.X > 0 && p.Y > 0 && p.X < Panel.ActualWidth && p.Y < Panel.ActualHeight) return;
+        _externalFileDrag = false;
+        ClearDropTile();
         SetDropOverlay(false);
         EndInternalDrag();
     }
@@ -2072,8 +2127,17 @@ public partial class LauncherWindow : Window
             return;
         }
 
+        _externalFileDrag = false;
         SetDropOverlay(false);
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files) AddPaths(files);
+        var dropTile = _dropTile;
+        ClearDropTile();
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+        {
+            if (dropTile?.DataContext is ShortcutItem item && TileDropEffect(item) != DragDropEffects.None)
+                OpenFilesWith(item, files);
+            else
+                AddPaths(files);
+        }
         else if (e.Data.GetData(DataFormats.UnicodeText) is string text)
         {
             var items = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -2082,6 +2146,35 @@ public partial class LauncherWindow : Window
         }
         Activate();
         Keyboard.Focus(Query);
+    }
+
+    /// <summary>Entry point for drops on the floating ball: make sure the panel is visible,
+    /// then add the files (the same path an in-panel drop takes).</summary>
+    public void ReceiveExternalFiles(IList<string> paths)
+    {
+        if (!IsOpen || _closing) Open();
+        AddPaths(paths);
+    }
+
+    private void OpenFilesWith(ShortcutItem item, string[] files)
+    {
+        try
+        {
+            if (item.Kind == ShortcutKind.Folder)
+            {
+                Process.Start("explorer.exe", $"\"{item.Target}\"");
+                ShowMessage($"已在「{item.Name}」中打开");
+                return;
+            }
+
+            var args = string.Join(" ", files.Select(f => $"\"{f}\""));
+            Process.Start(new ProcessStartInfo(item.Target) { Arguments = args, UseShellExecute = true });
+            ShowMessage(files.Length == 1 ? $"已用「{item.Name}」打开" : $"已用「{item.Name}」打开 {files.Length} 个文件");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"打开失败：{ex.Message}");
+        }
     }
 
     private void SetDropOverlay(bool show)
