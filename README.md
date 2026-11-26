@@ -47,4 +47,4 @@ dotnet publish .\src\DesktopJumpList\DesktopJumpList.csproj -c Release -r win-x6
 
 ## 许可
 
-个人项目，供学习与自用。
+[MIT License](LICENSE)。个人项目，供学习与自用，欢迎试用、修改与分发。
