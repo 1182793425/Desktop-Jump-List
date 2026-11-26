@@ -56,6 +56,9 @@ public partial class SettingsWindow : Window
             // Control covers buttons, text boxes, sliders, switches, radio dots, list boxes...
             if (node is System.Windows.Controls.Control) return true;
             if (node is FrameworkElement { Name: nameof(HotkeyBox) }) return true;
+            // The whole card area scrolls inside one ScrollViewer — it is a Control itself
+            // but must not swallow the drag; its ScrollBars are Controls and still will.
+            if (node is System.Windows.Controls.ScrollViewer) { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
             node = System.Windows.Media.VisualTreeHelper.GetParent(node);
         }
         return false;
