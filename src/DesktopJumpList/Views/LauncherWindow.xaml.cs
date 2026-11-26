@@ -946,6 +946,16 @@ public partial class LauncherWindow : Window
         Resources["RowHeightValue"] = RowHeight;
         Resources["RowItemMarginValue"] = new Thickness(0, 0, 0, ItemGap);
         Panel.Width = PanelWidth;
+        // Search pill: user width, hard-capped at the panel width.
+        Pill.Width = Math.Clamp(CurrentSettings.SearchBoxWidth, 240, (int)PanelWidth);
+    }
+
+    /// <summary>Applies the search pill's visibility/width settings.</summary>
+    public void ApplySearchBoxSettings()
+    {
+        ApplyPanelMetrics();
+        if (IsOpen) ResizeWindow();
+        UpdatePill();
     }
 
     /// <summary>Applies the icon/text/spacing settings and keeps the open panel correctly sized.</summary>
@@ -1418,7 +1428,8 @@ public partial class LauncherWindow : Window
         UpdatePill();
     }
 
-    private bool PillWanted => Query.Text.Length > 0 || _messageTimer.IsEnabled || MessageRow.IsHitTestVisible;
+    private bool PillWanted =>
+        CurrentSettings.SearchBoxVisible || Query.Text.Length > 0 || _messageTimer.IsEnabled || MessageRow.IsHitTestVisible;
 
     private void UpdatePill()
     {
@@ -1438,7 +1449,10 @@ public partial class LauncherWindow : Window
             PillShift.To(TranslateTransform.YProperty, show ? 0 : 6, show ? 220 : 140, show ? Motion.OutStrong : Motion.In);
         }
 
-        bool message = MessageRow.IsHitTestVisible && Query.Text.Length == 0;
+        // A message always swaps into the pill in place of the search box — never overlaps it.
+        // With the search box hidden by default this is the old pill behavior; with it always
+        // visible the toast briefly replaces the query text (which stays intact underneath).
+        bool message = MessageRow.IsHitTestVisible;
         SearchRow.To(OpacityProperty, message ? 0 : 1, 120);
         MessageRow.To(OpacityProperty, message ? 1 : 0, 120);
     }
@@ -1466,9 +1480,9 @@ public partial class LauncherWindow : Window
         {
             MessageRow.Set(OpacityProperty, 0);
             SearchRow.Set(OpacityProperty, 1);
-            Pill.Set(OpacityProperty, 0);
-            Pill.IsHitTestVisible = false;
-            PillShift.Set(TranslateTransform.YProperty, 6);
+            Pill.Set(OpacityProperty, CurrentSettings.SearchBoxVisible ? 1 : 0);
+            Pill.IsHitTestVisible = CurrentSettings.SearchBoxVisible;
+            PillShift.Set(TranslateTransform.YProperty, CurrentSettings.SearchBoxVisible ? 0 : 6);
             return;
         }
         UpdatePill();
@@ -1659,9 +1673,29 @@ public partial class LauncherWindow : Window
         }
     }
 
+    /// <summary>
+    /// Menus created in code have no logical parent, so they miss the window's pixel-grid
+    /// settings (UseLayoutRounding / TextFormattingMode=Display) and their text renders
+    /// blurry on fractional display scaling (125% / 150%). Every menu goes through here.
+    /// </summary>
+    private static ContextMenu NewMenu(FrameworkElement? anchor = null, bool centered = false)
+    {
+        var menu = new ContextMenu
+        {
+            PlacementTarget = anchor,
+            Placement = centered
+                ? System.Windows.Controls.Primitives.PlacementMode.Center
+                : System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
+        };
+        TextOptions.SetTextFormattingMode(menu, TextFormattingMode.Display);
+        return menu;
+    }
+
     private void ShowFileMenu(FileEntry file)
     {
-        var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var menu = NewMenu();
         menu.Items.Add(Item("打开", () => OpenFoundFile(file), "Enter"));
 
         // Packaged apps have no filesystem location: revealing or copying their shell: path
@@ -1692,7 +1726,7 @@ public partial class LauncherWindow : Window
 
     private void ShowFolderMenu(FolderTile folder, FrameworkElement anchor)
     {
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var menu = NewMenu(anchor);
         menu.Items.Add(Item("打开分组", () => OpenFolder(folder.Name)));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("重命名分组…", () => BeginRenameFolder(folder.Name)));
@@ -1722,7 +1756,7 @@ public partial class LauncherWindow : Window
     {
         Tiles.SelectedItem = item;
 
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var menu = NewMenu(anchor);
         menu.Items.Add(Item("打开", () => OpenItem(item), "Enter"));
         if (item.Kind is ShortcutKind.File or ShortcutKind.Folder or ShortcutKind.App)
             menu.Items.Add(Item("打开所在位置", () => { ShellLauncher.Reveal(item); Close(animated: true); }));
@@ -1730,7 +1764,9 @@ public partial class LauncherWindow : Window
         menu.Items.Add(Item(item.Pinned ? "取消固定" : "固定在最前", () => TogglePin(item)));
         menu.Items.Add(Item("重命名", () => BeginRename(item), "F2"));
 
-        // Move between folders without dragging: every existing folder is one click away.
+        // Move between folders without dragging: each target is one direct menu item. A nested
+        // submenu here was flaky (clicking the header did nothing), and with realistic folder
+        // counts a flat list reads faster anyway.
         var folders = _library.Items
             .Where(i => !string.IsNullOrWhiteSpace(i.Folder))
             .Select(i => i.Folder!)
@@ -1739,16 +1775,14 @@ public partial class LauncherWindow : Window
             .ToList();
         if (folders.Count > 0 || item.Folder is not null)
         {
-            var move = new MenuItem { Header = "移动到" };
             if (item.Folder is not null)
-                move.Items.Add(Item("主面板", () => MoveToFolder(item, null)));
+                menu.Items.Add(Item("移动到主面板", () => MoveToFolder(item, null)));
             foreach (var folder in folders)
             {
                 if (SameFolder(folder, item.Folder)) continue;
                 var target = folder;
-                move.Items.Add(Item($"「{target}」", () => MoveToFolder(item, target)));
+                menu.Items.Add(Item($"移动到「{target}」", () => MoveToFolder(item, target)));
             }
-            if (move.Items.Count > 0) menu.Items.Add(move);
         }
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("从 Jump 中移除", () => Remove(item), "Del"));
@@ -1860,13 +1894,7 @@ public partial class LauncherWindow : Window
 
     private void ShowAddMenu(FrameworkElement? anchor)
     {
-        var menu = new ContextMenu
-        {
-            PlacementTarget = anchor ?? (FrameworkElement)Panel,
-            Placement = anchor is null
-                ? System.Windows.Controls.Primitives.PlacementMode.Center
-                : System.Windows.Controls.Primitives.PlacementMode.MousePoint
-        };
+        var menu = NewMenu(anchor ?? (FrameworkElement)Panel, centered: anchor is null);
         menu.Items.Add(Item("添加文件 / 应用…", () => AddViaDialog(folder: false)));
         menu.Items.Add(Item("添加文件夹…", () => AddViaDialog(folder: true)));
         menu.Items.Add(Item("添加商店应用…", ShowStoreAppPicker));

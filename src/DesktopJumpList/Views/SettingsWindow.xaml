@@ -239,6 +239,9 @@
                         <Button Style="{StaticResource SettingsNavButton}" Content="✓   文件类型白名单" Tag="extensions" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="⊘   排除目录黑名单" Tag="excludes" Click="OnNavigate" />
                         <Button Style="{StaticResource SettingsNavButton}" Content="↗   搜索跳转" Tag="engines" Click="OnNavigate" />
+                        <TextBlock Text="其他" Margin="12,18,0,5" FontSize="10.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource InkFaintBrush}" />
+                        <Button Style="{StaticResource SettingsNavButton}" Content="ⓘ   关于软件" Tag="about" Click="OnNavigate" />
                     </StackPanel>
 
                 <ScrollViewer x:Name="SettingsScroll" Grid.Column="1" Margin="4,0,4,0"
@@ -347,6 +350,30 @@
                                 </Grid>
                                 <TextBlock Style="{StaticResource InlineHint}" Margin="0,6,0,0" TextWrapping="Wrap"
                                            Text="面板宽高由每行数量、图标大小、项间距撑开；行数按「最大行数」铺开，超出屏幕才滚动" />
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="搜索框" Style="{StaticResource RowLabel}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <CheckBox x:Name="SearchBoxSwitch" Style="{StaticResource Switch}"
+                                                  VerticalAlignment="Center" Click="OnSearchBoxVisibleClick" />
+                                        <TextBlock Style="{StaticResource InlineHint}" Text="打开面板时默认显示搜索框" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="搜索框宽度" Style="{StaticResource RowLabel}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox x:Name="SearchWidthBox" Style="{StaticResource SettingsNumber}" />
+                                        <TextBlock Text="px" Style="{StaticResource Unit}" />
+                                        <TextBlock Style="{StaticResource InlineHint}" Text="最大为面板宽度 530" />
+                                    </StackPanel>
+                                </Grid>
                             </StackPanel>
                         </Border>
 
@@ -501,6 +528,49 @@
                             </StackPanel>
                         </Border>
                         <views:AdvancedSettingsPanel x:Name="AdvancedDetails" Visibility="Collapsed" />
+
+                        <!-- 关于软件 -->
+                        <Border x:Name="AboutCard" Style="{StaticResource SettingsCard}" Visibility="Collapsed">
+                            <StackPanel>
+                                <TextBlock Text="关于软件" Style="{StaticResource SettingsSection}" />
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="当前版本" Style="{StaticResource RowLabel}" />
+                                    <TextBlock x:Name="AboutVersion" Grid.Column="1" VerticalAlignment="Center"
+                                               Style="{StaticResource InlineHint}" Margin="0" />
+                                </Grid>
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="项目地址" Style="{StaticResource RowLabel}" />
+                                    <Button Grid.Column="1" Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
+                                            Padding="0,3" Click="OnOpenProjectPage"
+                                            Content="github.com/1182793425/Desktop-Jump-List"
+                                            ToolTip="在浏览器打开项目主页" />
+                                </Grid>
+                                <Grid Style="{StaticResource SettingsRow}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="检查更新" Style="{StaticResource RowLabel}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button x:Name="CheckUpdateButton" Style="{StaticResource LinkButton}"
+                                                Padding="8,4" Click="OnCheckUpdateClick" Content="检查更新" />
+                                        <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
+                                                Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
+                                                Content="下载安装包" Visibility="Collapsed" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
                 </Grid>

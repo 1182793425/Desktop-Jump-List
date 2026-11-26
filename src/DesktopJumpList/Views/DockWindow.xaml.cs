@@ -627,7 +627,15 @@ public partial class DockWindow : Window
     private void OnRightClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        // Code-created menus have no logical parent: without these pixel-grid settings the
+        // text renders blurry on fractional display scaling (125% / 150%).
+        var menu = new ContextMenu
+        {
+            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
+        };
+        TextOptions.SetTextFormattingMode(menu, TextFormattingMode.Display);
 
         var autostart = new MenuItem { Header = "开机自动启动", IsCheckable = true, IsChecked = StartupService.IsEnabled };
         autostart.Click += (_, _) =>

@@ -136,6 +136,12 @@ public sealed class AppSettings
     /// </summary>
     public int SearchDebounceMs { get; set; } = 100;
 
+    /// <summary>Show the search box as soon as the panel opens (instead of only after typing).</summary>
+    public bool SearchBoxVisible { get; set; } = true;
+
+    /// <summary>Width of the search pill in DIPs; hard-capped at the panel width (530).</summary>
+    public int SearchBoxWidth { get; set; } = 340;
+
     /// <summary>Search local files (index of the folders listed in <see cref="FileSearchRoots"/>).</summary>
     public bool FileSearchEnabled { get; set; } = true;
 
@@ -272,6 +278,8 @@ public sealed class AppSettings
         SearchEngines = new List<string>(SearchEngines),
         SearchJumpRules = SearchJumpRules?.Select(rule => rule.Copy()).ToList(),
         SearchDebounceMs = SearchDebounceMs,
+        SearchBoxVisible = SearchBoxVisible,
+        SearchBoxWidth = SearchBoxWidth,
         FileSearchEnabled = FileSearchEnabled,
         FileSearchRoots = new List<string>(FileSearchRoots),
         FileSearchRootsCustomized = FileSearchRootsCustomized,
@@ -319,6 +327,8 @@ public sealed class AppSettings
         SearchEngines = new List<string>(source.SearchEngines);
         SearchJumpRules = source.SearchJumpRules?.Select(rule => rule.Copy()).ToList();
         SearchDebounceMs = source.SearchDebounceMs;
+        SearchBoxVisible = source.SearchBoxVisible;
+        SearchBoxWidth = source.SearchBoxWidth;
         FileSearchEnabled = source.FileSearchEnabled;
         FileSearchRoots = new List<string>(source.FileSearchRoots);
         FileSearchRootsCustomized = source.FileSearchRootsCustomized;

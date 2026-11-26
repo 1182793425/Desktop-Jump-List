@@ -1,4 +1,6 @@
-﻿using System.Windows;
+﻿using System.Diagnostics;
+using System.IO;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -135,6 +137,9 @@ public partial class SettingsWindow : Window
 
         RecentBox.Text = s.RecentCount.ToString();
 
+        SearchBoxSwitch.IsChecked = s.SearchBoxVisible;
+        SearchWidthBox.Text = s.SearchBoxWidth.ToString();
+
         SnapBox.Text = s.SnapDistance.ToString();
 
         _settingsRefreshing = true;
@@ -168,6 +173,7 @@ public partial class SettingsWindow : Window
 
         var version = typeof(App).Assembly.GetName().Version;
         VersionText.Text = version is null ? "Jump" : $"Jump v{version.ToString(3)}";
+        AboutVersion.Text = VersionText.Text;
     }
 
     private void OnThemeSystem(object sender, RoutedEventArgs e) => ApplyThemeFromSettings(AppTheme.System);
@@ -209,6 +215,7 @@ public partial class SettingsWindow : Window
             case nameof(GapBox): ApplyInt(box, v => App.Current.SetPanelGap(v)); break;
             case nameof(ItemGapBox): ApplyInt(box, v => App.Current.SetPanelItemGap(v)); break;
             case nameof(RecentBox): ApplyInt(box, v => App.Current.SetRecentCount(v)); break;
+            case nameof(SearchWidthBox): ApplyInt(box, v => App.Current.SetSearchBoxWidth(v)); break;
             case nameof(DockSizeBox): ApplyInt(box, v => App.Current.SetDockSize(v)); break;
             case nameof(DockOpacityBox):
                 if (int.TryParse(box.Text.Trim(), out var opacity))
@@ -235,6 +242,12 @@ public partial class SettingsWindow : Window
     private static void ApplyInt(TextBox box, Action<int> apply)
     {
         if (int.TryParse(box.Text.Trim(), out var value)) apply(value);
+    }
+
+    private void OnSearchBoxVisibleClick(object sender, RoutedEventArgs e)
+    {
+        App.Current.SetSearchBoxVisible(SearchBoxSwitch.IsChecked == true);
+        RefreshSettings();
     }
 
     private void OnDockVisibleClick(object sender, RoutedEventArgs e)
@@ -385,6 +398,7 @@ public partial class SettingsWindow : Window
         LayoutCard.Visibility = name == "layout" ? Visibility.Visible : Visibility.Collapsed;
         DockCard.Visibility = name == "dock" ? Visibility.Visible : Visibility.Collapsed;
         StartupCard.Visibility = name == "startup" ? Visibility.Visible : Visibility.Collapsed;
+        AboutCard.Visibility = name == "about" ? Visibility.Visible : Visibility.Collapsed;
         var advanced = name is "search" or "files" or "extensions" or "excludes" or "engines";
         AdvancedDetails.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
         if (advanced) AdvancedDetails.ShowModule(name);
@@ -414,6 +428,82 @@ public partial class SettingsWindow : Window
     }
 
     private void OnOpenDataFolder(object sender, RoutedEventArgs e) => App.Current.OpenDataFolder();
+
+    // ───────────────────────── 关于软件 / 检查更新 ─────────────────────────
+
+    private Services.UpdateService.ReleaseInfo? _pendingUpdate;
+
+    private void OnOpenProjectPage(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(Services.UpdateService.RepoUrl) { UseShellExecute = true }); }
+        catch { /* no browser association: nothing sensible to fall back to */ }
+    }
+
+    private async void OnCheckUpdateClick(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        DownloadUpdateButton.Visibility = Visibility.Collapsed;
+        _pendingUpdate = null;
+        UpdateStatus.Text = "正在检查更新…";
+        try
+        {
+            var latest = await Services.UpdateService.GetLatestReleaseAsync();
+            var current = typeof(App).Assembly.GetName().Version;
+            if (latest is null || current is null)
+            {
+                UpdateStatus.Text = "无法解析版本信息，可稍后再试";
+                return;
+            }
+            if (latest.Version <= current)
+            {
+                UpdateStatus.Text = $"已是最新版本（v{current.ToString(3)}）";
+                return;
+            }
+            _pendingUpdate = latest;
+            UpdateStatus.Text = $"发现新版本 {latest.Tag}（当前 v{current.ToString(3)}）";
+            DownloadUpdateButton.Visibility = latest.AssetUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus.Text = $"检查更新失败：{ex.Message}";
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private async void OnDownloadUpdateClick(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is not { AssetUrl: { } url, AssetFileName: { } name }) return;
+        DownloadUpdateButton.IsEnabled = false;
+        try
+        {
+            var downloads = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            Directory.CreateDirectory(downloads);
+            var dest = Path.Combine(downloads, name);
+            UpdateStatus.Text = "正在下载…";
+            await Services.UpdateService.DownloadAsync(url, dest,
+                percent => Dispatcher.Invoke(() => UpdateStatus.Text = $"正在下载… {percent}%"));
+            UpdateStatus.Text = $"下载完成：{dest}";
+            if (MessageBox.Show(this, $"安装包已下载到：\n{dest}\n\n立即运行安装？",
+                    "Jump 更新", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                Process.Start(new ProcessStartInfo(dest) { UseShellExecute = true });
+            }
+            DownloadUpdateButton.Visibility = Visibility.Collapsed;
+            _pendingUpdate = null;
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus.Text = $"下载失败：{ex.Message}";
+        }
+        finally
+        {
+            DownloadUpdateButton.IsEnabled = true;
+        }
+    }
 
     private static bool IsInside(DependencyObject node, DependencyObject ancestor)
     {

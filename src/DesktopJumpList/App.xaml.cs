@@ -271,6 +271,20 @@ public partial class App : Application
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
+    public void SetSearchBoxVisible(bool visible)
+    {
+        Settings.SearchBoxVisible = visible;
+        SaveSettings();
+        Launcher.ApplySearchBoxSettings();
+    }
+
+    public void SetSearchBoxWidth(int width)
+    {
+        Settings.SearchBoxWidth = Math.Clamp(width, 240, 530);
+        SaveSettings();
+        Launcher.ApplySearchBoxSettings();
+    }
+
     public void SetFileSearchRoots(IEnumerable<string> roots)
     {
         Settings.FileSearchRoots = roots.ToList();
