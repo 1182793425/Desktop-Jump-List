@@ -179,8 +179,8 @@
                                 <TextBlock Text="文件类型白名单" Style="{StaticResource Section}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,10"
                                            Text="只索引列出的文件扩展名；文件夹和已安装应用不受影响。每行一个扩展名，行首 # 表示注释。修改后重建索引生效。" />
-                                <TextBox x:Name="FileExtBox" AcceptsReturn="True" Height="180" FontSize="11.5"
-                                         Padding="8,6" VerticalScrollBarVisibility="Auto"
+                                <TextBox x:Name="FileExtBox" AcceptsReturn="True" Height="280" MinHeight="240" FontSize="12.5"
+                                         Padding="10,8" VerticalScrollBarVisibility="Auto"
                                          Background="{DynamicResource HoverBrush}"
                                          Foreground="{DynamicResource InkBrush}"
                                          BorderBrush="{DynamicResource CardBorderBrush}" />
@@ -191,29 +191,67 @@
                             <StackPanel>
                                 <TextBlock Text="排除文件夹（黑名单）" Style="{StaticResource Section}" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
-                                           Text="索引会跳过这些目录及其子目录。路径支持环境变量；更改后立即重建索引。" />
+                                           Text="索引会跳过这些目录及其子目录。可以添加环境变量路径（如 %ALLUSERSPROFILE%），也可以直接选择文件夹；更改后立即重建索引。" />
                                 <StackPanel x:Name="ExcludeRows" Margin="0,2,0,0" />
-                                <Button x:Name="AddExcludeButton" Content="＋ 添加要排除的文件夹…"
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="ExcludeVariableBox" MinHeight="34" FontSize="12.5"
+                                             Padding="9,6" VerticalContentAlignment="Center"
+                                             ToolTip="输入环境变量路径，例如 %ALLUSERSPROFILE% 或 %TEMP%\Logs"
+                                             Background="{DynamicResource HoverBrush}"
+                                             Foreground="{DynamicResource InkBrush}"
+                                             BorderBrush="{DynamicResource CardBorderBrush}"
+                                             KeyDown="OnExcludeVariableKeyDown" />
+                                    <Button Grid.Column="1" Content="添加路径" Style="{StaticResource LinkButton}"
+                                            Padding="10,5" Margin="8,0,0,0" Click="OnAddExcludeVariable" />
+                                </Grid>
+                                <Button x:Name="AddExcludeButton" Content="＋ 选择要排除的文件夹…"
                                         Style="{StaticResource LinkButton}"
-                                        HorizontalAlignment="Left" Padding="0,4" Margin="0,4,0,0"
-                                        Click="OnAddExclude" />
+                                        HorizontalAlignment="Left" Padding="0,5" Margin="0,5,0,0"
+                                        Click="OnAddExcludeFolder" />
                             </StackPanel>
                         </Border>
 
                         <Border x:Name="EngineCard" Style="{StaticResource Card}" Margin="0" Visibility="Collapsed">
                             <StackPanel>
                                 <Grid>
-                                    <TextBlock Text="搜索引擎" Style="{StaticResource Section}" />
+                                    <TextBlock Text="搜索跳转" Style="{StaticResource Section}" />
                                     <TextBlock Style="{StaticResource InfoDot}" HorizontalAlignment="Right"
-                                               ToolTip="开启后，输入关键词时结果末尾会多出「百度搜索」「谷歌搜索」等条目；回车用系统默认浏览器打开。图标是矢量绘制的品牌色块，任何 DPI 下都清晰。" />
+                                               ToolTip="为每条规则设置显示名称和 URL 模板。模板必须包含 {input}，搜索词会自动进行 URL 编码；输入普通关键词后，匹配跳转会出现在结果列表末尾。" />
                                 </Grid>
+                                <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
+                                           Text="每条规则可独立启用、编辑名称和 URL 模板。搜索词以 {input} 替换并自动编码，例如京东可用 https://search.jd.com/Search?keyword={input}。" />
                                 <StackPanel x:Name="EngineRows" />
+                                <Border Margin="0,10,0,0" Padding="10" CornerRadius="9"
+                                        Background="{DynamicResource HoverBrush}"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                                    <StackPanel>
+                                        <TextBlock Text="添加自定义跳转" Style="{StaticResource RowLabel}" Margin="0,0,0,7" />
+                                        <TextBox x:Name="NewEngineNameBox" MinHeight="34" FontSize="12.5"
+                                                 Padding="9,6" VerticalContentAlignment="Center"
+                                                 ToolTip="显示名称，例如 京东"
+                                                 Background="{DynamicResource CardBrush}"
+                                                 Foreground="{DynamicResource InkBrush}"
+                                                 BorderBrush="{DynamicResource CardBorderBrush}" />
+                                        <TextBox x:Name="NewEngineUrlBox" MinHeight="34" FontSize="12.5"
+                                                 Padding="9,6" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                                 ToolTip="URL 模板，例如 https://search.jd.com/Search?keyword={input}"
+                                                 Background="{DynamicResource CardBrush}"
+                                                 Foreground="{DynamicResource InkBrush}"
+                                                 BorderBrush="{DynamicResource CardBorderBrush}"
+                                                 KeyDown="OnNewEngineUrlKeyDown" />
+                                        <TextBlock x:Name="EngineFormStatus" Style="{StaticResource Hint}"
+                                                   Margin="1,5,0,0" TextWrapping="Wrap" />
+                                        <Button Content="＋ 添加搜索跳转" Style="{StaticResource LinkButton}"
+                                                HorizontalAlignment="Left" Padding="0,5" Margin="0,4,0,0"
+                                                Click="OnAddSearchJump" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
         </StackPanel>
-        <Grid x:Name="ResetDefaultsRow" Margin="8,4,8,8">
-            <Button Content="恢复默认（百度 / 谷歌 / 必应）" Style="{StaticResource LinkButton}"
-                    HorizontalAlignment="Left" Padding="0,3" FontSize="11.5" Click="OnResetDefaults" />
-        </Grid>
     </StackPanel>
 </UserControl>

@@ -1,11 +1,8 @@
-﻿using System.Windows.Media;
+using System.Windows.Media;
 
 namespace DesktopJumpList.Models;
 
-/// <summary>
-/// One web search shortcut offered while typing. The icon is drawn (brand colour + monogram)
-/// rather than shipped as a bitmap, so it stays crisp at any DPI and costs no assets.
-/// </summary>
+/// <summary>Presentation model for one configured search jump.</summary>
 public sealed class SearchEngineOption
 {
     private readonly SolidColorBrush _brush;
@@ -17,7 +14,6 @@ public sealed class SearchEngineOption
         ColorHex = colorHex;
         Monogram = monogram;
         UrlTemplate = urlTemplate;
-
         var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex));
         brush.Freeze();
         _brush = brush;
@@ -28,40 +24,65 @@ public sealed class SearchEngineOption
     public string ColorHex { get; }
     public string Monogram { get; }
     public string UrlTemplate { get; }
-
-    /// <summary>Frozen brand brush, ready to bind from XAML.</summary>
     public Brush BrandBrush => _brush;
 
-    public string BuildUrl(string query) => UrlTemplate + Uri.EscapeDataString(query);
+    public string BuildUrl(string query) => UrlTemplate.Contains("{input}", StringComparison.Ordinal)
+        ? UrlTemplate.Replace("{input}", Uri.EscapeDataString(query), StringComparison.Ordinal)
+        : UrlTemplate + Uri.EscapeDataString(query);
 }
 
-/// <summary>The engines Jump can offer. Kept in code so the list is the same everywhere.</summary>
-public static class SearchEngineCatalog
+/// <summary>A user-editable named URL rule with an {input} placeholder.</summary>
+public sealed class SearchJumpRule
 {
-    public static readonly IReadOnlyList<SearchEngineOption> All = new[]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "";
+    public string UrlTemplate { get; set; } = "https://example.com/search?q={input}";
+    public string ColorHex { get; set; } = "#64748B";
+    public string Monogram { get; set; } = "搜";
+    public bool IsEnabled { get; set; } = true;
+
+    public SearchJumpRule Copy() => new()
     {
-        new SearchEngineOption("baidu", "百度", "#2B34E8", "百", "https://www.baidu.com/s?wd="),
-        new SearchEngineOption("google", "谷歌", "#4285F4", "G", "https://www.google.com/search?q="),
-        new SearchEngineOption("bing", "必应", "#0A7C86", "b", "https://www.bing.com/search?q="),
-        new SearchEngineOption("zhihu", "知乎", "#056DE8", "知", "https://www.zhihu.com/search?type=content&q="),
-        new SearchEngineOption("taobao", "淘宝", "#FF5000", "淘", "https://s.taobao.com/search?q="),
+        Id = Id, Name = Name, UrlTemplate = UrlTemplate,
+        ColorHex = ColorHex, Monogram = Monogram, IsEnabled = IsEnabled
     };
 
-    public static SearchEngineOption? ById(string id) =>
-        All.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+    public SearchEngineOption ToOption() => new(Id, Name, ColorHex, Monogram, UrlTemplate);
 
-    public static IEnumerable<SearchEngineOption> Resolve(IEnumerable<string> ids)
+    public static List<SearchJumpRule> Defaults(IEnumerable<string>? enabledIds = null)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in ids)
+        var enabled = enabledIds is null
+            ? new HashSet<string>(new[] { "baidu", "google", "bing" }, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(enabledIds, StringComparer.OrdinalIgnoreCase);
+        return new List<SearchJumpRule>
         {
-            if (!seen.Add(id)) continue;
-            if (ById(id) is { } engine) yield return engine;
-        }
+            Make("baidu", "百度", "#2B34E8", "百", "https://www.baidu.com/s?wd={input}", enabled),
+            Make("google", "谷歌", "#4285F4", "G", "https://www.google.com/search?q={input}", enabled),
+            Make("bing", "必应", "#0A7C86", "b", "https://www.bing.com/search?q={input}", enabled),
+            Make("zhihu", "知乎", "#056DE8", "知", "https://www.zhihu.com/search?type=content&q={input}", enabled),
+            Make("taobao", "淘宝", "#FF5000", "淘", "https://s.taobao.com/search?q={input}", enabled)
+        };
+    }
+
+    private static SearchJumpRule Make(string id, string name, string color, string glyph,
+        string url, HashSet<string> enabled) => new()
+    {
+        Id = id, Name = name, ColorHex = color, Monogram = glyph,
+        UrlTemplate = url, IsEnabled = enabled.Contains(id)
+    };
+}
+
+public static class SearchEngineCatalog
+{
+    public static IEnumerable<SearchEngineOption> Resolve(IEnumerable<SearchJumpRule> rules)
+    {
+        foreach (var rule in rules)
+            if (rule.IsEnabled && !string.IsNullOrWhiteSpace(rule.Name))
+                yield return rule.ToOption();
     }
 }
 
-/// <summary>A "search the web for this" row appended to the result list while typing.</summary>
+/// <summary>A "search the web for this" row appended to ordinary search results.</summary>
 public sealed class SearchResultTile
 {
     public SearchResultTile(SearchEngineOption engine, string query)

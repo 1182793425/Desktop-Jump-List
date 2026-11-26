@@ -439,7 +439,7 @@ public partial class LauncherWindow : Window
             // so a plain query never touches the disk index.
             if (q.Length > 0)
             {
-                foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchEngines))
+                foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchJumpRules ?? new List<SearchJumpRule>()))
                     next.Add(new SearchResultTile(engine, q));
             }
         }

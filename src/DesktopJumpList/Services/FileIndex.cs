@@ -140,7 +140,7 @@ public sealed class FileIndex
         }
     }
 
-    /// <summary>Expands %VARS%, trims trailing separators and drops empties.</summary>
+    /// <summary>Expands %VARS%, normalizes separators and trims trailing separators.</summary>
     private static List<string> NormalizeExcludes(IReadOnlyCollection<string>? excludedFolders)
     {
         var result = new List<string>();
@@ -148,7 +148,7 @@ public sealed class FileIndex
         foreach (var raw in excludedFolders)
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
-            var expanded = Environment.ExpandEnvironmentVariables(raw.Trim()).TrimEnd('\\');
+            var expanded = Environment.ExpandEnvironmentVariables(raw.Trim()).Replace('/', '\\').TrimEnd('\\');
             if (expanded.Length > 2) result.Add(expanded); // never allow "C:\" or a bare drive
         }
         return result;
@@ -177,7 +177,7 @@ public sealed class FileIndex
         {
             if (token.IsCancellationRequested || into.Count >= limit) break;
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
-            if (IsExcluded(root.TrimEnd('\\'), excludePrefixes)) continue;
+            if (IsExcluded(root, excludePrefixes)) continue;
 
             RootLimitSetting? cfg = null;
             if (perRoot is not null) perRoot.TryGetValue(root, out cfg);
@@ -248,12 +248,19 @@ public sealed class FileIndex
 
                     token.ThrowIfCancellationRequested();
 
+                    // Do not index through directory junctions/symlinks. Besides preventing
+                    // loops, this closes aliases such as "Users\\All Users" to ProgramData.
+                    FileAttributes attributes;
+                    try { attributes = File.GetAttributes(path); }
+                    catch { continue; }
+                    var isDirectory = (attributes & FileAttributes.Directory) != 0;
+                    if (isDirectory && (attributes & FileAttributes.ReparsePoint) != 0) continue;
+
+                    // Exclusions apply to the entry itself as well as traversal below it.
+                    if (IsExcluded(path, excludePrefixes)) continue;
+
                     var name = Path.GetFileName(path);
                     if (string.IsNullOrEmpty(name) || name.StartsWith('.')) continue;
-
-                    bool isDirectory;
-                    try { isDirectory = Directory.Exists(path); }
-                    catch { continue; }
 
                     // .pathactive-style allow-list: files must match, folders always pass.
                     if (!isDirectory && extensionFilter is { Count: > 0 })

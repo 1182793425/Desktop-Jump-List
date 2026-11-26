@@ -14,7 +14,7 @@ namespace DesktopJumpList.Views;
 /// </summary>
 public partial class AdvancedSettingsPanel : UserControl
 {
-    private readonly List<(string Id, CheckBox Toggle)> _toggles = new();
+    private bool _buildingEngineRows;
     private Window? _owner;
 
     public AdvancedSettingsPanel()
@@ -25,7 +25,6 @@ public partial class AdvancedSettingsPanel : UserControl
         WireFileSearch();
         Loaded += (_, _) =>
         {
-            Refresh();
             if (_owner is null && Window.GetWindow(this) is { } owner)
             {
                 _owner = owner;
@@ -304,7 +303,22 @@ public partial class AdvancedSettingsPanel : UserControl
         }
     }
 
-    private void OnAddExclude(object sender, RoutedEventArgs e)
+    private void OnExcludeVariableKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnAddExcludeVariable(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnAddExcludeVariable(object sender, RoutedEventArgs e)
+    {
+        var value = ExcludeVariableBox.Text.Trim();
+        if (value.Length == 0) return;
+        AddExclude(value);
+        ExcludeVariableBox.Clear();
+    }
+
+    private void OnAddExcludeFolder(object sender, RoutedEventArgs e)
     {
         using var dialog = new System.Windows.Forms.FolderBrowserDialog
         {
@@ -315,9 +329,17 @@ public partial class AdvancedSettingsPanel : UserControl
         if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
         if (string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
 
+        AddExclude(dialog.SelectedPath);
+    }
+
+    private void AddExclude(string value)
+    {
         var excludes = App.Current.Settings.FileIndexExcludes;
-        if (excludes.Any(x => string.Equals(x, dialog.SelectedPath, StringComparison.OrdinalIgnoreCase))) return;
-        App.Current.SetFileIndexExcludes(excludes.Append(dialog.SelectedPath));
+        var expanded = Environment.ExpandEnvironmentVariables(value);
+        if (excludes.Any(x => string.Equals(x, value, StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(Environment.ExpandEnvironmentVariables(x), expanded,
+                                  StringComparison.OrdinalIgnoreCase))) return;
+        App.Current.SetFileIndexExcludes(excludes.Append(value));
         BuildExcludeRows();
         UpdateFileStatus();
     }
@@ -405,86 +427,149 @@ public partial class AdvancedSettingsPanel : UserControl
         FileExtCard.Visibility = module == "extensions" ? Visibility.Visible : Visibility.Collapsed;
         ExcludeCard.Visibility = module == "excludes" ? Visibility.Visible : Visibility.Collapsed;
         EngineCard.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
-        ResetDefaultsRow.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BuildEngineRows()
     {
-        foreach (var engine in SearchEngineCatalog.All)
+        _buildingEngineRows = true;
+        EngineRows.Children.Clear();
+        var rules = App.Current.Settings.SearchJumpRules ?? new List<SearchJumpRule>();
+        foreach (var rule in rules)
         {
-            var row = new Grid { Margin = new Thickness(0, 3, 0, 3), MinHeight = 34 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
 
-            var badge = new Border
-            {
-                Width = 24,
-                Height = 24,
-                CornerRadius = new CornerRadius(7),
-                Background = engine.BrandBrush,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            badge.Child = new TextBlock
-            {
-                Text = engine.Monogram,
-                Foreground = Brushes.White,
-                FontSize = 11.5,
-                FontWeight = FontWeights.SemiBold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            row.Children.Add(badge);
-
-            var name = new TextBlock
-            {
-                Text = engine.Name,
-                Style = (Style)Resources["RowLabel"],
-                Margin = new Thickness(8, 0, 0, 0)
-            };
-            Grid.SetColumn(name, 1);
+            var name = MakeJumpEditor(rule.Name, rule.Id, "name", "显示名称");
+            name.Margin = new Thickness(0, 0, 5, 0);
             row.Children.Add(name);
+
+            var url = MakeJumpEditor(rule.UrlTemplate, rule.Id, "url", "URL 模板，包含 {input}");
+            Grid.SetColumn(url, 1);
+            row.Children.Add(url);
 
             var toggle = new CheckBox
             {
                 Style = (Style)FindResource("Switch"),
                 VerticalAlignment = VerticalAlignment.Center,
-                Tag = engine.Id
+                HorizontalAlignment = HorizontalAlignment.Center,
+                IsChecked = rule.IsEnabled,
+                Tag = rule.Id
             };
             toggle.Click += OnEngineToggled;
             Grid.SetColumn(toggle, 2);
             row.Children.Add(toggle);
 
-            _toggles.Add((engine.Id, toggle));
+            var remove = new Button
+            {
+                Content = "移除",
+                Style = (Style)Resources["LinkButton"],
+                Padding = new Thickness(0, 2, 0, 2),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Tag = rule.Id
+            };
+            remove.Click += OnRemoveSearchJump;
+            Grid.SetColumn(remove, 3);
+            row.Children.Add(remove);
             EngineRows.Children.Add(row);
         }
+        _buildingEngineRows = false;
     }
 
-    private void Refresh()
+    private TextBox MakeJumpEditor(string value, string id, string field, string hint)
     {
-        var enabled = App.Current.Settings.SearchEngines;
-        foreach (var (id, toggle) in _toggles)
-            toggle.IsChecked = enabled.Any(e => string.Equals(e, id, StringComparison.OrdinalIgnoreCase));
+        var box = new TextBox
+        {
+            Text = value,
+            MinHeight = 32,
+            FontSize = 11.5,
+            Padding = new Thickness(7, 5, 7, 5),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = hint,
+            Tag = (id, field),
+            Background = (Brush)FindResource("HoverBrush"),
+            Foreground = (Brush)FindResource("InkBrush"),
+            BorderBrush = (Brush)FindResource("CardBorderBrush")
+        };
+        box.TextChanged += OnSearchJumpTextChanged;
+        return box;
+    }
+
+    private void OnSearchJumpTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_buildingEngineRows || sender is not TextBox { Tag: ValueTuple<string, string> tag } box) return;
+        var rules = App.Current.Settings.SearchJumpRules;
+        if (rules is null) return;
+        var rule = rules.FirstOrDefault(item => string.Equals(item.Id, tag.Item1, StringComparison.Ordinal));
+        if (rule is null) return;
+        if (tag.Item2 == "name") rule.Name = box.Text;
+        else rule.UrlTemplate = box.Text;
+        App.Current.SetSearchJumpRules(rules);
     }
 
     private void OnEngineToggled(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox { Tag: string id } clicked) return;
-
-        // Keep the catalogue order so the result rows never reshuffle.
-        var current = new HashSet<string>(App.Current.Settings.SearchEngines, StringComparer.OrdinalIgnoreCase);
-        if (clicked.IsChecked == true) current.Add(id);
-        else current.Remove(id);
-
-        var ordered = SearchEngineCatalog.All.Where(x => current.Contains(x.Id)).Select(x => x.Id).ToList();
-        App.Current.SetSearchEngines(ordered);
-        Refresh();
+        var rules = App.Current.Settings.SearchJumpRules;
+        var rule = rules?.FirstOrDefault(item => item.Id == id);
+        if (rule is null) return;
+        rule.IsEnabled = clicked.IsChecked == true;
+        App.Current.SetSearchJumpRules(rules!);
     }
 
-    private void OnResetDefaults(object sender, RoutedEventArgs e)
+    private void OnNewEngineUrlKeyDown(object sender, KeyEventArgs e)
     {
-        App.Current.SetSearchEngines(new[] { "baidu", "google", "bing" });
-        Refresh();
+        if (e.Key != Key.Enter) return;
+        OnAddSearchJump(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnAddSearchJump(object sender, RoutedEventArgs e)
+    {
+        var name = NewEngineNameBox.Text.Trim();
+        var template = NewEngineUrlBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            EngineFormStatus.Text = "请填写显示名称。";
+            NewEngineNameBox.Focus();
+            return;
+        }
+        if (!template.Contains("{input}", StringComparison.Ordinal)
+            || !Uri.TryCreate(template.Replace("{input}", "query", StringComparison.Ordinal), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            EngineFormStatus.Text = "请输入有效的 http/https URL，并包含 {input} 占位符。";
+            NewEngineUrlBox.Focus();
+            return;
+        }
+
+        var rules = App.Current.Settings.SearchJumpRules ?? new List<SearchJumpRule>();
+        var glyph = name[..1];
+        rules.Add(new SearchJumpRule
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = name,
+            UrlTemplate = template,
+            Monogram = glyph,
+            IsEnabled = true
+        });
+        App.Current.SetSearchJumpRules(rules);
+        NewEngineNameBox.Clear();
+        NewEngineUrlBox.Clear();
+        EngineFormStatus.Text = "已添加，输入关键词即可使用。";
+        BuildEngineRows();
+    }
+
+    private void OnRemoveSearchJump(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string id }) return;
+        var rules = App.Current.Settings.SearchJumpRules;
+        if (rules is null) return;
+        App.Current.SetSearchJumpRules(rules.Where(rule => rule.Id != id));
+        BuildEngineRows();
     }
 
 }

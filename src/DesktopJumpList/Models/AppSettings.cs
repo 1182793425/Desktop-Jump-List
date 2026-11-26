@@ -85,10 +85,12 @@ public sealed class AppSettings
     public int PanelItemGap { get; set; } = 10;
 
     /// <summary>
-    /// Search engines offered as extra result rows while typing (ids from
-    /// <see cref="SearchEngineCatalog"/>). Empty means the feature is off.
+    /// Legacy enabled search-engine IDs, retained to migrate older settings files.
     /// </summary>
     public List<string> SearchEngines { get; set; } = new() { "baidu", "google", "bing" };
+
+    /// <summary>User-defined named URL templates offered as search jumps.</summary>
+    public List<SearchJumpRule>? SearchJumpRules { get; set; }
 
     /// <summary>
     /// How long typing must pause before the result list is rebuilt (ms). 0 rebuilds on every
@@ -208,6 +210,7 @@ public sealed class AppSettings
         PanelGap = PanelGap,
         PanelItemGap = PanelItemGap,
         SearchEngines = new List<string>(SearchEngines),
+        SearchJumpRules = SearchJumpRules?.Select(rule => rule.Copy()).ToList(),
         SearchDebounceMs = SearchDebounceMs,
         FileSearchEnabled = FileSearchEnabled,
         FileSearchRoots = new List<string>(FileSearchRoots),

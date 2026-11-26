@@ -65,6 +65,7 @@ public partial class App : Application
     {
         Storage = new Storage();
         Settings = Storage.LoadSettings();
+        EnsureSearchJumpRules();
         Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.0, 1.0);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
@@ -424,6 +425,22 @@ public partial class App : Application
         if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
     }
 
+    public void SetSearchJumpRules(IEnumerable<SearchJumpRule> rules)
+    {
+        var configured = rules.Select(rule => rule.Copy()).ToList();
+        Settings.SearchJumpRules = configured;
+        Settings.SearchEngines = configured.Where(rule => rule.IsEnabled).Select(rule => rule.Id).ToList();
+        SaveSettings();
+        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+    }
+
+    private void EnsureSearchJumpRules()
+    {
+        if (Settings.SearchJumpRules is not null) return;
+        Settings.SearchJumpRules = SearchJumpRule.Defaults(Settings.SearchEngines);
+        SaveSettings();
+    }
+
     public void SetPanelItemGap(int gap)
     {
         Settings.PanelItemGap = gap;
@@ -598,6 +615,7 @@ public partial class App : Application
 
             Storage = new Storage(previewData);
             Settings = Storage.LoadSettings();
+            EnsureSearchJumpRules();
             ThemeService.Initialize(AppTheme.Dark);
             Library = new ShortcutLibrary(Storage);
             if (usingRealTiles)
