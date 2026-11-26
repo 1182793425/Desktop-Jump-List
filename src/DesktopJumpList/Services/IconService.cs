@@ -28,6 +28,8 @@ public static class IconService
     private const uint SHGFI_ICON = 0x100;
     private const uint SHGFI_LARGEICON = 0x0;
     private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
+    private const int SIIGBF_BIGGERSIZEOK = 0x1;
+    private const int SIIGBF_ICONONLY = 0x4;
     private const uint SHGFI_USEFILEATTRIBUTES = 0x10;
     private const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     private const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
@@ -135,13 +137,42 @@ public static class IconService
             }
             else if (File.Exists(path) || Directory.Exists(path))
             {
-                result = FromHighResFallback(path) ?? FromShellIcon(path);
+                // Match the v3.12 pipeline: ask Explorer for its rendered high-resolution
+                // image first. PE resource extraction can choose a small embedded variant
+                // (often 32 px) and upscale it, which looks soft in the panel.
+                result = FromShellImage(path) ?? FromHighResFallback(path) ?? FromShellIcon(path);
             }
         }
         catch { result = null; }
 
         lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>Gets the icon image at the requested size from the Windows Shell.</summary>
+    private static ImageSource? FromShellImage(string path)
+    {
+        var px = IconPixels;
+        var iid = typeof(Native.IShellItemImageFactory).GUID;
+        if (Native.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory is null)
+            return null;
+
+        try
+        {
+            var hr = factory.GetImage(new Native.SIZE { cx = px, cy = px },
+                SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, out var hBitmap);
+            if (hr != 0 || hBitmap == IntPtr.Zero) return null;
+
+            try
+            {
+                var source = Imaging.CreateBitmapSourceFromHBitmap(hBitmap, IntPtr.Zero,
+                    System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                source.Freeze();
+                return source;
+            }
+            finally { Native.DeleteObject(hBitmap); }
+        }
+        finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(factory); }
     }
 
     /// <summary>
