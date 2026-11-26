@@ -336,7 +336,7 @@ public partial class LauncherWindow : Window
 
         // A cursor that sits still over the list must not claim the selection on the first
         // synthesized mouse-move: seed the hover anchor with where the pointer is right now.
-        _hoverAnchor = Mouse.GetPosition(Tiles);
+        _hoverAnchor = Mouse.GetPosition(this);
         _hoverAnchorValid = true;
 
         Activate();
@@ -552,7 +552,25 @@ public partial class LauncherWindow : Window
             Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
             if (next.Count > 0) LockHoverToPointer(); // fresh results start on row 1, not on a stale hover
         }
-        else Tiles.SelectedIndex = -1;
+        else
+        {
+            // 主面板：默认选中最近使用的第一个；没有最近使用时选中主面板第一个磁贴。
+            if (recentVisible && RecentTiles.Items.Count > 0)
+            {
+                RecentTiles.SelectedIndex = 0;
+                Tiles.SelectedIndex = -1;
+            }
+            else if (Tiles.Items.Count > 0)
+            {
+                Tiles.SelectedIndex = 0;
+                RecentTiles.SelectedIndex = -1;
+            }
+            else
+            {
+                Tiles.SelectedIndex = -1;
+                RecentTiles.SelectedIndex = -1;
+            }
+        }
 
         if (q.Length > 0 && _plainFileRows.Count > 0) UpdatePlainFileCount();
     }
@@ -1088,12 +1106,14 @@ public partial class LauncherWindow : Window
 
         if (Query.Text.Length == 0) return;
 
-        // Only a genuinely moved pointer may drive the selection. WPF synthesises mouse-move
-        // events when the list scrolls or rebuilds under a stationary cursor, and without this
-        // guard that synthetic hover would steal the selection the user is walking with ↑/↓.
+        // Only a genuinely moved pointer may drive the selection. Coordinates are taken
+        // relative to the window — NOT to Tiles, which lives inside the scrolling viewer and
+        // therefore shifts under a stationary cursor every time the list scrolls or pages.
+        // WPF synthesises mouse-move events on such layout changes, and a Tiles-relative
+        // anchor would see "movement" that is really just the list scrolling by.
         // After a keyboard step the bar is higher still: ↑/↓ owns the selection until the
         // pointer makes a deliberate move (a few px of tremor must never reclaim it).
-        var pos = e.GetPosition(Tiles);
+        var pos = e.GetPosition(this);
         var threshold = _hoverKeyboardLock ? 18 : 2.5;
         if (_hoverAnchorValid
             && Math.Abs(_hoverAnchor.X - pos.X) <= threshold
@@ -1112,7 +1132,8 @@ public partial class LauncherWindow : Window
     /// </summary>
     private void LockHoverToPointer()
     {
-        _hoverAnchor = Mouse.GetPosition(Tiles);
+        // Window-relative: the same reason as in OnTilesMouseMove — Tiles scrolls.
+        _hoverAnchor = Mouse.GetPosition(this);
         _hoverAnchorValid = true;
         _hoverKeyboardLock = true;
     }
@@ -1484,25 +1505,41 @@ public partial class LauncherWindow : Window
 
             case Key.Enter:
                 FlushQueryDelay();
-                if (Tiles.SelectedItem is { } selected) Invoke(selected, null);
+                if (SelectedGridItem() is { } selected) Invoke(selected, null);
+                else if (Tiles.SelectedItem is { } row) Invoke(row, null);
                 e.Handled = true;
                 break;
 
-            // ←/→ 不做结果导航：它们只移动搜索框里的光标（交给 TextBox 处理）。
+            // Tile grid: ←/→ walk the grid (and the recent row) horizontally; in the search
+            // result list ←/→ do nothing — they only move the search box caret.
+            case Key.Left when !_listMode: FlushQueryDelay(); MoveGridSelection(-1, wrap: true); e.Handled = true; break;
+            case Key.Right when !_listMode: FlushQueryDelay(); MoveGridSelection(1, wrap: true); e.Handled = true; break;
 
             // In the one-line list there are no columns: up/down must walk the list one row
             // at a time (like a search dropdown), otherwise every press skips Cols items.
-            case Key.Up: FlushQueryDelay(); MoveSelection(_listMode ? -1 : -Cols, wrap: false); e.Handled = true; break;
-            case Key.Down: FlushQueryDelay(); MoveSelection(_listMode ? 1 : Cols, wrap: false); e.Handled = true; break;
-            case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true); e.Handled = true; break;
+            case Key.Up:
+                FlushQueryDelay();
+                if (_listMode) MoveSelection(-1, wrap: false); else MoveGridSelection(-Cols, wrap: false);
+                e.Handled = true;
+                break;
+            case Key.Down:
+                FlushQueryDelay();
+                if (_listMode) MoveSelection(1, wrap: false); else MoveGridSelection(Cols, wrap: false);
+                e.Handled = true;
+                break;
+            case Key.Tab:
+                if (_listMode) MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true);
+                else MoveGridSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true);
+                e.Handled = true;
+                break;
 
             case Key.F2:
-                if (Tiles.SelectedItem is ShortcutItem r) BeginRename(r);
+                if (SelectedGridItem() is ShortcutItem r) BeginRename(r);
                 e.Handled = true;
                 break;
 
             case Key.Delete when Query.Text.Length == 0:
-                if (Tiles.SelectedItem is ShortcutItem d) { Remove(d); e.Handled = true; }
+                if (SelectedGridItem() is ShortcutItem d) { Remove(d); e.Handled = true; }
                 break;
 
             case Key.OemComma when ctrl:
@@ -1558,6 +1595,48 @@ public partial class LauncherWindow : Window
         Tiles.SelectedIndex = next;
         if (Tiles.ItemContainerGenerator.ContainerFromIndex(next) is FrameworkElement c) c.BringIntoView();
         LockHoverToPointer(); // the keyboard owns the selection now; hover must earn it back
+    }
+
+    /// <summary>The item the keyboard currently addresses, across the recent row and the grid.</summary>
+    private object? SelectedGridItem() =>
+        RecentTiles.SelectedIndex >= 0 ? RecentTiles.SelectedItem
+        : Tiles.SelectedIndex >= 0 ? Tiles.SelectedItem : null;
+
+    /// <summary>
+    /// Tile-grid navigation walks one combined sequence: the recently-used row first, then the
+    /// grid. ↑/↓ move a full row, ←/→ move one step with wrap-around, so the keyboard reaches
+    /// the recent tiles without ever leaving it.
+    /// </summary>
+    private void MoveGridSelection(int delta, bool wrap)
+    {
+        var recentCount = RecentSection.Visibility == Visibility.Visible ? RecentTiles.Items.Count : 0;
+        var count = recentCount + Tiles.Items.Count;
+        if (count == 0 || delta == 0) return;
+
+        int current;
+        if (RecentTiles.SelectedIndex >= 0 && recentCount > 0) current = RecentTiles.SelectedIndex;
+        else if (Tiles.SelectedIndex >= 0) current = recentCount + Tiles.SelectedIndex;
+        else current = -1; // nothing selected yet: the first step picks the first item
+
+        var target = current < 0 ? (delta > 0 ? 0 : count - 1) : current + delta;
+        if (wrap) target = ((target % count) + count) % count;
+        else target = Math.Clamp(target, 0, count - 1);
+        if (target == current) return;
+
+        if (target < recentCount)
+        {
+            RecentTiles.SelectedIndex = target;
+            Tiles.SelectedIndex = -1;
+            if (RecentTiles.ItemContainerGenerator.ContainerFromIndex(target) is FrameworkElement r)
+                r.BringIntoView();
+        }
+        else
+        {
+            Tiles.SelectedIndex = target - recentCount;
+            RecentTiles.SelectedIndex = -1;
+            if (Tiles.ItemContainerGenerator.ContainerFromIndex(target - recentCount) is FrameworkElement t)
+                t.BringIntoView();
+        }
     }
 
     // ───────────────────────── Context menu & editing ─────────────────────────

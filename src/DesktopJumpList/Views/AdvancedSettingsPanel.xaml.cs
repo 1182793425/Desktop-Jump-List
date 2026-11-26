@@ -24,6 +24,8 @@ public partial class AdvancedSettingsPanel : UserControl
         BuildEngineRows();
         WireDebounce();
         WireFileSearch();
+        ExcludeFilterBox.TextChanged += (_, _) => ApplyExcludeFilter();
+        EngineFilterBox.TextChanged += (_, _) => ApplyEngineFilter();
         Loaded += (_, _) =>
         {
             if (_owner is null && Window.GetWindow(this) is { } owner)
@@ -315,6 +317,70 @@ public partial class AdvancedSettingsPanel : UserControl
 
             ExcludeRows.Children.Add(row);
         }
+
+        ApplyExcludeFilter();
+    }
+
+    // ───────────────────────── list filtering (fuzzy) ─────────────────────────
+
+    /// <summary>
+    /// Subsequence match: every character of the query must appear in the source in order,
+    /// case-insensitively. Space-separated terms are AND-ed. So "pr flt" hits Program Files.
+    /// </summary>
+    private static bool FuzzyMatch(string source, string query)
+    {
+        var s = source.ToLowerInvariant();
+        foreach (var term in query.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var si = 0;
+            foreach (var c in term.ToLowerInvariant())
+            {
+                si = s.IndexOf(c, si);
+                if (si < 0) return false;
+                si++;
+            }
+        }
+        return true;
+    }
+
+    private void ApplyExcludeFilter()
+    {
+        var query = ExcludeFilterBox.Text;
+        var visible = 0;
+        foreach (var child in ExcludeRows.Children)
+            if (child is Grid { Tag: string exclude } row)
+            {
+                var match = FuzzyMatch(exclude, query);
+                row.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+                if (match) visible++;
+            }
+        ExcludeFilterEmpty.Visibility = visible == 0 && ExcludeRows.Children.Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ApplyEngineFilter()
+    {
+        var query = EngineFilterBox.Text;
+        var children = EngineRows.Children;
+        var rowVisible = new Dictionary<int, bool>();
+        var visible = 0;
+        for (var i = 0; i < children.Count; i++)
+        {
+            if (children[i] is not Grid { Tag: string searchable } row) continue;
+            var match = FuzzyMatch(searchable, query);
+            row.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+            rowVisible[i] = match;
+            if (match) visible++;
+        }
+
+        // A separator only makes sense between two rows that are both on screen.
+        for (var i = 0; i < children.Count; i++)
+            if (children[i] is Border separator)
+                separator.Visibility = rowVisible.GetValueOrDefault(i - 1) && rowVisible.GetValueOrDefault(i + 1)
+                    ? Visibility.Visible : Visibility.Collapsed;
+
+        EngineFilterEmpty.Visibility = visible == 0 && rowVisible.Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnAddExcludeVariable(object sender, RoutedEventArgs e)
@@ -624,7 +690,7 @@ public partial class AdvancedSettingsPanel : UserControl
         for (var index = 0; index < rules.Count; index++)
         {
             var rule = rules[index];
-            var row = new Grid { Margin = new Thickness(0), MinHeight = 64 };
+            var row = new Grid { Margin = new Thickness(0), MinHeight = 64, Tag = $"{rule.Name} {rule.UrlTemplate}" };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -719,6 +785,7 @@ public partial class AdvancedSettingsPanel : UserControl
                 Margin = new Thickness(8, 12, 8, 12)
             });
         }
+        ApplyEngineFilter();
     }
 
     private Button MakeOrderButton(string glyph, string tooltip, string id) => new()

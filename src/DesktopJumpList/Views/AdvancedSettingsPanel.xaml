@@ -286,7 +286,36 @@
                                            Text="条目可以是文件夹路径（支持 %环境变量%，整棵子树都不索引）、文件名（如 thumbs.db，全盘同名项都排除），也可以是通配符，例如 *.bak、~$*、*\cache\*。更改在下次手动重建索引时生效。" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="始终生效的内置排除：文件名以 ~$ 开头的 Office 临时文件；带「隐藏」或「系统」属性的文件与文件夹（回收站 $I/$R、系统元数据等）。" />
-                                <StackPanel x:Name="ExcludeRows" Margin="0,2,0,0" />
+                                <!-- 可增长列表放进固定高度的滚动容器（参考「索引数据」）：
+                                     页面本身不再上下滚动，列表在框内滚动。 -->
+                                <Border Margin="2,10,0,0" Padding="10,8" CornerRadius="11"
+                                        Background="{DynamicResource HoverBrush}"
+                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="筛选" Style="{StaticResource Hint}"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <TextBox x:Name="ExcludeFilterBox" Grid.Column="1" FontSize="11.5"
+                                                     Padding="6,4" VerticalContentAlignment="Center"
+                                                     Background="{DynamicResource PanelOpaqueBrush}"
+                                                     Foreground="{DynamicResource InkBrush}"
+                                                     BorderBrush="{DynamicResource CardBorderBrush}"
+                                                     ToolTip="模糊筛选排除项：按字符顺序匹配，空格分隔多个条件" />
+                                        </Grid>
+                                        <ScrollViewer MaxHeight="320" Focusable="False"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="ExcludeRows" />
+                                        </ScrollViewer>
+                                        <TextBlock x:Name="ExcludeFilterEmpty" Style="{StaticResource Hint}"
+                                                   Margin="2,4,0,0" Visibility="Collapsed"
+                                                   Text="没有匹配的排除项。" />
+                                    </StackPanel>
+                                </Border>
                                 <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -316,7 +345,30 @@
                                 <Border Background="{DynamicResource HoverBrush}" CornerRadius="10"
                                         BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
                                         Padding="6">
-                                    <StackPanel x:Name="EngineRows" />
+                                    <StackPanel>
+                                        <Grid Margin="4,2,4,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="筛选" Style="{StaticResource Hint}"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <TextBox x:Name="EngineFilterBox" Grid.Column="1" FontSize="11.5"
+                                                     Padding="6,4" VerticalContentAlignment="Center"
+                                                     Background="{DynamicResource PanelOpaqueBrush}"
+                                                     Foreground="{DynamicResource InkBrush}"
+                                                     BorderBrush="{DynamicResource CardBorderBrush}"
+                                                     ToolTip="模糊筛选跳转规则：匹配名称与 URL 模板，按字符顺序匹配，空格分隔多个条件" />
+                                        </Grid>
+                                        <ScrollViewer x:Name="EngineScroller" MaxHeight="440" Focusable="False"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="EngineRows" />
+                                        </ScrollViewer>
+                                        <TextBlock x:Name="EngineFilterEmpty" Style="{StaticResource Hint}"
+                                                   Margin="4,4,0,0" Visibility="Collapsed"
+                                                   Text="没有匹配的跳转规则。" />
+                                    </StackPanel>
                                 </Border>
                                 <Button Content="＋ 添加搜索跳转" Style="{StaticResource ActionButton}"
                                         HorizontalAlignment="Stretch" Margin="0,10,0,0"

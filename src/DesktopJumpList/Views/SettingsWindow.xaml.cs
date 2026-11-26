@@ -33,6 +33,29 @@ public partial class SettingsWindow : Window
         };
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
+        MouseLeftButtonDown += OnWindowDragDown;
+    }
+
+    /// <summary>
+    /// 无边框窗口整页可拖动：按下空白处（标题、卡片背景、说明文字等）即拖动窗口。
+    /// 交互控件（按钮、输入框、滑块、开关、列表等）不拦截，热键捕获框也放行。
+    /// </summary>
+    private void OnWindowDragDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source && HitsInteractive(source)) return;
+        try { DragMove(); } catch { /* released mid-call: nothing to do */ }
+    }
+
+    private static bool HitsInteractive(DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            // Control covers buttons, text boxes, sliders, switches, radio dots, list boxes...
+            if (node is System.Windows.Controls.Control) return true;
+            if (node is FrameworkElement { Name: nameof(HotkeyBox) }) return true;
+            node = System.Windows.Media.VisualTreeHelper.GetParent(node);
+        }
+        return false;
     }
 
     private void CenterOnScreen()
