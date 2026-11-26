@@ -34,20 +34,20 @@ public sealed class AppSettings
     public DockEdge Edge { get; set; } = DockEdge.Right;
 
     /// <summary>Position along the edge as a 0..1 ratio (vertical for Left/Right, horizontal for Top/Bottom).</summary>
-    public double EdgeRatio { get; set; } = 0.62;
+    public double EdgeRatio { get; set; } = 0.2087;
 
     /// <summary>Absolute screen position used while <see cref="Edge"/> is None (-1 = not set yet).</summary>
-    public double FreeLeft { get; set; } = -1;
-    public double FreeTop { get; set; } = -1;
+    public double FreeLeft { get; set; } = 1661;
+    public double FreeTop { get; set; } = 309;
 
     /// <summary>Idle delay before the ball tucks itself into the edge.</summary>
-    public int PeekDelayMs { get; set; } = 2200;
+    public int PeekDelayMs { get; set; } = 200;
 
     /// <summary>Global toggle hotkey, stored as "Ctrl+Alt+J" style text.</summary>
-    public string Hotkey { get; set; } = "Ctrl+Alt+J";
+    public string Hotkey { get; set; } = "Ctrl+Oem3";
 
-    /// <summary>Global hotkey is off by default; the tray icon and floating circle are primary.</summary>
-    public bool HotkeyEnabled { get; set; }
+    /// <summary>Global hotkey is on by default (Ctrl+` toggles the panel).</summary>
+    public bool HotkeyEnabled { get; set; } = true;
 
     /// <summary>Colour mode: follow system, or force light/dark. Named "themeMode" on disk so
     /// the old v2 "theme" (Light/Dark only) never collides and the default stays System.</summary>
@@ -58,45 +58,83 @@ public sealed class AppSettings
     public bool ShowDock { get; set; } = true;
 
     /// <summary>Diameter of the floating circle in DIPs (32..64).</summary>
-    public int DockSize { get; set; } = 48;
+    public int DockSize { get; set; } = 45;
 
     /// <summary>Fill colour of the floating circle, as "#RRGGBB".</summary>
-    public string DockColor { get; set; } = "#FFFFFF";
+    public string DockColor { get; set; } = "#22C55E";
 
     /// <summary>Fill opacity of the floating circle (0..1).</summary>
-    public double DockOpacity { get; set; } = 1.0;
+    public double DockOpacity { get; set; } = 0.5;
 
     /// <summary>Corner radius of the resting circle in px; half the size gives a circle.</summary>
-    public double DockRadius { get; set; } = 24;
+    public double DockRadius { get; set; } = 50;
 
     /// <summary>Tile icon size in DIPs (32..48).</summary>
-    public int PanelIconSize { get; set; } = 40;
+    public int PanelIconSize { get; set; } = 60;
 
     /// <summary>Tile label font size in DIPs (10..14).</summary>
-    public int PanelFontSize { get; set; } = 12;
+    public int PanelFontSize { get; set; } = 14;
 
     /// <summary>Space between a tile icon and its label (DIPs).</summary>
-    public int PanelGap { get; set; } = 8;
+    public int PanelGap { get; set; } = 5;
 
     /// <summary>
     /// Space between tiles, both horizontally and vertically — the panel's CSS-gap. The panel
     /// width/height grow with it, so this is a real layout control, not just padding.
     /// </summary>
-    public int PanelItemGap { get; set; } = 10;
+    public int PanelItemGap { get; set; } = 5;
 
     /// <summary>
-    /// Legacy enabled search-engine IDs, retained to migrate older settings files.
+    /// Legacy enabled search-engine IDs, retained to migrate older settings files. The default
+    /// mirrors the shipped search-jump set below.
     /// </summary>
-    public List<string> SearchEngines { get; set; } = new() { "baidu", "google", "bing" };
+    public List<string> SearchEngines { get; set; } = new()
+    {
+        "baidu", "79e1456e713440f1b502168030a7002b", "google",
+        "48e0dacf8d2744c091512e4cc592f849", "096a413ad6644a8b82398a0496def573", "taobao"
+    };
 
-    /// <summary>User-defined named URL templates offered as search jumps.</summary>
-    public List<SearchJumpRule>? SearchJumpRules { get; set; }
+    /// <summary>User-defined named URL templates offered as search jumps. The shipped default
+    /// set has six engines: 百度 / 必应 / 谷歌 / 京东 / Bilibili / 淘宝.</summary>
+    public List<SearchJumpRule>? SearchJumpRules { get; set; } = new()
+    {
+        new SearchJumpRule
+        {
+            Id = "baidu", Name = "百度", ColorHex = "#5100DD", Monogram = "Bai",
+            UrlTemplate = "https://www.baidu.com/s?wd={input}"
+        },
+        new SearchJumpRule
+        {
+            Id = "79e1456e713440f1b502168030a7002b", Name = "必应", ColorHex = "#64748B", Monogram = "Bin",
+            UrlTemplate = "https://www.bing.com/search?q={input}"
+        },
+        new SearchJumpRule
+        {
+            Id = "google", Name = "谷歌", ColorHex = "#677AE9", Monogram = "GG",
+            UrlTemplate = "https://www.google.com/search?q={input}"
+        },
+        new SearchJumpRule
+        {
+            Id = "48e0dacf8d2744c091512e4cc592f849", Name = "京东", ColorHex = "#DD3626", Monogram = "JD",
+            UrlTemplate = "https://search.jd.com/Search?keyword={input}"
+        },
+        new SearchJumpRule
+        {
+            Id = "096a413ad6644a8b82398a0496def573", Name = "Bilibili", ColorHex = "#FC6999", Monogram = "Bli",
+            UrlTemplate = "https://search.bilibili.com/all?keyword={input}"
+        },
+        new SearchJumpRule
+        {
+            Id = "taobao", Name = "淘宝", ColorHex = "#FF5000", Monogram = "TB",
+            UrlTemplate = "https://s.taobao.com/search?q={input}"
+        }
+    };
 
     /// <summary>
     /// How long typing must pause before the result list is rebuilt (ms). 0 rebuilds on every
     /// keystroke; the UI echo (search box) is never delayed by this.
     /// </summary>
-    public int SearchDebounceMs { get; set; } = 110;
+    public int SearchDebounceMs { get; set; } = 100;
 
     /// <summary>Search local files (index of the folders listed in <see cref="FileSearchRoots"/>).</summary>
     public bool FileSearchEnabled { get; set; } = true;
@@ -106,19 +144,22 @@ public sealed class AppSettings
     /// <see cref="FileSearchRootsCustomized"/> = false means the defaults (Desktop /
     /// Documents / Pictures / Downloads); customized = true means "exactly this list", so the
     /// user can remove every folder and the index honours the empty list instead of silently
-    /// re-adding the defaults.
+    /// re-adding the defaults. The shipped default indexes the C:\ and D:\ drives.
     /// </summary>
-    public List<string> FileSearchRoots { get; set; } = new();
+    public List<string> FileSearchRoots { get; set; } = new() { @"C:\", @"D:\" };
 
     /// <summary>True once the user has added or removed a folder in advanced settings.</summary>
-    public bool FileSearchRootsCustomized { get; set; }
+    public bool FileSearchRootsCustomized { get; set; } = true;
 
     /// <summary>
     /// Per-folder index caps keyed by folder path. A missing entry (or a 0 value) means
     /// unlimited. Applies on the next index rebuild.
     /// </summary>
     public Dictionary<string, RootLimitSetting> FileRootLimits { get; set; } =
-        new(StringComparer.OrdinalIgnoreCase);
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\"] = new RootLimitSetting { MaxDepth = 0, MaxEntries = 0 }
+        };
 
     /// <summary>
     /// Extension allow-list for the file index (the .pathactive idea): only files with these
@@ -190,22 +231,22 @@ public sealed class AppSettings
     /// stay on top, a divider follows, then the local-file hits. The index itself is still
     /// built only when the user asks for a rebuild.
     /// </summary>
-    public bool FileSearchOnPlainQuery { get; set; }
+    public bool FileSearchOnPlainQuery { get; set; } = true;
 
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
 
     /// <summary>Panel tint alpha (0.50..1.00). The desktop shows through as it drops.</summary>
-    public double PanelOpacity { get; set; } = 0.85;
+    public double PanelOpacity { get; set; } = 1.0;
 
     /// <summary>Tiles per row. The panel width is derived from this, so there is no fixed limit.</summary>
     public int Columns { get; set; } = 5;
 
     /// <summary>Maximum visible rows before the panel scrolls. The panel height follows it (capped by the screen).</summary>
-    public int MaxRows { get; set; } = 4;
+    public int MaxRows { get; set; } = 3;
 
     /// <summary>How close (px) a dropped ball must be to a screen edge to snap to it.</summary>
-    public int SnapDistance { get; set; } = 40;
+    public int SnapDistance { get; set; } = 100;
 
     public bool FirstRunDone { get; set; }
 
@@ -250,4 +291,51 @@ public sealed class AppSettings
         SnapDistance = SnapDistance,
         FirstRunDone = FirstRunDone
     };
+
+    /// <summary>
+    /// Overwrites every field from <paramref name="source"/>. Used by「重置配置」: the live
+    /// settings object is filled from a fresh default instance, so consumers holding a
+    /// reference to it (the floating ball) see the reset without being rebuilt.
+    /// </summary>
+    public void CopyFrom(AppSettings source)
+    {
+        Edge = source.Edge;
+        EdgeRatio = source.EdgeRatio;
+        FreeLeft = source.FreeLeft;
+        FreeTop = source.FreeTop;
+        PeekDelayMs = source.PeekDelayMs;
+        Hotkey = source.Hotkey;
+        HotkeyEnabled = source.HotkeyEnabled;
+        Theme = source.Theme;
+        ShowDock = source.ShowDock;
+        DockSize = source.DockSize;
+        DockColor = source.DockColor;
+        DockOpacity = source.DockOpacity;
+        DockRadius = source.DockRadius;
+        PanelIconSize = source.PanelIconSize;
+        PanelFontSize = source.PanelFontSize;
+        PanelGap = source.PanelGap;
+        PanelItemGap = source.PanelItemGap;
+        SearchEngines = new List<string>(source.SearchEngines);
+        SearchJumpRules = source.SearchJumpRules?.Select(rule => rule.Copy()).ToList();
+        SearchDebounceMs = source.SearchDebounceMs;
+        FileSearchEnabled = source.FileSearchEnabled;
+        FileSearchRoots = new List<string>(source.FileSearchRoots);
+        FileSearchRootsCustomized = source.FileSearchRootsCustomized;
+        FileRootLimits = new Dictionary<string, RootLimitSetting>(
+            source.FileRootLimits.ToDictionary(
+                kv => kv.Key,
+                kv => new RootLimitSetting { MaxDepth = kv.Value.MaxDepth, MaxEntries = kv.Value.MaxEntries }),
+            StringComparer.OrdinalIgnoreCase);
+        FileSearchLimit = source.FileSearchLimit;
+        FileSearchOnPlainQuery = source.FileSearchOnPlainQuery;
+        FileIndexExtensions = new List<string>(source.FileIndexExtensions);
+        FileIndexExcludes = new List<string>(source.FileIndexExcludes);
+        RecentCount = source.RecentCount;
+        PanelOpacity = source.PanelOpacity;
+        Columns = source.Columns;
+        MaxRows = source.MaxRows;
+        SnapDistance = source.SnapDistance;
+        FirstRunDone = source.FirstRunDone;
+    }
 }

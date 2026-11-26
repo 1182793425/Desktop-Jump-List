@@ -617,27 +617,6 @@ public partial class DockWindow : Window
         themeLight.Click += (_, _) => { App.Current.SetTheme(AppTheme.Light); themeSys.IsChecked = false; themeLight.IsChecked = true; themeDark.IsChecked = false; };
         themeDark.Click += (_, _) => { App.Current.SetTheme(AppTheme.Dark); themeSys.IsChecked = false; themeLight.IsChecked = false; themeDark.IsChecked = true; };
 
-        // 布局：每行数量 / 最大行数
-        var layout = new MenuItem { Header = "布局" };
-        var colMenu = new MenuItem { Header = "每行数量" };
-        foreach (var n in new[] { 3, 4, 5 })
-        {
-            var c = new MenuItem { Header = n.ToString(), IsCheckable = true, IsChecked = _settings.Columns == n };
-            var val = n;
-            c.Click += (_, _) => App.Current.SetColumns(val);
-            colMenu.Items.Add(c);
-        }
-        var rowMenu = new MenuItem { Header = "最大行数" };
-        foreach (var n in new[] { 2, 3, 4, 5 })
-        {
-            var c = new MenuItem { Header = n.ToString(), IsCheckable = true, IsChecked = _settings.MaxRows == n };
-            var val = n;
-            c.Click += (_, _) => App.Current.SetMaxRows(val);
-            rowMenu.Items.Add(c);
-        }
-        layout.Items.Add(colMenu);
-        layout.Items.Add(rowMenu);
-
         menu.Items.Add(open);
         menu.Items.Add(settings);
         menu.Items.Add(hideDock);
@@ -645,7 +624,6 @@ public partial class DockWindow : Window
         menu.Items.Add(themeSys);
         menu.Items.Add(themeLight);
         menu.Items.Add(themeDark);
-        menu.Items.Add(layout);
         menu.Items.Add(new Separator());
         menu.Items.Add(autostart);
         menu.Items.Add(data);

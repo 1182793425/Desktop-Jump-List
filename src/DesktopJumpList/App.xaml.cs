@@ -653,6 +653,56 @@ public partial class App : Application
         return true;
     }
 
+    /// <summary>Tray menu「重置配置」: second-level confirmation, then restore the shipped defaults.</summary>
+    public void ResetSettingsWithConfirm()
+    {
+        var answer = System.Windows.MessageBox.Show(
+            "即将把所有设置恢复为默认配置。\n\n" +
+            "快捷方式与文件索引数据会保留；外观、悬浮球、布局、防抖、搜索跳转、索引目录等个性化调整会被覆盖。\n\n" +
+            "确定继续吗？",
+            "重置配置", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+        if (answer != MessageBoxResult.OK) return;
+        ResetSettings();
+    }
+
+    /// <summary>
+    /// Restores the shipped defaults (the code-level defaults of <see cref="AppSettings"/>).
+    /// The live settings object is overwritten in place so components holding a reference to
+    /// it (the floating ball) pick the new values up without being rebuilt.
+    /// </summary>
+    public void ResetSettings()
+    {
+        var defaults = new AppSettings { FirstRunDone = true };
+        Settings.CopyFrom(defaults);
+        SaveSettings();
+        EnsureSearchJumpRules();
+
+        ThemeService.Initialize(Settings.Theme);
+        ThemeService.SetPanelOpacity(Settings.PanelOpacity);
+
+        _hotkey?.Unregister();
+        if (Settings.HotkeyEnabled && _hotkey is { } hotkey && !hotkey.Register(Settings.Hotkey))
+        {
+            Settings.HotkeyEnabled = false;
+            SaveSettings();
+        }
+
+        Dock.ApplySettings();
+        Launcher.ApplySearchDebounce();
+        Launcher.ApplyLayout();
+        Launcher.ApplyPanelStyle();
+
+        // Index rules may have gone back to the defaults: mark the stored rows stale and let
+        // the idle rebuild re-filter them instead of walking the disk right now.
+        Files.MarkStale();
+        FileSync?.RequestRebuild();
+
+        // A settings window built against the old values would show a stale page.
+        if (_settingsWindow is { IsVisible: true }) _settingsWindow.Close();
+
+        Notify("已恢复默认配置");
+    }
+
     public void OpenDataFolder()
     {
         try

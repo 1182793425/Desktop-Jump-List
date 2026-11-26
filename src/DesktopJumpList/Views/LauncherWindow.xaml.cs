@@ -153,6 +153,10 @@ public partial class LauncherWindow : Window
     private bool _draggingTile;
     private bool _listMode; // search results / palette use a one-line list instead of the tile grid
 
+    // Anchor of the pointer's last real movement — see OnTilesMouseMove.
+    private Point _hoverAnchor;
+    private bool _hoverAnchorValid;
+
     private List<ShortcutItem> _ordered = new();
     private List<ShortcutItem> _recentItems = new();
     private string? _currentFolder;
@@ -327,6 +331,11 @@ public partial class LauncherWindow : Window
         UpdateLayout();
         Opacity = 1;
 
+        // A cursor that sits still over the list must not claim the selection on the first
+        // synthesized mouse-move: seed the hover anchor with where the pointer is right now.
+        _hoverAnchor = Mouse.GetPosition(Tiles);
+        _hoverAnchorValid = true;
+
         Activate();
         Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         Query.Focus();
@@ -364,6 +373,7 @@ public partial class LauncherWindow : Window
             Hide();
             Query.Text = string.Empty;
             Tiles.SelectedIndex = -1;
+            _hoverAnchorValid = false;
             HideRename(immediate: true);
             HideMessage(immediate: true);
             SetDropOverlay(false);
@@ -571,6 +581,10 @@ public partial class LauncherWindow : Window
     private void DropPlainFileResults()
     {
         _plainFileGeneration++;
+        // The in-flight page of the old query is now orphaned: its result is discarded by the
+        // generation check, so the loading flag must not block the new query's own search.
+        // Typing cancels the running search instead of queueing behind it.
+        _plainFileLoading = false;
         _plainFileQuery = null;
         _plainFileDivider = null;
         _plainFileRows.Clear();
@@ -1066,6 +1080,17 @@ public partial class LauncherWindow : Window
         }
 
         if (Query.Text.Length == 0) return;
+
+        // Only a genuinely moved pointer may drive the selection. WPF synthesises mouse-move
+        // events when the list scrolls or rebuilds under a stationary cursor, and without this
+        // guard that synthetic hover would steal the selection the user is walking with ↑/↓.
+        var pos = e.GetPosition(Tiles);
+        if (_hoverAnchorValid
+            && Math.Abs(_hoverAnchor.X - pos.X) <= 2.5
+            && Math.Abs(_hoverAnchor.Y - pos.Y) <= 2.5) return;
+        _hoverAnchor = pos;
+        _hoverAnchorValid = true;
+
         if (ContainerFrom(e.OriginalSource) is { } c && !c.IsSelected) Tiles.SelectedItem = c.DataContext;
     }
 
@@ -1249,7 +1274,7 @@ public partial class LauncherWindow : Window
             new()
             {
                 Title = "返回",
-                Subtitle = $"回到「{query}」的搜索结果（Esc 或 ←）",
+                Subtitle = $"回到「{query}」的搜索结果（Esc）",
                 Glyph = "←",
                 Accent = Accent("#64748B"),
                 Run = CloseJumpMenu
@@ -1318,10 +1343,10 @@ public partial class LauncherWindow : Window
     {
         _queryDelay.Stop();
 
-        // Clearing, and the jump between the tile grid and the result list, have nothing to
-        // coalesce: apply them now so the first keystroke always lands in the same frame.
-        var listMode = Query.Text.Length > 0;
-        if (!_debounceEnabled || Query.Text.Length == 0 || listMode != _listMode) { OnQueryChanged(); return; }
+        // The search itself always waits for the configured pause: typing is never allowed to
+        // kick off a rebuild, no matter whether the result surface is about to change shape.
+        // Only clearing the box (back to the tile grid) applies immediately.
+        if (!_debounceEnabled || Query.Text.Length == 0) { OnQueryChanged(); return; }
 
         _queryDelay.Start();
     }
@@ -1429,7 +1454,7 @@ public partial class LauncherWindow : Window
                 break;
 
             case Key.Back when Query.Text.Length == 0 && (_currentFolder is not null || _recentView):
-                OpenFolder(null);
+                // 进/出分组只由 Enter 与 Esc 触发；Back 交给输入框自行处理。
                 e.Handled = true;
                 break;
 
@@ -1439,21 +1464,10 @@ public partial class LauncherWindow : Window
                 e.Handled = true;
                 break;
 
-            // The "跳转" second level is one step deeper: ← (and Esc) come back out of it.
-            case Key.Left when _jumpMenuQuery is not null:
-                CloseJumpMenu();
-                e.Handled = true;
-                break;
+            // ←/→ 不做结果导航：它们只移动搜索框里的光标（交给 TextBox 处理）。
 
             // In the one-line list there are no columns: up/down must walk the list one row
             // at a time (like a search dropdown), otherwise every press skips Cols items.
-            case Key.Left when !_listMode: FlushQueryDelay(); MoveSelection(-1, wrap: true); e.Handled = true; break;
-            case Key.Right when !_listMode: FlushQueryDelay(); MoveSelection(1, wrap: true); e.Handled = true; break;
-            case Key.Right when _listMode && Tiles.SelectedItem is ResultRow { Item: JumpEntry }:
-                FlushQueryDelay();
-                if (Tiles.SelectedItem is ResultRow row) RunResultRow(row);
-                e.Handled = true;
-                break;
             case Key.Up: FlushQueryDelay(); MoveSelection(_listMode ? -1 : -Cols, wrap: false); e.Handled = true; break;
             case Key.Down: FlushQueryDelay(); MoveSelection(_listMode ? 1 : Cols, wrap: false); e.Handled = true; break;
             case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true); e.Handled = true; break;

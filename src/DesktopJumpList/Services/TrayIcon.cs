@@ -140,6 +140,7 @@ public sealed class TrayIcon : IDisposable
         };
         _menu.Items.Add(startup);
         _menu.Items.Add(Item("打开数据目录", _app.OpenDataFolder));
+        _menu.Items.Add(Item("重置配置…", () => _app.Dispatcher.BeginInvoke(new Action(_app.ResetSettingsWithConfirm))));
         _menu.Items.Add(new Forms.ToolStripSeparator());
         // Quit through the dispatcher: disposing this menu from inside its own click can
         // leave the WinForms popup in a half-torn-down state.
