@@ -22,7 +22,7 @@
 
 ## 下载
 
-见 [Releases](https://github.com/1182793425/Desktop-Jump-List/releases) 页面：安装包（推荐）或免安装便携版（zip / 7z）。
+见 [Releases](https://github.com/1182793425/Desktop-Jump-List/releases) 页面。**每个 Release 只提供安装包 `Jump-<version>-setup.exe`**（不再附带 zip / 7z 便携包）。
 
 ## 构建
 

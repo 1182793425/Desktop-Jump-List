@@ -2,7 +2,7 @@
 ; Build with ISCC.exe against the published self-contained output.
 
 #define MyAppName "Jump"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "3.14.8"
 #define MyAppPublisher "ShiPengbo"
 #define MyAppExeName "Jump.exe"
 
