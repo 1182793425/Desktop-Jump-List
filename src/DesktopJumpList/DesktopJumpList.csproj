@@ -16,7 +16,7 @@
     <RootNamespace>DesktopJumpList</RootNamespace>
     <AssemblyTitle>Jump</AssemblyTitle>
     <Product>Jump · Desktop Jump List</Product>
-    <Version>3.14.16</Version>
+    <Version>3.14.17</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
