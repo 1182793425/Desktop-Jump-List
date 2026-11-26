@@ -156,6 +156,9 @@ public partial class LauncherWindow : Window
     // Anchor of the pointer's last real movement — see OnTilesMouseMove.
     private Point _hoverAnchor;
     private bool _hoverAnchorValid;
+    // True while keyboard navigation owns the selection: hover may only reclaim it after a
+    // deliberate, larger pointer move (small tremor or a scroll-synthesised event must not).
+    private bool _hoverKeyboardLock;
 
     private List<ShortcutItem> _ordered = new();
     private List<ShortcutItem> _recentItems = new();
@@ -544,7 +547,11 @@ public partial class LauncherWindow : Window
         NoMatch.Text = noMatch ? $"没有找到 “{q}”" : string.Empty;
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
 
-        if (q.Length > 0) Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
+        if (q.Length > 0)
+        {
+            Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
+            if (next.Count > 0) LockHoverToPointer(); // fresh results start on row 1, not on a stale hover
+        }
         else Tiles.SelectedIndex = -1;
 
         if (q.Length > 0 && _plainFileRows.Count > 0) UpdatePlainFileCount();
@@ -1084,14 +1091,30 @@ public partial class LauncherWindow : Window
         // Only a genuinely moved pointer may drive the selection. WPF synthesises mouse-move
         // events when the list scrolls or rebuilds under a stationary cursor, and without this
         // guard that synthetic hover would steal the selection the user is walking with ↑/↓.
+        // After a keyboard step the bar is higher still: ↑/↓ owns the selection until the
+        // pointer makes a deliberate move (a few px of tremor must never reclaim it).
         var pos = e.GetPosition(Tiles);
+        var threshold = _hoverKeyboardLock ? 18 : 2.5;
         if (_hoverAnchorValid
-            && Math.Abs(_hoverAnchor.X - pos.X) <= 2.5
-            && Math.Abs(_hoverAnchor.Y - pos.Y) <= 2.5) return;
+            && Math.Abs(_hoverAnchor.X - pos.X) <= threshold
+            && Math.Abs(_hoverAnchor.Y - pos.Y) <= threshold) return;
         _hoverAnchor = pos;
         _hoverAnchorValid = true;
+        _hoverKeyboardLock = false;
 
         if (ContainerFrom(e.OriginalSource) is { } c && !c.IsSelected) Tiles.SelectedItem = c.DataContext;
+    }
+
+    /// <summary>
+    /// Anchors hover suppression at the pointer's current spot after a keyboard-driven
+    /// selection change: from here, only a real move beyond the locked threshold may hand
+    /// the selection back to the mouse.
+    /// </summary>
+    private void LockHoverToPointer()
+    {
+        _hoverAnchor = Mouse.GetPosition(Tiles);
+        _hoverAnchorValid = true;
+        _hoverKeyboardLock = true;
     }
 
     private const string InternalTileFormat = "Jump.InternalTile";
@@ -1255,6 +1278,7 @@ public partial class LauncherWindow : Window
             if (_tiles[i] is not ResultRow { Item: JumpEntry }) continue;
             Tiles.SelectedIndex = i;
             if (Tiles.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement c) c.BringIntoView();
+            LockHoverToPointer();
             break;
         }
     }
@@ -1533,6 +1557,7 @@ public partial class LauncherWindow : Window
         var next = selectable[position];
         Tiles.SelectedIndex = next;
         if (Tiles.ItemContainerGenerator.ContainerFromIndex(next) is FrameworkElement c) c.BringIntoView();
+        LockHoverToPointer(); // the keyboard owns the selection now; hover must earn it back
     }
 
     // ───────────────────────── Context menu & editing ─────────────────────────

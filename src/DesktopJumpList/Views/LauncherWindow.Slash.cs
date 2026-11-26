@@ -441,6 +441,7 @@ public partial class LauncherWindow
         if (signature == _lastSlashSignature)
         {
             Tiles.SelectedIndex = rows.Count > 0 ? 0 : -1;
+            if (rows.Count > 0) LockHoverToPointer();
             return;
         }
         _lastSlashSignature = signature;
@@ -465,6 +466,7 @@ public partial class LauncherWindow
         NoMatch.Text = none ? emptyText : string.Empty;
         ResultCount.Text = rows.Count > 0 ? rows.Count.ToString() : string.Empty;
         Tiles.SelectedIndex = rows.Count > 0 ? 0 : -1;
+        if (rows.Count > 0) LockHoverToPointer();
 
         var height = TargetPanelHeight();
         if (Math.Abs(Panel.ActualHeight - height) > 0.5)
