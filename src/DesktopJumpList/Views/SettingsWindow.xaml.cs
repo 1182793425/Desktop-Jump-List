@@ -451,20 +451,22 @@ public partial class SettingsWindow : Window
         UpdateStatus.Text = "正在检查更新…";
         try
         {
+            var snapshot = await Services.UpdateService.GetReleasesAsync();
             var latest = await Services.UpdateService.GetLatestReleaseAsync();
             var current = typeof(App).Assembly.GetName().Version;
-            if (latest is null || current is null)
+            if (snapshot is null || latest is null || current is null)
             {
-                UpdateStatus.Text = "无法解析版本信息，可稍后再试";
+                UpdateStatus.Text = "无法获取版本信息：网络不可用且没有本地缓存，可稍后再试";
                 return;
             }
+            var notice = UpdateServiceExtensions.CacheNotice(snapshot);
             if (latest.Version <= current)
             {
-                UpdateStatus.Text = $"已是最新版本（v{current.ToString(3)}）";
+                UpdateStatus.Text = $"已是最新版本（v{current.ToString(3)}）{notice}";
                 return;
             }
             _pendingUpdate = latest;
-            UpdateStatus.Text = $"发现新版本 {latest.Tag}（当前 v{current.ToString(3)}）";
+            UpdateStatus.Text = $"发现新版本 {latest.Tag}（当前 v{current.ToString(3)}）{notice}";
             DownloadUpdateButton.Visibility = latest.AssetUrl is null ? Visibility.Collapsed : Visibility.Visible;
         }
         catch (Exception ex)
@@ -528,10 +530,22 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            var stats = await Services.UpdateService.GetDownloadStatsAsync();
+            var snapshot = await Services.UpdateService.GetReleasesAsync();
+            if (snapshot is null)
+            {
+                DownloadStatsStatus.Text = "加载失败：网络不可用且没有本地缓存";
+                DownloadStatsStatus.Visibility = Visibility.Visible;
+                return;
+            }
+            var stats = new List<Services.UpdateService.DownloadStat>();
+            foreach (var r in snapshot.Releases)
+                stats.Add(new Services.UpdateService.DownloadStat(r.Tag, r.Version, r.Downloads));
+            stats.Sort((a, b) => (a.Version ?? new Version()).CompareTo(b.Version ?? new Version()));
+
             _downloadStats = stats;
             DownloadStatsStatus.Visibility = Visibility.Collapsed;
-            DownloadSummary.Text = $"共 {stats.Count} 个版本，累计 {stats.Sum(s => s.Downloads)} 次下载";
+            DownloadSummary.Text = $"共 {stats.Count} 个版本，累计 {stats.Sum(s => s.Downloads)} 次下载"
+                + UpdateServiceExtensions.CacheNotice(snapshot);
             DrawDownloadChart();
         }
         catch (Exception ex)
