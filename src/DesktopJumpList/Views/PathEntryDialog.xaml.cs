@@ -25,6 +25,7 @@ public partial class PathEntryDialog : Window
         if (string.IsNullOrWhiteSpace(EnteredPath))
         {
             ErrorText.Text = "请输入要排除的路径、文件名或通配符，例如 %TEMP%\\Logs、thumbs.db、*.bak。";
+            ErrorText.Visibility = Visibility.Visible;
             PathBox.Focus();
             return;
         }

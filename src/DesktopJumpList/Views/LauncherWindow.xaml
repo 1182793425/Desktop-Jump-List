@@ -232,28 +232,6 @@
             </Grid>
         </DataTemplate>
 
-        <!-- ===== Web search row (advanced settings → 搜索引擎) ===== -->
-        <DataTemplate DataType="{x:Type m:SearchResultTile}">
-            <Grid Width="{DynamicResource TileWidthValue}" Height="{DynamicResource TileHeightValue}"
-                  Background="Transparent" ToolTip="{Binding Title}" ToolTipService.InitialShowDelay="450"
-                  AutomationProperties.Name="{Binding Title}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <Grid Grid.Row="0" Style="{StaticResource TileIconBox}">
-                    <Border Width="{DynamicResource IconSizeValue}" Height="{DynamicResource IconSizeValue}"
-                            CornerRadius="12" Background="{Binding Engine.BrandBrush}"
-                            HorizontalAlignment="Center" VerticalAlignment="Top">
-                        <TextBlock Text="{Binding Engine.Monogram}" Foreground="White" FontWeight="SemiBold"
-                                   FontSize="{DynamicResource LetterFontSizeValue}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                </Grid>
-                <TextBlock Grid.Row="1" Text="{Binding Name}" Style="{StaticResource TileLabel}" />
-            </Grid>
-        </DataTemplate>
-
         <!-- ===== One-line result row (search results and the "/" palette) =====
              Sizes come from the panel settings (icon size, font size, gaps), same as tiles. -->
         <DataTemplate DataType="{x:Type m:ResultRow}">

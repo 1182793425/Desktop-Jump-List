@@ -839,6 +839,15 @@ public partial class App : Application
                 await Task.Delay(450);
                 CaptureLauncher(Path.Combine(directory, $"search-fuzzy-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
 
+                // The single "跳转" row, and the second level it opens.
+                const System.Reflection.BindingFlags previewFlags =
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                typeof(LauncherWindow).GetMethod("OpenJumpMenu", previewFlags)?.Invoke(Launcher, new object?[] { "vscode" });
+                await Task.Delay(400);
+                CaptureLauncher(Path.Combine(directory, $"search-jump-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                typeof(LauncherWindow).GetMethod("CloseJumpMenu", previewFlags)?.Invoke(Launcher, null);
+                await Task.Delay(250);
+
                 // Local files: a few placeholders so the row icons and paths are visible.
                 // They are only reachable through "/s"; a plain query must never show them.
                 var sampleFiles = Path.Combine(directory, "_files");
@@ -892,6 +901,70 @@ public partial class App : Application
                 Launcher.Query.Text = "/s jdk";
                 await Task.Delay(600);
                 CaptureLauncher(Path.Combine(directory, $"search-path-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // Plain query with local files on: panel matches, divider, file hits.
+                Settings.FileSearchOnPlainQuery = true;
+                if (!Launcher.IsOpen) Launcher.Open(); // the panel can tuck itself away mid-preview
+                await Task.Delay(200);
+                Launcher.Query.Text = "设计";
+                await Task.Delay(800);
+                CaptureLauncher(Path.Combine(directory, $"search-plain-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // Paging: 45 files that all match "page-". Pulling the list down must keep
+                // loading the next batch instead of stopping at the first page.
+                var pagingDir = Path.Combine(sampleFiles, "paging");
+                Directory.CreateDirectory(pagingDir);
+                for (var i = 0; i < 45; i++)
+                    File.WriteAllText(Path.Combine(pagingDir, $"page-{i:00}.txt"), string.Empty);
+                App.Current.Files.Start(new[] { sampleFiles }, 0, null, Settings.FileIndexExtensions);
+                for (var i = 0; i < 200 && App.Current.Files.IsBuilding; i++) await Task.Delay(50);
+                if (!Launcher.IsOpen) Launcher.Open();
+                await Task.Delay(300);
+                if (!Launcher.IsOpen) Launcher.Open(); // the panel can tuck itself away mid-preview
+
+                var total = App.Current.Files.Search("page-", 500).Count;
+                Launcher.Query.Text = "page-";
+                await Task.Delay(900);
+                var counts = new List<int> { Launcher.Tiles.Items.Count };
+                for (var pull = 0; pull < 4; pull++)
+                {
+                    Launcher.Scroller.ScrollToEnd();
+                    await Task.Delay(500);
+                    counts.Add(Launcher.Tiles.Items.Count);
+                }
+                File.AppendAllText(Path.Combine(directory, "paging-check.txt"),
+                    $"{mode}: matches={total} rows after each pull = {string.Join(" → ", counts)}\n" +
+                    $"  files={App.Current.Files.Count} building={App.Current.Files.IsBuilding} " +
+                    $"enabled={Settings.FileSearchEnabled} plain={Settings.FileSearchOnPlainQuery} " +
+                    $"query={typeof(LauncherWindow).GetField("_plainFileQuery", previewFlags)?.GetValue(Launcher)} " +
+                    $"hasMore={typeof(LauncherWindow).GetField("_plainFileHasMore", previewFlags)?.GetValue(Launcher)} " +
+                    $"loading={typeof(LauncherWindow).GetField("_plainFileLoading", previewFlags)?.GetValue(Launcher)} " +
+                    $"open={Launcher.IsOpen}\n");
+                CaptureLauncher(Path.Combine(directory, $"search-paged-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // A rebuild with the same query must keep the file section (and its rows) intact.
+                Launcher.ApplyPanelStyle();
+                await Task.Delay(500);
+                File.AppendAllText(Path.Combine(directory, "paging-check.txt"),
+                    $"  after same-query rebuild = {Launcher.Tiles.Items.Count} rows\n");
+
+                Settings.FileSearchOnPlainQuery = false;
+                Launcher.Query.Text = string.Empty;
+
+                // "/s" pages the same way (30 rows per page) and keeps the loaded pages.
+                if (!Launcher.IsOpen) Launcher.Open();
+                await Task.Delay(200);
+                Launcher.Query.Text = "/s page-";
+                await Task.Delay(900);
+                var slashCounts = new List<int> { Launcher.Tiles.Items.Count };
+                for (var pull = 0; pull < 3; pull++)
+                {
+                    Launcher.Scroller.ScrollToEnd();
+                    await Task.Delay(450);
+                    slashCounts.Add(Launcher.Tiles.Items.Count);
+                }
+                File.AppendAllText(Path.Combine(directory, "paging-check.txt"),
+                    $"{mode}: /s rows after each pull = {string.Join(" → ", slashCounts)}\n");
                 Launcher.Query.Text = string.Empty;
 
                 // "/" palette: settings plus the /s hint.
@@ -917,6 +990,17 @@ public partial class App : Application
                 settingsWindow.NavigateTo("excludes");
                 await Task.Delay(400);
                 RenderElement(settingsWindow, Path.Combine(directory, $"excludes-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+
+                // The "add an exclude path" dialog sizes itself to its content now.
+                var pathDialog = new PathEntryDialog { Owner = settingsWindow };
+                pathDialog.Show();
+                await Task.Delay(350);
+                RenderElement(pathDialog, Path.Combine(directory, $"path-dialog-{mode.ToString().ToLowerInvariant()}.png"), 1.6);
+                File.WriteAllText(Path.Combine(directory, "path-dialog-size.txt"),
+                    $"window={pathDialog.ActualWidth:0.##}x{pathDialog.ActualHeight:0.##} " +
+                    $"content={(pathDialog.Content as FrameworkElement)?.ActualHeight:0.##}");
+                pathDialog.Close();
+
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
             }

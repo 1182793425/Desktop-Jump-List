@@ -384,17 +384,28 @@ public partial class LauncherWindow : Window
     private void Rebuild()
     {
         var q = CurrentQuery;
+
+        // The second level of a "跳转" row belongs to the query it was opened for: any edit
+        // drops back to the plain result list.
+        if (_jumpMenuQuery is not null && !string.Equals(_jumpMenuQuery, q, StringComparison.Ordinal))
+            _jumpMenuQuery = null;
+
         SetListMode(q.Length > 0);
         if (q.StartsWith('/'))
         {
             // "/s ..." is its own mode: results contain local files and nothing else.
             // Everything else starting with "/" stays the small command palette.
+            _jumpMenuQuery = null;
+            DropPlainFileResults();
             if (TryParseFileQuery(q, out var fileTerms)) RebuildFileSearch(fileTerms);
             else RebuildSlash(q);
             return;
         }
         // Leaving a slash surface invalidates its "nothing changed" shortcut.
         _lastSlashSignature = null;
+
+        if (_jumpMenuQuery is not null) { RebuildJumpMenu(q); return; }
+
         var items = q.Length == 0 ? _ordered : ShortcutLibrary.Search(_ordered, q);
 
         _insertMarker = null;
@@ -444,15 +455,42 @@ public partial class LauncherWindow : Window
             }
             if (q.Length == 0 && _ordered.Count > 0) next.Add(AddTile.Instance);
 
-            // Typing also offers the web: one row per enabled engine, after the shortcuts.
-            // Local files are NOT searched here — they belong exclusively to the "/s" command,
-            // so a plain query never touches the disk index.
+            // Typing also offers the web, through ONE "跳转" row: the engines live one level
+            // deeper, so the list is never padded with a row per engine.
             if (q.Length > 0)
             {
-                foreach (var engine in SearchEngineCatalog.Resolve(CurrentSettings.SearchJumpRules ?? new List<SearchJumpRule>()))
-                    next.Add(new SearchResultTile(engine, q));
+                var engines = SearchEngineCatalog
+                    .Resolve(CurrentSettings.SearchJumpRules ?? new List<SearchJumpRule>())
+                    .ToList();
+                if (engines.Count > 0)
+                {
+                    // Reuse the entry while the query is unchanged: the result signature is built
+                    // from object identity, so a fresh instance would resync the whole list.
+                    if (_jumpEntry is null || !string.Equals(_jumpEntry.Query, q, StringComparison.Ordinal)
+                        || _jumpEntry.TargetCount != engines.Count)
+                        _jumpEntry = new JumpEntry(q, engines.Count);
+                    next.Add(_jumpEntry);
+                }
+                else _jumpEntry = null;
             }
         }
+
+        // Plain query with「普通搜索也检索本地文件」on: the index hits stay below a divider, so the
+        // panel's own matches always keep the top of the list. The rows are kept in
+        // _plainFileRows between rebuilds — re-creating them on every keystroke (or on every
+        // index tick) would make the whole section blink.
+        var plainFiles = q.Length > 0 && PlainFileSearchActive(q);
+        if (plainFiles)
+        {
+            if (!string.Equals(_plainFileQuery, q, StringComparison.Ordinal)) ResetPlainFileResults(q);
+            if (_plainFileRows.Count > 0)
+            {
+                _plainFileDivider ??= new DividerRow("本地文件");
+                next.Add(_plainFileDivider);
+                next.AddRange(_plainFileRows);
+            }
+        }
+        else if (_plainFileQuery is not null) DropPlainFileResults();
 
         // The tile list can remain unchanged while layout settings alter the recent row, so only
         // skip syncing the main list here; continue through the recent-row and visibility updates.
@@ -461,7 +499,7 @@ public partial class LauncherWindow : Window
         if (resultsChanged)
         {
             _lastResultSignature = signature;
-            if (_listMode) next = next.Select(ToResultRow).OfType<ResultRow>().Cast<object>().ToList();
+            if (_listMode) next = next.Select(ToListItem).OfType<object>().ToList();
             Sync(_tiles, next);
         }
 
@@ -499,52 +537,239 @@ public partial class LauncherWindow : Window
         if (q.Length > 0) Tiles.SelectedIndex = next.Count > 0 ? 0 : -1;
         else Tiles.SelectedIndex = -1;
 
-        // Plain query with「普通搜索也检索本地文件」on: the index hits land below a divider, so
-        // the panel's own matches always keep the top of the list.
-        if (q.Length > 0) StartPlainFileResults(q);
-        else _plainFileGeneration++; // leaving the query drops any pending file search
+        if (q.Length > 0 && _plainFileRows.Count > 0) UpdatePlainFileCount();
     }
 
-    /// <summary>How many local-file rows a plain query may append under its divider.</summary>
-    private const int PlainFileResultLimit = 20;
+    // ───────────────── Plain query → local files ─────────────────
 
-    private int _plainFileGeneration;
+    /// <summary>Rows a plain query adds per page, and again on every scroll to the bottom.</summary>
+    private const int PlainFilePageSize = 20;
 
     /// <summary>
-    /// Appends local-file hits to a plain query. Runs off the UI thread (the index search walks
-    /// every entry) and bails out if the query changed while it was running.
+    /// The local-file hits of a plain query, kept across rebuilds. They are the same ResultRow
+    /// objects for as long as the file is still a hit, so the list container is reused and the
+    /// section never blinks when the index ticks or a page is appended.
     /// </summary>
-    private async void StartPlainFileResults(string query)
+    private readonly List<ResultRow> _plainFileRows = new();
+    private DividerRow? _plainFileDivider;
+    private string? _plainFileQuery;
+    /// <summary>How many ranked hits the next page starts after (not how many rows are shown).</summary>
+    private int _plainFileSkip;
+    private bool _plainFileHasMore;
+    private bool _plainFileLoading;
+    private int _plainFileGeneration;
+
+    /// <summary>Pages pulled automatically because the loaded ones fit on screen (bounded).</summary>
+    private int _plainAutoPages;
+
+    /// <summary>True when a plain query should also read the local index.</summary>
+    private static bool PlainFileSearchActive(string query) =>
+        query.Length > 0 && !query.StartsWith('/')
+        && CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery;
+
+    /// <summary>Forgets the file section of the previous query (rows disappear next rebuild).</summary>
+    private void DropPlainFileResults()
     {
-        var generation = ++_plainFileGeneration;
-        if (!CurrentSettings.FileSearchEnabled || !CurrentSettings.FileSearchOnPlainQuery) return;
+        _plainFileGeneration++;
+        _plainFileQuery = null;
+        _plainFileDivider = null;
+        _plainFileRows.Clear();
+        _plainFileSkip = 0;
+        _plainFileHasMore = false;
+        _plainFileLoading = false;
+        _plainAutoPages = 0;
+    }
+
+    private void ResetPlainFileResults(string query)
+    {
+        DropPlainFileResults();
+        _plainFileQuery = query;
+        _plainFileDivider = new DividerRow("本地文件");
+        LoadPlainFilePage(query, replace: true);
+    }
+
+    /// <summary>
+    /// Fetches one page of local-file hits for a plain query, off the UI thread (the index search
+    /// walks every entry). <paramref name="replace"/> reloads from the first hit; otherwise the
+    /// page continues after the rows already on screen.
+    /// </summary>
+    private async void LoadPlainFilePage(string query, bool replace)
+    {
+        if (_plainFileLoading) return;
+        if (!replace && !_plainFileHasMore) return;
+        if (!PlainFileSearchActive(query)) return;
 
         var index = App.Current.Files;
         if (index.IsBuilding || index.Count == 0) return;
 
+        var generation = _plainFileGeneration;
+        var skip = replace ? 0 : _plainFileSkip;
+        _plainFileLoading = true;
+
         List<FileEntry> matches;
-        try { matches = await Task.Run(() => index.Search(query, PlainFileResultLimit)); }
-        catch { return; }
+        try { matches = await Task.Run(() => index.Search(query, PlainFilePageSize + 1, skip)); }
+        catch
+        {
+            if (generation == _plainFileGeneration) _plainFileLoading = false;
+            return;
+        }
 
-        if (generation != _plainFileGeneration || !IsOpen) return;
-        if (!string.Equals(CurrentQuery, query, StringComparison.Ordinal)) return;
+        if (generation != _plainFileGeneration || !IsOpen
+            || !string.Equals(CurrentQuery, query, StringComparison.Ordinal)
+            || !PlainFileSearchActive(query)) return;
+
+        _plainFileLoading = false;
         matches = KeepExistingFiles(matches);
-        if (matches.Count == 0) return;
+        _plainFileHasMore = matches.Count > PlainFilePageSize;
 
-        var rows = matches.Select(BuildFileRow).ToList();
-        _tiles.Add(new DividerRow("本地文件"));
-        foreach (var row in rows) _tiles.Add(row);
-        // The appended rows are not part of the signature, so the next rebuild must resync.
-        _lastResultSignature = null;
+        if (replace) _plainFileRows.Clear();
 
-        NoMatch.Visibility = Visibility.Collapsed;
-        if (Tiles.SelectedIndex < 0 || _tiles[Tiles.SelectedIndex] is DividerRow)
-            Tiles.SelectedIndex = _tiles.IndexOf(rows[0]);
-        ResultCount.Text = _tiles.Count(item => item is not DividerRow).ToString();
+        var page = matches.Take(PlainFilePageSize).ToList();
+        // The offset advances by what the index handed out, not by what is new on screen: a hit
+        // that moved up the ranking is already listed and must not shift the next page.
+        _plainFileSkip = skip + page.Count;
+        if (page.Count > 0) AppendPlainFileRows(page);
+        else NoMatch.Visibility = _tiles.Count == 0 ? Visibility.Visible : NoMatch.Visibility;
+    }
+
+    /// <summary>Adds entries to the file section, reusing the row of a file that is already there.</summary>
+    private void AppendPlainFileRows(List<FileEntry> files)
+    {
+        // Paging is offset-based, so a file that moved up the ranking can be offered twice.
+        var seen = new HashSet<string>(
+            _plainFileRows.Where(r => r.Item is FileEntry).Select(r => ((FileEntry)r.Item!).Path),
+            StringComparer.OrdinalIgnoreCase);
+
+        var rows = new List<ResultRow>(files.Count);
+        foreach (var file in files)
+        {
+            if (!seen.Add(file.Path)) continue;
+            rows.Add(BuildFileRow(file));
+        }
+        if (rows.Count == 0) return;
+
+        _plainFileRows.AddRange(rows);
+
+        // While the "跳转" picker owns the list the rows are only recorded here; the next
+        // Rebuild puts them back under their divider.
+        if (_jumpMenuQuery is not null) return;
+
+        ApplyPlainFileTail();
+
+        if (rows.Count > 0)
+        {
+            NoMatch.Visibility = Visibility.Collapsed;
+            // The very first hits of a query must not steal the selection from the query's own
+            // matches; only a selection that already sits inside the file section moves on.
+            if (Tiles.SelectedIndex < 0 || _tiles[Tiles.SelectedIndex] is DividerRow)
+                Tiles.SelectedIndex = _tiles.IndexOf(rows[0]);
+        }
+        UpdatePlainFileCount();
 
         ApplyPanelHeightNow();
         EnsureWindowFits();
         QueueDeferredIconLoad(rows);
+
+        // A page that fits on screen leaves nothing to scroll, so "pull down for more" would be
+        // unreachable. Pull the next page proactively until the list overflows (bounded: the
+        // panel height is capped, so this always terminates in a couple of pages).
+        if (_plainFileHasMore && _plainAutoPages < 4)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!IsOpen || _jumpMenuQuery is not null) return;
+                if (_plainFileQuery is not { } live || !_plainFileHasMore) return;
+                if (Scroller.ExtentHeight > Scroller.ViewportHeight + 1) return;
+                _plainAutoPages++;
+                LoadPlainFilePage(live, replace: false);
+            }), DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>Re-syncs the rows after the divider, touching only what actually changed.</summary>
+    private void ApplyPlainFileTail()
+    {
+        if (_plainFileDivider is null) return;
+        var divider = _tiles.IndexOf(_plainFileDivider);
+        if (_plainFileRows.Count == 0)
+        {
+            if (divider >= 0) while (_tiles.Count > divider) _tiles.RemoveAt(_tiles.Count - 1);
+            return;
+        }
+
+        if (divider < 0)
+        {
+            // The panel's own matches are already on screen (the divider only arrives with the
+            // first hit), so appending is exactly the right place for the section.
+            _tiles.Add(_plainFileDivider);
+            divider = _tiles.Count - 1;
+        }
+
+        SyncRange(_tiles, divider + 1, _plainFileRows.Cast<object>().ToList());
+    }
+
+    private static bool SameIndexedFile(ResultRow row, FileEntry file) =>
+        row.Item is FileEntry existing && string.Equals(existing.Path, file.Path, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"12" while the list is complete, "12+" when a scroll still has more to load.</summary>
+    private void UpdatePlainFileCount()
+    {
+        var shown = _tiles.Count(item => item is not DividerRow);
+        ResultCount.Text = _plainFileHasMore ? $"{shown}+" : shown.ToString();
+    }
+
+    /// <summary>
+    /// Re-reads the file section in place after an incremental index update. Rows of files that
+    /// are still hits keep their identity, so the section does not blink on every USN batch.
+    /// </summary>
+    private async void RefreshPlainFileResultsInPlace()
+    {
+        if (_plainFileQuery is not { } query || _plainFileLoading) return;
+        if (!PlainFileSearchActive(query) || !IsOpen) return;
+
+        var index = App.Current.Files;
+        if (index.IsBuilding || index.Count == 0) return;
+
+        var want = Math.Max(PlainFilePageSize, _plainFileRows.Count);
+        var generation = _plainFileGeneration;
+        _plainFileLoading = true;
+
+        List<FileEntry> matches;
+        try { matches = await Task.Run(() => index.Search(query, want + 1, 0)); }
+        catch
+        {
+            if (generation == _plainFileGeneration) _plainFileLoading = false;
+            return;
+        }
+
+        if (generation != _plainFileGeneration || !IsOpen
+            || !string.Equals(CurrentQuery, query, StringComparison.Ordinal)) return;
+
+        _plainFileLoading = false;
+        matches = KeepExistingFiles(matches);
+        _plainFileHasMore = matches.Count > want;
+
+        var desired = new List<ResultRow>(want);
+        var fresh = new List<ResultRow>();
+        foreach (var file in matches.Take(want))
+        {
+            var row = _plainFileRows.FirstOrDefault(r => SameIndexedFile(r, file));
+            if (row is null) { row = BuildFileRow(file); fresh.Add(row); }
+            desired.Add(row);
+        }
+
+        var unchanged = desired.Count == _plainFileRows.Count;
+        for (var i = 0; unchanged && i < desired.Count; i++)
+            unchanged = ReferenceEquals(desired[i], _plainFileRows[i]);
+        if (unchanged) return; // nothing to repaint at all
+
+        _plainFileRows.Clear();
+        _plainFileRows.AddRange(desired);
+        _plainFileSkip = desired.Count;
+        ApplyPlainFileTail();
+        UpdatePlainFileCount();
+        if (fresh.Count > 0) QueueDeferredIconLoad(fresh);
+        ApplyPanelHeightNow();
     }
 
     /// <summary>
@@ -612,6 +837,33 @@ public partial class LauncherWindow : Window
 
             if (found >= 0) target.Move(found, i);
             else target.Insert(i, items[i]);
+        }
+    }
+
+    /// <summary>
+    /// The same minimal-op merge as <see cref="Sync"/>, but only for the tail that starts at
+    /// <paramref name="start"/> — used by the local-file section under its divider, so the
+    /// query's own rows above it are never touched.
+    /// </summary>
+    private static void SyncRange(ObservableCollection<object> target, int start, List<object> items)
+    {
+        for (var i = target.Count - 1; i >= start + items.Count; i--) target.RemoveAt(i);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var at = start + i;
+            if (at < target.Count && ReferenceEquals(target[at], items[i])) continue;
+
+            var found = -1;
+            for (var j = at; j < target.Count; j++)
+            {
+                if (!ReferenceEquals(target[j], items[i])) continue;
+                found = j;
+                break;
+            }
+
+            if (found >= 0) target.Move(found, at);
+            else target.Insert(at, items[i]);
         }
     }
 
@@ -875,7 +1127,6 @@ public partial class LauncherWindow : Window
             case BackTile: OpenFolder(null); break;
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
-            case SearchResultTile search: OpenSearch(search); break;
             case FileEntry file: OpenFoundFile(file); break;
             case ResultRow row: RunResultRow(row); break;
         }
@@ -936,16 +1187,107 @@ public partial class LauncherWindow : Window
                 file.IsDirectory ? ShortcutKind.Folder : ShortcutKind.File);
     }
 
-    private void OpenSearch(SearchResultTile search)
+    private void OpenSearch(SearchEngineOption engine, string query)
     {
-        if (ShellLauncher.OpenUrl(search.Url) is { } error)
+        if (ShellLauncher.OpenUrl(engine.BuildUrl(query)) is { } error)
         {
             ShowMessage(error);
             return;
         }
         // Search-jump clicks are recorded too, named after the engine and the query.
-        _library.RecordRecent($"{search.Name}：{search.Query}", search.Url, ShortcutKind.Url);
+        _library.RecordRecent($"{engine.Name}搜索：{query}", engine.BuildUrl(query), ShortcutKind.Url);
         Close(animated: true);
+    }
+
+    // ───────────────────────── "跳转" second level ─────────────────────────
+
+    /// <summary>The query whose jump targets are on screen; null when the normal list is shown.</summary>
+    private string? _jumpMenuQuery;
+
+    /// <summary>The single "跳转" row's model, kept while the query stays the same.</summary>
+    private JumpEntry? _jumpEntry;
+
+    /// <summary>Opens the target picker of the "跳转" row.</summary>
+    private void OpenJumpMenu(string query)
+    {
+        if (!string.Equals(query, CurrentQuery, StringComparison.Ordinal)) return;
+        _jumpMenuQuery = query;
+        _lastSlashSignature = null;
+        _lastResultSignature = null;
+        Rebuild();
+    }
+
+    /// <summary>Back to the normal results, with the "跳转" row selected again.</summary>
+    private void CloseJumpMenu()
+    {
+        if (_jumpMenuQuery is null) return;
+        _jumpMenuQuery = null;
+        _lastSlashSignature = null;
+        _lastResultSignature = null;
+        Rebuild();
+        for (var i = 0; i < _tiles.Count; i++)
+        {
+            if (_tiles[i] is not ResultRow { Item: JumpEntry }) continue;
+            Tiles.SelectedIndex = i;
+            if (Tiles.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement c) c.BringIntoView();
+            break;
+        }
+    }
+
+    /// <summary>
+    /// The second level: one row per enabled jump target, plus a way back. It is a normal result
+    /// list, so arrow keys, Enter, hover and clicks all behave the way they do everywhere else.
+    /// </summary>
+    private void RebuildJumpMenu(string query)
+    {
+        var engines = SearchEngineCatalog
+            .Resolve(CurrentSettings.SearchJumpRules ?? new List<SearchJumpRule>())
+            .ToList();
+
+        var rows = new List<ResultRow>
+        {
+            new()
+            {
+                Title = "返回",
+                Subtitle = $"回到「{query}」的搜索结果（Esc 或 ←）",
+                Glyph = "←",
+                Accent = Accent("#64748B"),
+                Run = CloseJumpMenu
+            }
+        };
+
+        foreach (var engine in engines)
+        {
+            var target = engine;
+            rows.Add(new ResultRow
+            {
+                Title = $"用{target.Name}跳转",
+                Subtitle = JumpTargetHint(target),
+                Glyph = target.Monogram,
+                Accent = target.BrandBrush,
+                Run = () => OpenSearch(target, query)
+            });
+        }
+
+        ShowSlashRows(rows, engines.Count == 0
+            ? "还没有启用任何跳转目标，可在设置的「搜索引擎」中添加"
+            : string.Empty);
+
+        // The first target, not "返回": the picker was opened to pick something, and Esc / ←
+        // already lead back.
+        if (engines.Count > 0) Tiles.SelectedIndex = 1;
+        ResultCount.Text = engines.Count > 0 ? engines.Count.ToString() : string.Empty;
+    }
+
+    /// <summary>The host of a jump rule, which is what tells two targets apart at a glance.</summary>
+    private static string JumpTargetHint(SearchEngineOption engine)
+    {
+        try
+        {
+            var uri = new Uri(engine.UrlTemplate.Replace("{input}", "x", StringComparison.Ordinal));
+            return $"在 {uri.Host} 中打开";
+        }
+        catch { return "在浏览器中打开"; }
     }
 
     private void OpenItem(ShortcutItem item)
@@ -1078,6 +1420,7 @@ public partial class LauncherWindow : Window
         {
             case Key.Escape:
                 if (_editMode) ExitEditMode();
+                else if (_jumpMenuQuery is not null) CloseJumpMenu();
                 else if (Query.Text.Length > 0) Query.Text = string.Empty;
                 else if (_recentView) OpenFolder(null);
                 else if (_currentFolder is not null) OpenFolder(null);
@@ -1096,10 +1439,21 @@ public partial class LauncherWindow : Window
                 e.Handled = true;
                 break;
 
+            // The "跳转" second level is one step deeper: ← (and Esc) come back out of it.
+            case Key.Left when _jumpMenuQuery is not null:
+                CloseJumpMenu();
+                e.Handled = true;
+                break;
+
             // In the one-line list there are no columns: up/down must walk the list one row
             // at a time (like a search dropdown), otherwise every press skips Cols items.
             case Key.Left when !_listMode: FlushQueryDelay(); MoveSelection(-1, wrap: true); e.Handled = true; break;
             case Key.Right when !_listMode: FlushQueryDelay(); MoveSelection(1, wrap: true); e.Handled = true; break;
+            case Key.Right when _listMode && Tiles.SelectedItem is ResultRow { Item: JumpEntry }:
+                FlushQueryDelay();
+                if (Tiles.SelectedItem is ResultRow row) RunResultRow(row);
+                e.Handled = true;
+                break;
             case Key.Up: FlushQueryDelay(); MoveSelection(_listMode ? -1 : -Cols, wrap: false); e.Handled = true; break;
             case Key.Down: FlushQueryDelay(); MoveSelection(_listMode ? 1 : Cols, wrap: false); e.Handled = true; break;
             case Key.Tab: MoveSelection((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1, wrap: true); e.Handled = true; break;

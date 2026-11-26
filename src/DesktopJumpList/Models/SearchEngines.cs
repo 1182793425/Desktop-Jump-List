@@ -82,18 +82,22 @@ public static class SearchEngineCatalog
     }
 }
 
-/// <summary>A "search the web for this" row appended to ordinary search results.</summary>
-public sealed class SearchResultTile
+/// <summary>
+/// The single "跳转" entry of a plain query. One row stands for every enabled search jump:
+/// choosing it opens a second level where the actual target is picked, so the result list is
+/// not padded with one row per engine.
+/// </summary>
+public sealed class JumpEntry
 {
-    public SearchResultTile(SearchEngineOption engine, string query)
+    public JumpEntry(string query, int targetCount)
     {
-        Engine = engine;
         Query = query;
+        TargetCount = targetCount;
     }
 
-    public SearchEngineOption Engine { get; }
     public string Query { get; }
-    public string Name => $"{Engine.Name}搜索";
-    public string Title => $"用{Engine.Name}搜索「{Query}」";
-    public string Url => Engine.BuildUrl(Query);
+    public int TargetCount { get; }
+    public string Name => "跳转";
+    public string Title => $"跳转「{Query}」";
+    public string Detail => TargetCount > 1 ? $"{TargetCount} 个跳转目标" : "1 个跳转目标";
 }

@@ -20,6 +20,8 @@ public partial class LauncherWindow
     private string? _lastSlashSignature;
     private string? _fileResultQuery;
     private int _fileResultsLoaded;
+    /// <summary>Ranked hits already handed to the list — the offset of the next page.</summary>
+    private int _fileResultsSkip;
     private int _fileQueryGeneration;
     private bool _fileResultsHasMore;
     private bool _fileLoadingMore;
@@ -55,6 +57,7 @@ public partial class LauncherWindow
         _fileQueryGeneration++;
         _fileResultQuery = terms;
         _fileResultsLoaded = 0;
+        _fileResultsSkip = 0;
         _fileResultsHasMore = false;
         _fileLoadingMore = false;
         var rows = new List<ResultRow>();
@@ -117,6 +120,7 @@ public partial class LauncherWindow
         _fileResultsHasMore = matches.Count > FileResultPageSize;
         var rows = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
         _fileResultsLoaded = rows.Count;
+        _fileResultsSkip = rows.Count;
         var emptyText = rows.Count == 0 && terms.Length > 0
             ? $"没有找到「{terms}」"
             : rows.Count == 0 ? "索引中还没有可显示的项目" : string.Empty;
@@ -129,9 +133,25 @@ public partial class LauncherWindow
 
     private void OnFileResultsScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
     {
-        if (e.VerticalChange == 0 && e.ExtentHeightChange == 0) return;
-        if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 72)
+        // Only a real scroll asks for the next page. Growing the panel (which changes the extent
+        // and the viewport) must not chain-page the whole index in on its own.
+        if (e.VerticalChange == 0) return;
+        if (e.VerticalOffset + e.ViewportHeight < e.ExtentHeight - 72) return;
+
+        var query = CurrentQuery;
+        // The "跳转" second level is a fixed short list; nothing to page in.
+        if (_jumpMenuQuery is not null) return;
+
+        if (query.StartsWith('/'))
+        {
             LoadNextFileResults();
+            return;
+        }
+
+        // Plain query: the file section pages the same way, so pulling the list down keeps
+        // bringing in the next batch instead of stopping at the first page.
+        if (_plainFileQuery is { } plainQuery && PlainFileSearchActive(plainQuery))
+            LoadPlainFilePage(plainQuery, replace: false);
     }
 
     private async void LoadNextFileResults()
@@ -141,7 +161,7 @@ public partial class LauncherWindow
 
         var generation = _fileQueryGeneration;
         var query = _fileResultQuery;
-        var skip = _fileResultsLoaded;
+        var skip = _fileResultsSkip;
         _fileLoadingMore = true;
         List<FileEntry> matches;
         try
@@ -158,12 +178,26 @@ public partial class LauncherWindow
 
         if (generation != _fileQueryGeneration || !IsOpen
             || !TryParseFileQuery(CurrentQuery, out var liveQuery)
-            || !string.Equals(liveQuery, query, StringComparison.Ordinal)) return;
+            || !string.Equals(liveQuery, query, StringComparison.Ordinal))
+        {
+            // A newer query owns the flag now; only the same generation may clear it.
+            if (generation == _fileQueryGeneration) _fileLoadingMore = false;
+            return;
+        }
 
         _fileLoadingMore = false;
         matches = KeepExistingFiles(matches);
         _fileResultsHasMore = matches.Count > FileResultPageSize;
-        var next = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
+
+        // Offset paging can hand back a file that moved up the ranking and is already listed.
+        var shown = new HashSet<string>(
+            _tiles.OfType<ResultRow>().Where(r => r.Item is FileEntry)
+                .Select(r => ((FileEntry)r.Item!).Path),
+            StringComparer.OrdinalIgnoreCase);
+        var page = matches.Take(FileResultPageSize).ToList();
+        _fileResultsSkip = skip + page.Count;
+
+        var next = page.Where(f => shown.Add(f.Path)).Select(BuildFileRow).ToList();
         foreach (var row in next) _tiles.Add(row);
         _fileResultsLoaded += next.Count;
         UpdateFileSearchCount();
@@ -180,20 +214,94 @@ public partial class LauncherWindow
     /// <summary>
     /// Called (debounced) when an incremental index update lands, so an open panel showing file
     /// results keeps up with the disk instead of freezing on the rows it was built with.
+    /// The refresh is done in place: rebuilding the list would drop every row (and the page the
+    /// user already scrolled to) and read as a flash on the whole panel.
     /// </summary>
     public void RefreshFileResults()
     {
         if (!IsOpen) return;
+        // The "跳转" picker is its own surface: an index tick must not splice file rows into it.
+        if (_jumpMenuQuery is not null) return;
+
         var query = CurrentQuery;
-        if (TryParseFileQuery(query, out _))
+        if (TryParseFileQuery(query, out var terms))
         {
-            Rebuild();
+            RefreshFileSearchInPlace(terms);
             return;
         }
 
-        if (CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery
-            && query.Trim().Length > 0)
-            Rebuild();
+        if (PlainFileSearchActive(query)) RefreshPlainFileResultsInPlace();
+    }
+
+    /// <summary>
+    /// Re-reads as many "/s" rows as are on screen and merges them in, so rows of files that are
+    /// still hits keep their identity and the scroll position survives.
+    /// </summary>
+    private async void RefreshFileSearchInPlace(string terms)
+    {
+        if (_fileLoadingMore || _fileResultsLoaded == 0)
+        {
+            if (_fileResultsLoaded == 0) RebuildFileSearch(terms); // nothing to preserve yet
+            return;
+        }
+        if (!CurrentSettings.FileSearchEnabled) return;
+
+        var index = App.Current.Files;
+        if (index.IsBuilding || index.Count == 0) return;
+
+        var want = _fileResultsLoaded;
+        var generation = _fileQueryGeneration;
+        _fileLoadingMore = true;
+
+        List<FileEntry> matches;
+        try
+        {
+            matches = await Task.Run(() => terms.Length == 0
+                ? index.Take(want + 1)
+                : index.Search(terms, want + 1));
+        }
+        catch
+        {
+            if (generation == _fileQueryGeneration) _fileLoadingMore = false;
+            return;
+        }
+
+        if (generation != _fileQueryGeneration || !IsOpen
+            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !string.Equals(liveQuery, terms, StringComparison.Ordinal))
+        {
+            if (generation == _fileQueryGeneration) _fileLoadingMore = false;
+            return;
+        }
+
+        _fileLoadingMore = false;
+        matches = KeepExistingFiles(matches);
+        _fileResultsHasMore = matches.Count > want;
+
+        var desired = new List<ResultRow>(want);
+        var fresh = new List<ResultRow>();
+        foreach (var file in matches.Take(want))
+        {
+            var row = _tiles.OfType<ResultRow>()
+                .FirstOrDefault(r => SameIndexedFile(r, file));
+            if (row is null) { row = BuildFileRow(file); fresh.Add(row); }
+            desired.Add(row);
+        }
+
+        var unchanged = desired.Count == _tiles.Count;
+        for (var i = 0; unchanged && i < desired.Count; i++)
+            unchanged = ReferenceEquals(desired[i], _tiles[i]);
+
+        _fileResultsLoaded = desired.Count;
+        _fileResultsSkip = desired.Count;
+        if (!unchanged)
+        {
+            SyncRange(_tiles, 0, desired.Cast<object>().ToList());
+            _lastSlashSignature = null; // content moved: the next rebuild must resync
+            ApplyPanelHeightNow();
+        }
+        UpdateFileSearchCount();
+        if (fresh.Count > 0) QueueDeferredIconLoad(fresh);
     }
 
     private void UpdateFileSearchChrome()
@@ -316,7 +424,8 @@ public partial class LauncherWindow
             if (q.Length == 0) return;
             var fileMode = q.StartsWith('/') && TryParseFileQuery(q, out _);
             var plainMode = !q.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
-            if (fileMode || plainMode) Rebuild();
+            // In place, so the rows (and the page the user scrolled to) survive the rebuild.
+            if (fileMode || plainMode) RefreshFileResults();
         }));
     }
 
@@ -446,18 +555,31 @@ public partial class LauncherWindow
         return time.ToString("yyyy-MM-dd");
     }
 
-    /// <summary>Maps a shortcut / search-engine row onto the one-line list model.</summary>
+    /// <summary>
+    /// A list item of the result surface. Rows that are already list items (local files kept
+    /// between rebuilds, the divider) are passed through untouched so their container survives;
+    /// everything else is mapped onto its one-line row.
+    /// </summary>
+    private object? ToListItem(object item) => item switch
+    {
+        ResultRow row => row,
+        DividerRow divider => divider,
+        _ => ToResultRow(item)
+    };
+
+    /// <summary>Maps a shortcut / jump row onto the one-line list model.</summary>
     private ResultRow? ToResultRow(object item) => item switch
     {
         ShortcutItem shortcut => BuildItemRow(shortcut),
         FileEntry file => BuildFileRow(file),
-        SearchResultTile search => new ResultRow
+        JumpEntry jump => new ResultRow
         {
-            Title = search.Name,
-            Subtitle = $"「{search.Query}」",
-            Glyph = search.Engine.Monogram,
-            Accent = search.Engine.BrandBrush,
-            Run = () => OpenSearch(search)
+            Item = jump,
+            Title = jump.Name,
+            Subtitle = $"「{jump.Query}」· {jump.Detail}",
+            Glyph = "↗",
+            Accent = Accent("#0EA5E9"),
+            Run = () => OpenJumpMenu(jump.Query)
         },
         _ => null
     };
