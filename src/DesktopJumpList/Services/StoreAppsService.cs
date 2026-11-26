@@ -92,7 +92,10 @@ public static class StoreAppsService
                         var aumid = entry.AppUserModelId;
                         if (!remaining.Contains(aumid)) continue;
 
-                        var streamRef = entry.DisplayInfo.GetLogo(new Windows.Foundation.Size(size, size));
+                        // Ask the package for its large artwork. The common 44px request used
+                        // to select a compact logo variant, which looked soft on scaled displays.
+                        var logoSize = Math.Max(size, 256);
+                        var streamRef = entry.DisplayInfo.GetLogo(new Windows.Foundation.Size(logoSize, logoSize));
                         if (streamRef is null) continue;
                         using var stream = streamRef.OpenReadAsync().AsTask().GetAwaiter().GetResult();
                         var bitmap = new BitmapImage();

@@ -44,6 +44,9 @@ internal static class Native
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
 
+    [DllImport("shell32.dll", EntryPoint = "SHGetImageList", PreserveSig = true)]
+    public static extern int SHGetImageList(int imageList, ref Guid riid, out IImageList imageListObject);
+
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr hIcon);
 
@@ -110,6 +113,19 @@ internal static class Native
     public interface IShellItemImageFactory
     {
         [PreserveSig] int GetImage(SIZE size, int flags, out IntPtr phbm);
+    }
+
+    [ComImport, Guid("46EB5926-582E-4017-9FDF-E8998DAA0950"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IImageList
+    {
+        [PreserveSig] int Add(IntPtr hbmImage, IntPtr hbmMask, out int index);
+        [PreserveSig] int ReplaceIcon(int index, IntPtr hIcon, out int newIndex);
+        [PreserveSig] int SetOverlayImage(int image, int overlay);
+        [PreserveSig] int Replace(int index, IntPtr hbmImage, IntPtr hbmMask);
+        [PreserveSig] int AddMasked(IntPtr hbmImage, int mask, out int index);
+        [PreserveSig] int Draw(IntPtr drawParams);
+        [PreserveSig] int Remove(int index);
+        [PreserveSig] int GetIcon(int index, int flags, out IntPtr icon);
     }
 
     public static void MakeToolWindow(IntPtr hwnd, bool noActivate)

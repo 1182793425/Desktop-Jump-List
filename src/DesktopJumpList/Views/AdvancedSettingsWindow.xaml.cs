@@ -404,6 +404,8 @@ public partial class AdvancedSettingsWindow : Window
         var area = ScreenGeometry.WorkAreaAtCursor(this);
         var max = Math.Max(360, area.Height - 24);
         if (Height > max) Height = max;
+        var maxWidth = Math.Max(440, area.Width - 24);
+        if (Width > maxWidth) Width = maxWidth;
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + (area.Height - Height) / 2;
     }

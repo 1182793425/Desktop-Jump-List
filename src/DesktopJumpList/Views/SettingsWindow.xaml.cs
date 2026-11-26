@@ -41,7 +41,9 @@ public partial class SettingsWindow : Window
         // The card stack is compact, but a short work area (small laptop, heavy scaling) must not
         // cut the window off: shrink it and let the scroll viewer take over.
         var maxHeight = Math.Max(420, area.Height - 24);
+        var maxWidth = Math.Max(480, area.Width - 24);
         if (Height > maxHeight) Height = maxHeight;
+        if (Width > maxWidth) Width = maxWidth;
 
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + (area.Height - Height) / 2;
@@ -353,6 +355,18 @@ public partial class SettingsWindow : Window
         enabled ? HotkeyHintDefault : "默认关闭，打开后生效";
 
     private void OnSettingsDone(object sender, RoutedEventArgs e) => Close();
+
+    private void OnNavigate(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string name }) return;
+        if (FindName(name) is not FrameworkElement section) return;
+        try
+        {
+            var y = section.TransformToAncestor(SettingsScroll).Transform(new Point(0, 0)).Y;
+            SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset + y - 8);
+        }
+        catch { section.BringIntoView(); }
+    }
 
     private AdvancedSettingsWindow? _advanced;
 

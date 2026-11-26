@@ -10,15 +10,10 @@ using DesktopJumpList.Models;
 namespace DesktopJumpList.Services;
 
 /// <summary>
-/// Resolves the icon Explorer shows for a path. This machine's shell refuses every hi-res
-/// route (IShellItemImageFactory and SHGetImageList both answer E_NOINTERFACE), and
-/// SHGetFileInfo only ever hands out the 32 px icon — which smears once a tile shows it at
-/// 40-48 dip. So icons come from the source files themselves:
-///   exe/dll/ico → the PE's own icon resources at the requested size (PrivateExtractIcons)
-///   documents   → the registered DefaultIcon of their file type
-///   folders     → the system folder icon in imageres.dll
-///   anything else → the native HICON from SHGetFileInfo (v3.12 behaviour, always sharp)
-/// All HICONs go through CreateBitmapSourceFromHIcon, which keeps the alpha channel intact.
+/// Resolves icons through one ordered pipeline. Prefer the Windows Shell's jumbo image list
+/// (256px), then its rendered item image, then native resources and finally the shell's normal
+/// icon. This uses the same per-file associations and system artwork Explorer uses, while
+/// keeping alpha and retaining dependable fallbacks for unusual paths and shell versions.
 /// Shortcuts resolve to their target first, so .lnk tiles show the target's icon with no
 /// shortcut-arrow overlay. Extraction runs on an STA worker thread; results are frozen and
 /// cached by path.
@@ -26,6 +21,7 @@ namespace DesktopJumpList.Services;
 public static class IconService
 {
     private const uint SHGFI_ICON = 0x100;
+    private const uint SHGFI_SYSICONINDEX = 0x4000;
     private const uint SHGFI_LARGEICON = 0x0;
     private const uint SHGFI_SHELLICONSIZE = 0x4; // use the DPI-aware shell icon size
     private const int SIIGBF_BIGGERSIZEOK = 0x1;
@@ -33,17 +29,11 @@ public static class IconService
     private const uint SHGFI_USEFILEATTRIBUTES = 0x10;
     private const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     private const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
+    private const int SHIL_JUMBO = 4;
+    private const int ILD_TRANSPARENT = 1;
 
-    /// <summary>Pixel size we ask the source files for: just over the displayed tile size.</summary>
-    internal static int IconPixels
-    {
-        get
-        {
-            var size = App.Current?.Settings?.PanelIconSize ?? 48;
-            var wanted = (int)Math.Ceiling((Math.Max(0, size) + 8) * Native.SystemScale);
-            return Math.Clamp(wanted, 32, 128);
-        }
-    }
+    /// <summary>Keep fallback extraction large enough for any panel size and high-DPI monitor.</summary>
+    internal const int IconPixels = 256;
 
     private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Gate = new();
@@ -137,16 +127,39 @@ public static class IconService
             }
             else if (File.Exists(path) || Directory.Exists(path))
             {
-                // Match the v3.12 pipeline: ask Explorer for its rendered high-resolution
-                // image first. PE resource extraction can choose a small embedded variant
-                // (often 32 px) and upscale it, which looks soft in the panel.
-                result = FromShellImage(path) ?? FromHighResFallback(path) ?? FromShellIcon(path);
+                result = FromJumboShellIcon(path) ?? FromShellImage(path)
+                    ?? FromHighResFallback(path) ?? FromShellIcon(path);
             }
         }
         catch { result = null; }
 
         lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>Gets the Shell's 256px image-list icon, matching Explorer's large icon artwork.</summary>
+    private static ImageSource? FromJumboShellIcon(string path)
+    {
+        var info = new Native.SHFILEINFO();
+        var handle = Native.SHGetFileInfo(path, 0, ref info,
+            (uint)Marshal.SizeOf<Native.SHFILEINFO>(), SHGFI_SYSICONINDEX);
+        if (handle == IntPtr.Zero) return null;
+
+        Native.IImageList? images = null;
+        try
+        {
+            var iid = typeof(Native.IImageList).GUID;
+            if (Native.SHGetImageList(SHIL_JUMBO, ref iid, out images) != 0 || images is null)
+                return null;
+            if (images.GetIcon(info.iIcon, ILD_TRANSPARENT, out var icon) != 0 || icon == IntPtr.Zero)
+                return null;
+            return FromHandle(icon);
+        }
+        catch { return null; }
+        finally
+        {
+            if (images is not null && Marshal.IsComObject(images)) Marshal.ReleaseComObject(images);
+        }
     }
 
     /// <summary>Gets the icon image at the requested size from the Windows Shell.</summary>

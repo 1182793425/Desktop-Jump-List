@@ -1,7 +1,7 @@
 ﻿<Window x:Class="DesktopJumpList.Views.AdvancedSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Jump 高级设置" Width="520" Height="660"
+        Title="Jump 高级设置" Width="900" Height="760"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         WindowStartupLocation="Manual"
@@ -122,8 +122,8 @@
         </Style>
     </Window.Resources>
 
-    <Grid Margin="26">
-        <Border CornerRadius="22" Background="{DynamicResource PanelOpaqueBrush}"
+    <Grid Margin="14">
+        <Border CornerRadius="24" Background="{DynamicResource PanelOpaqueBrush}"
                 BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270"
@@ -136,17 +136,21 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid Margin="24,18,24,6">
+                <Grid Margin="28,22,28,12">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="BackButton" Content="← 返回" Style="{StaticResource LinkButton}"
-                                Padding="2,2" Margin="0,0,10,0" Click="OnClose" />
-                        <TextBlock Text="高级设置" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                Padding="2,2" Margin="0,0,16,0" Click="OnClose" />
+                        <StackPanel>
+                            <TextBlock Text="高级设置" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="搜索行为、本地索引与结果来源" Margin="1,4,0,0" FontSize="12"
+                                       Foreground="{DynamicResource InkFaintBrush}" />
+                        </StackPanel>
                     </StackPanel>
                     <Button Content="完成" Style="{StaticResource LinkButton}" HorizontalAlignment="Right"
                             FontWeight="SemiBold" Click="OnClose" />
                 </Grid>
 
-                <ScrollViewer Grid.Row="1" Margin="20,4,14,0" VerticalScrollBarVisibility="Auto"
+                <ScrollViewer Grid.Row="1" Margin="24,4,20,4" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" Focusable="False">
                     <StackPanel Margin="0,0,4,0">
                         <Border Style="{StaticResource Card}" Margin="0,0,0,10">
@@ -239,7 +243,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid Grid.Row="2" Margin="24,8,24,16">
+                <Grid Grid.Row="2" Margin="28,8,28,20">
                     <Button Content="恢复默认（百度 / 谷歌 / 必应）" Style="{StaticResource LinkButton}"
                             HorizontalAlignment="Left" Padding="0,3" FontSize="11.5" Click="OnResetDefaults" />
                 </Grid>
