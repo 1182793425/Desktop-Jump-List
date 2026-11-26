@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+        NavigateTo("appearance");
 
         SourceInitialized += (_, _) => CenterOnScreen();
         Loaded += (_, _) =>
@@ -67,7 +68,6 @@ public partial class SettingsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _advanced?.Close();
         base.OnClosed(e);
     }
 
@@ -354,35 +354,32 @@ public partial class SettingsWindow : Window
     private static string DefaultHotkeyHint(bool enabled) =>
         enabled ? HotkeyHintDefault : "默认关闭，打开后生效";
 
-    private void OnSettingsDone(object sender, RoutedEventArgs e) => Close();
+    private void OnSettingsClose(object sender, RoutedEventArgs e) => Close();
+
+    public void NavigateTo(string name)
+    {
+        AppearanceCard.Visibility = name == "appearance" ? Visibility.Visible : Visibility.Collapsed;
+        LayoutCard.Visibility = name == "layout" ? Visibility.Visible : Visibility.Collapsed;
+        DockCard.Visibility = name == "dock" ? Visibility.Visible : Visibility.Collapsed;
+        StartupCard.Visibility = name == "startup" ? Visibility.Visible : Visibility.Collapsed;
+        var advanced = name is "search" or "files" or "engines";
+        AdvancedDetails.Visibility = advanced ? Visibility.Visible : Visibility.Collapsed;
+        if (advanced) AdvancedDetails.ShowModule(name);
+
+        foreach (var button in SettingsNavList.Children.OfType<Button>())
+        {
+            var selected = string.Equals(button.Tag as string, name, StringComparison.Ordinal);
+            button.Background = selected ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
+            button.Foreground = selected ? (Brush)FindResource("InkBrush") : (Brush)FindResource("InkSubBrush");
+        }
+        SettingsScroll.ScrollToTop();
+    }
 
     private void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: string name }) return;
-        if (FindName(name) is not FrameworkElement section) return;
-        try
-        {
-            var y = section.TransformToAncestor(SettingsScroll).Transform(new Point(0, 0)).Y;
-            SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset + y - 8);
-        }
-        catch { section.BringIntoView(); }
+        if (sender is FrameworkElement { Tag: string name }) NavigateTo(name);
     }
 
-    private AdvancedSettingsWindow? _advanced;
-
-    private void OnOpenAdvanced(object sender, RoutedEventArgs e)
-    {
-        if (_advanced is { IsVisible: true })
-        {
-            _advanced.Activate();
-            return;
-        }
-
-        _advanced = new AdvancedSettingsWindow();
-        _advanced.Closed += (_, _) => _advanced = null;
-        _advanced.Show();
-        _advanced.Activate();
-    }
     private void OnOpenDataFolder(object sender, RoutedEventArgs e) => App.Current.OpenDataFolder();
 
     private static bool IsInside(DependencyObject node, DependencyObject ancestor)

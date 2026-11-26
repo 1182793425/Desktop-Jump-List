@@ -10,28 +10,28 @@ using DesktopJumpList.Services;
 namespace DesktopJumpList.Views;
 
 /// <summary>
-/// The second page of settings: currently the web-search engines that are offered while typing.
-/// Opened from the settings window so the main page stays short.
+/// Advanced modules embedded in the settings window's right detail pane.
 /// </summary>
-public partial class AdvancedSettingsWindow : Window
+public partial class AdvancedSettingsPanel : UserControl
 {
     private readonly List<(string Id, CheckBox Toggle)> _toggles = new();
+    private Window? _owner;
 
-    public AdvancedSettingsWindow()
+    public AdvancedSettingsPanel()
     {
         InitializeComponent();
         BuildEngineRows();
         WireDebounce();
         WireFileSearch();
-
-        SourceInitialized += (_, _) => CenterOnScreen();
-        PreviewKeyDown += (_, e) =>
+        Loaded += (_, _) =>
         {
-            if (e.Key != Key.Escape) return;
-            Close();
-            e.Handled = true;
+            Refresh();
+            if (_owner is null && Window.GetWindow(this) is { } owner)
+            {
+                _owner = owner;
+                owner.Closed += (_, _) => _statusTimer?.Stop();
+            }
         };
-        Loaded += (_, _) => Refresh();
     }
 
     /// <summary>The typing pause is a slider; commit when the drag/key press ends, not per pixel.</summary>
@@ -80,7 +80,6 @@ public partial class AdvancedSettingsWindow : Window
         };
         _statusTimer.Tick += (_, _) => UpdateFileStatus();
         _statusTimer.Start();
-        Closed += (_, _) => _statusTimer?.Stop();
     }
 
     /// <summary>Parses the whitelist editor: one extension per line, # comments, dot-prefixed.</summary>
@@ -399,15 +398,13 @@ public partial class AdvancedSettingsWindow : Window
         _ => $"{bytes / 1024.0 / 1024.0:0.0} MB"
     };
 
-    private void CenterOnScreen()
+    public void ShowModule(string module)
     {
-        var area = ScreenGeometry.WorkAreaAtCursor(this);
-        var max = Math.Max(360, area.Height - 24);
-        if (Height > max) Height = max;
-        var maxWidth = Math.Max(440, area.Width - 24);
-        if (Width > maxWidth) Width = maxWidth;
-        Left = area.Left + (area.Width - Width) / 2;
-        Top = area.Top + (area.Height - Height) / 2;
+        DebounceCard.Visibility = module == "search" ? Visibility.Visible : Visibility.Collapsed;
+        FileIndexCard.Visibility = module == "files" ? Visibility.Visible : Visibility.Collapsed;
+        EngineCard.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
+        ResetDefaultsRow.Visibility = module == "engines" ? Visibility.Visible : Visibility.Collapsed;
+        AdvancedScroll.ScrollToTop();
     }
 
     private void BuildEngineRows()
@@ -489,5 +486,4 @@ public partial class AdvancedSettingsWindow : Window
         Refresh();
     }
 
-    private void OnClose(object sender, RoutedEventArgs e) => Close();
 }

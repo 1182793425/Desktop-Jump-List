@@ -142,26 +142,14 @@ public partial class App : Application
     public FileIndex Files { get; } = new();
 
     private SettingsWindow? _settingsWindow;
-    private AdvancedSettingsWindow? _advancedWindow;
 
-    /// <summary>Opens the advanced page on its own (used by the "/advanced" palette command).</summary>
-    public void OpenAdvancedSettings()
-    {
-        if (IsShuttingDown) return;
-        if (_advancedWindow is { IsVisible: true })
-        {
-            _advancedWindow.Activate();
-            return;
-        }
-
-        _advancedWindow = new AdvancedSettingsWindow();
-        _advancedWindow.Closed += (_, _) => _advancedWindow = null;
-        _advancedWindow.Show();
-        _advancedWindow.Activate();
-    }
+    /// <summary>Opens the settings window at the search module (used by "/advanced").</summary>
+    public void OpenAdvancedSettings() => OpenSettings("search");
 
     /// <summary>Opens the standalone settings window, centered on the screen. The panel stays closed.</summary>
-    public void OpenSettings()
+    public void OpenSettings() => OpenSettings("appearance");
+
+    public void OpenSettings(string section)
     {
         if (IsShuttingDown || Launcher.IsModal) return;
 
@@ -169,11 +157,13 @@ public partial class App : Application
 
         if (_settingsWindow is { IsVisible: true })
         {
+            _settingsWindow.NavigateTo(section);
             _settingsWindow.Activate();
             return;
         }
 
         _settingsWindow = new SettingsWindow();
+        _settingsWindow.NavigateTo(section);
         _settingsWindow.Closed += (_, _) => { _settingsWindow = null; ScheduleIdleTrim(); };
         _settingsWindow.Show();
         _settingsWindow.Activate();
@@ -721,16 +711,15 @@ public partial class App : Application
                 Launcher.Query.Text = string.Empty;
 
                 var settingsWindow = new SettingsWindow();
+                settingsWindow.NavigateTo("appearance");
                 settingsWindow.Show();
                 await Task.Delay(500);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 DumpSettingsLayout(directory, settingsWindow);
 
-                var advancedWindow = new AdvancedSettingsWindow();
-                advancedWindow.Show();
+                settingsWindow.NavigateTo("files");
                 await Task.Delay(400);
-                RenderElement(advancedWindow, Path.Combine(directory, $"advanced-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
-                advancedWindow.Close();
+                RenderElement(settingsWindow, Path.Combine(directory, $"advanced-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
             }

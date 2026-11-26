@@ -219,6 +219,7 @@ public partial class LauncherWindow : Window
 
         Deactivated += (_, _) => { if (IsOpen && _modalDepth == 0) Close(animated: true); };
         PreviewKeyDown += OnKey;
+        Scroller.ScrollChanged += OnFileResultsScrollChanged;
         // Typing should not rebuild the list on every keystroke: wait until the input pauses,
         // and let navigation keys flush the pending query so the first arrow press is accurate.
         _queryDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
@@ -228,6 +229,7 @@ public partial class LauncherWindow : Window
         {
             // Show the search box immediately — only the list rebuild is allowed to wait.
             UpdatePill();
+            UpdateFileSearchChrome();
             RestartQueryDelay();
         };
 
@@ -963,6 +965,13 @@ public partial class LauncherWindow : Window
         if (_renaming is not null || _renamingFolder is not null) return; // rename box handles its own keys
         if (_modalDepth > 0) return;
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+
+        if (ctrl && e.Key == Key.Enter && TryParseFileQuery(Query.Text, out _))
+        {
+            RebuildFileIndexNow();
+            e.Handled = true;
+            return;
+        }
 
         switch (e.Key)
         {

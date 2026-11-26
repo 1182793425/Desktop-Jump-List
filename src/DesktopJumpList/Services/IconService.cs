@@ -14,9 +14,9 @@ namespace DesktopJumpList.Services;
 /// (256px), then its rendered item image, then native resources and finally the shell's normal
 /// icon. This uses the same per-file associations and system artwork Explorer uses, while
 /// keeping alpha and retaining dependable fallbacks for unusual paths and shell versions.
-/// Shortcuts resolve to their target first, so .lnk tiles show the target's icon with no
-/// shortcut-arrow overlay. Extraction runs on an STA worker thread; results are frozen and
-/// cached by path.
+/// Shortcuts are queried by their own .lnk path first, preserving any custom icon location;
+/// the target is used only when the link has no usable icon. Extraction runs on an STA worker
+/// thread; results are frozen and cached by path.
 /// </summary>
 public static class IconService
 {
@@ -118,18 +118,20 @@ public static class IconService
         ImageSource? result = null;
         try
         {
-            // A shortcut shows its target's icon: resolve the .lnk and use the target path.
-            if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && depth < 2
-                && TryResolveShortcutTarget(path, out var target)
-                && (File.Exists(target) || Directory.Exists(target)))
-            {
-                result = Get(target, depth + 1);
-            }
-            else if (File.Exists(path) || Directory.Exists(path))
+            // Query the shortcut itself first: Windows resolves its configured IconLocation,
+            // which can differ from the target executable. We do not request overlays, so
+            // the custom icon is retained without Explorer's shortcut arrow.
+            if (File.Exists(path) || Directory.Exists(path))
             {
                 result = FromJumboShellIcon(path) ?? FromShellImage(path)
                     ?? FromHighResFallback(path) ?? FromShellIcon(path);
             }
+
+            // A broken or icon-less shortcut can still use the target's icon as a fallback.
+            if (result is null && path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && depth < 2
+                && TryResolveShortcutTarget(path, out var target)
+                && (File.Exists(target) || Directory.Exists(target)))
+                result = Get(target, depth + 1);
         }
         catch { result = null; }
 

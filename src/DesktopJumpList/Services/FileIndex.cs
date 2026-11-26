@@ -40,8 +40,8 @@ public sealed class FileIndex
 
     public DateTime LastBuilt { get; private set; } = DateTime.MinValue;
 
-    // No background auto-refresh: the index is rebuilt only when the user asks for it via
-    // the "重建索引并搜索" row in /s, or changes the folders in advanced settings.
+    // No background auto-refresh: the user starts a rebuild from the search-box refresh button
+    // or Ctrl+Enter, or when changing the indexed folders in settings.
 
     /// <summary>Starts (or restarts) the background walk. Returns immediately.</summary>
     public void Start(IReadOnlyList<string> roots, int limit, Action? onDone = null)
@@ -173,10 +173,15 @@ public sealed class FileIndex
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
             if (IsExcluded(root.TrimEnd('\\'), excludePrefixes)) continue;
 
-            var cfg = perRoot is not null && perRoot.TryGetValue(root, out var found)
-                ? found
-                : null;
-            var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
+            RootLimitSetting? cfg = null;
+            if (perRoot is not null) perRoot.TryGetValue(root, out cfg);
+            // Fixed drive roots are included so top-level folders such as D:\code3 are
+            // discoverable without walking an entire drive by default. Their direct contents
+            // are indexed too; users can add a specific folder or raise its depth cap for more.
+            var isDriveRoot = string.Equals(Path.GetPathRoot(root), root, StringComparison.OrdinalIgnoreCase);
+            var depthCap = cfg is not null
+                ? cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth
+                : isDriveRoot ? 1 : int.MaxValue;
             var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
 
             WalkOne(root, depthCap, entryCap, limit, extensionFilter, excludePrefixes, into, token);
@@ -244,13 +249,14 @@ public sealed class FileIndex
     /// A handful of entries for "/s" with no keyword yet: newest touched first, so the
     /// command shows "what did I work on recently" instead of the raw walk order.
     /// </summary>
-    public List<FileEntry> Take(int max)
+    public List<FileEntry> Take(int max, int skip = 0)
     {
         if (max <= 0) return new List<FileEntry>();
         List<FileEntry> snapshot;
         lock (_gate) snapshot = _entries;
         return snapshot
             .OrderByDescending(e => e.WriteTime)
+            .Skip(Math.Max(0, skip))
             .Take(max)
             .ToList();
     }
@@ -260,7 +266,7 @@ public sealed class FileIndex
     /// pinyin-initial prefix ("sjg" → 设计稿), pinyin-initial substring, subsequence (3+ chars),
     /// and finally a folder-path match ("jdk" finds D:\jdk-17\bin\java.exe).
     /// </summary>
-    public List<FileEntry> Search(string query, int max)
+    public List<FileEntry> Search(string query, int max, int skip = 0)
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
@@ -283,6 +289,7 @@ public sealed class FileIndex
             .OrderBy(h => h.rank)
             .ThenByDescending(h => h.entry.WriteTime)
             .ThenBy(h => h.entry.Name.Length)
+            .Skip(Math.Max(0, skip))
             .Take(max)
             .Select(h => h.entry)
             .ToList();
@@ -378,8 +385,8 @@ public sealed class FileIndex
     }
 
     /// <summary>
-    /// Desktop, Documents, Downloads, Pictures — plus both Start Menu folders, so the
-    /// installed software (.lnk) is searchable too.
+    /// Desktop, Documents, Downloads, Pictures, both Start Menu folders, and a shallow pass
+    /// over fixed drive roots so top-level work folders are searchable without a full-disk walk.
     /// </summary>
     public static List<string> DefaultRoots()
     {
@@ -411,6 +418,23 @@ public sealed class FileIndex
         {
             if (Directory.Exists(menu) && !roots.Contains(menu)) roots.Add(menu);
         }
+
+        // Surface the first level of every local fixed disk. Walk() caps drive roots at depth
+        // one by default to make root folders searchable without turning /s into a full-disk scan.
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    var path = drive.RootDirectory.FullName;
+                    if (drive.DriveType == DriveType.Fixed && drive.IsReady && !roots.Contains(path))
+                        roots.Add(path);
+                }
+                catch { /* an unavailable drive is skipped */ }
+            }
+        }
+        catch { }
         return roots;
     }
 }

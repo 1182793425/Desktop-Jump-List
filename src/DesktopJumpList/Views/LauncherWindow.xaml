@@ -456,8 +456,16 @@
                                  SelectionBrush="{DynamicResource AccentBrush}"
                                  FontSize="13.5" FocusVisualStyle="{x:Null}"
                                  InputMethod.IsInputMethodEnabled="True" />
-                        <TextBlock x:Name="ResultCount" Grid.Column="2" VerticalAlignment="Center" FontSize="11.5"
-                                   Foreground="{DynamicResource InkFaintBrush}" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="ResultCount" VerticalAlignment="Center" FontSize="11.5"
+                                       Foreground="{DynamicResource InkFaintBrush}" />
+                            <Button x:Name="RebuildIndexButton" Margin="8,0,0,0" Padding="3,0"
+                                    Style="{StaticResource LinkButton}" Content="⟳" FontSize="18"
+                                    VerticalAlignment="Center" Visibility="Collapsed" IsEnabled="False"
+                                    ToolTip="重建本地索引（Ctrl+Enter）"
+                                    AutomationProperties.Name="重建本地索引"
+                                    Click="OnRebuildIndexClick" />
+                        </StackPanel>
                     </Grid>
                     <Grid x:Name="MessageRow" Margin="16,0,6,0" Opacity="0" IsHitTestVisible="False">
                         <Grid.ColumnDefinitions>

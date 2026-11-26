@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using DesktopJumpList.Infrastructure;
@@ -15,9 +15,14 @@ namespace DesktopJumpList.Views;
 public partial class LauncherWindow
 {
     private const string SlashSettings = "settings";
-    private const int FileResultLimit = 12;
+    private const int FileResultPageSize = 30;
 
     private string? _lastSlashSignature;
+    private string? _fileResultQuery;
+    private int _fileResultsLoaded;
+    private int _fileQueryGeneration;
+    private bool _fileResultsHasMore;
+    private bool _fileLoadingMore;
 
     // "/f" / "/file" also surface the /s command in the palette so it is discoverable.
     private static readonly string[] FileCommandAliases =
@@ -44,45 +49,136 @@ public partial class LauncherWindow
         ShowSlashRows(rows, rows.Count == 0 ? $"没有这个命令：{query}" : string.Empty);
     }
 
-    /// <summary>"/s" results: local files and apps, plus the manual rebuild command.</summary>
+    /// <summary>"/s" results: matching local files and apps, loaded in scrollable pages.</summary>
     private void RebuildFileSearch(string terms)
     {
         EnsureFileIndex();
-
+        _fileQueryGeneration++;
+        _fileResultQuery = terms;
+        _fileResultsLoaded = 0;
+        _fileResultsHasMore = false;
+        _fileLoadingMore = false;
         var rows = new List<ResultRow>();
-        if (CurrentSettings.FileSearchEnabled)
+        var index = App.Current.Files;
+        string emptyText;
+        if (!CurrentSettings.FileSearchEnabled)
         {
-            var files = terms.Length == 0
-                ? App.Current.Files.Take(FileResultLimit)
-                : App.Current.Files.Search(terms, FileResultLimit);
-            foreach (var file in files) rows.Add(BuildFileRow(file));
+            emptyText = "本地文件搜索已关闭，可在设置的「本地文件索引」中启用";
+        }
+        else if (index.IsBuilding)
+        {
+            emptyText = "正在重建索引…";
+        }
+        else
+        {
+            emptyText = "正在搜索本地索引…";
+            _lastSlashSignature = null;
+            ShowSlashRows(rows, emptyText);
+            UpdateFileSearchChrome();
+            UpdateFileSearchCount();
+            LoadInitialFileResults(terms, _fileQueryGeneration, index);
+            return;
         }
 
-        // The index never refreshes on its own, so /s always offers the manual way out. With
-        // no hits the row also carries the "nothing found" message — a separate hint label
-        // would paint right over the single remaining row.
-        var index = App.Current.Files;
-        var fileCount = rows.Count;
-        rows.Add(new ResultRow
-        {
-            Title = index.IsBuilding ? "正在重建索引，完成后自动刷新…" : "重建索引并搜索",
-            Subtitle = index.IsBuilding
-                ? $"已索引 {index.Count} 项"
-                : !CurrentSettings.FileSearchEnabled
-                    ? "本地文件搜索已在高级设置中关闭"
-                    : fileCount == 0 && terms.Length > 0
-                        ? $"没有找到「{terms}」· 索引只含设置里的目录，点此重建后自动重搜"
-                        : "重新遍历索引目录与已安装应用，完成后自动搜索当前关键词",
-            Glyph = "↻",
-            Accent = Accent("#0EA5E9"),
-            Run = RebuildFileIndexNow
-        });
-
-        ShowSlashRows(rows, string.Empty);
+        _lastSlashSignature = null;
+        ShowSlashRows(rows, emptyText);
+        UpdateFileSearchChrome();
+        UpdateFileSearchCount();
         // Rows are on screen with letter fallbacks now; fill in real icons in the background
         // so the list never waits on shell icon extraction.
         QueueDeferredIconLoad(rows);
     }
+
+    private async void LoadInitialFileResults(string terms, int generation, FileIndex index)
+    {
+        List<FileEntry> matches;
+        try
+        {
+            matches = await Task.Run(() => terms.Length == 0
+                ? index.Take(FileResultPageSize + 1)
+                : index.Search(terms, FileResultPageSize + 1));
+        }
+        catch { return; }
+
+        if (generation != _fileQueryGeneration || !IsOpen
+            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !string.Equals(liveQuery, terms, StringComparison.Ordinal)) return;
+
+        _fileResultsHasMore = matches.Count > FileResultPageSize;
+        var rows = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
+        _fileResultsLoaded = rows.Count;
+        var emptyText = rows.Count == 0 && terms.Length > 0
+            ? $"没有找到「{terms}」"
+            : rows.Count == 0 ? "索引中还没有可显示的项目" : string.Empty;
+        _lastSlashSignature = null;
+        ShowSlashRows(rows, emptyText);
+        UpdateFileSearchChrome();
+        UpdateFileSearchCount();
+        QueueDeferredIconLoad(rows);
+    }
+
+    private void OnFileResultsScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange == 0 && e.ExtentHeightChange == 0) return;
+        if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 72)
+            LoadNextFileResults();
+    }
+
+    private async void LoadNextFileResults()
+    {
+        if (!_fileResultsHasMore || _fileLoadingMore || App.Current.Files.IsBuilding
+            || !CurrentSettings.FileSearchEnabled || _fileResultQuery is null) return;
+
+        var generation = _fileQueryGeneration;
+        var query = _fileResultQuery;
+        var skip = _fileResultsLoaded;
+        _fileLoadingMore = true;
+        List<FileEntry> matches;
+        try
+        {
+            matches = await Task.Run(() => query.Length == 0
+                ? App.Current.Files.Take(FileResultPageSize + 1, skip)
+                : App.Current.Files.Search(query, FileResultPageSize + 1, skip));
+        }
+        catch
+        {
+            _fileLoadingMore = false;
+            return;
+        }
+
+        if (generation != _fileQueryGeneration || !IsOpen
+            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !string.Equals(liveQuery, query, StringComparison.Ordinal)) return;
+
+        _fileLoadingMore = false;
+        _fileResultsHasMore = matches.Count > FileResultPageSize;
+        var next = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
+        foreach (var row in next) _tiles.Add(row);
+        _fileResultsLoaded += next.Count;
+        UpdateFileSearchCount();
+        QueueDeferredIconLoad(next);
+        ApplyPanelHeightNow();
+        EnsureWindowFits();
+    }
+
+    private void UpdateFileSearchCount() =>
+        ResultCount.Text = _fileResultsLoaded == 0
+            ? string.Empty
+            : _fileResultsHasMore ? $"{_fileResultsLoaded}+" : _fileResultsLoaded.ToString();
+
+    private void UpdateFileSearchChrome()
+    {
+        if (RebuildIndexButton is null) return;
+        var inFileSearch = TryParseFileQuery(Query.Text, out _);
+        RebuildIndexButton.Visibility = inFileSearch ? Visibility.Visible : Visibility.Collapsed;
+        RebuildIndexButton.IsEnabled = inFileSearch && CurrentSettings.FileSearchEnabled
+            && !App.Current.Files.IsBuilding;
+        RebuildIndexButton.ToolTip = App.Current.Files.IsBuilding
+            ? "索引重建中…"
+            : "重建本地索引（Ctrl+Enter）";
+    }
+
+    private void OnRebuildIndexClick(object sender, RoutedEventArgs e) => RebuildFileIndexNow();
 
     /// <summary>
     /// Fills in real icons for the rows just shown, on a background STA thread. Indexing never
@@ -142,12 +238,19 @@ public partial class LauncherWindow
         App.Current.StartFileIndex(RefreshAfterIndexBuild);
     }
 
-    /// <summary>The "重建索引并搜索" row: walk the folders again, then re-run the query.</summary>
+    /// <summary>Clear visible hits, rebuild the index, then rerun the active /s query.</summary>
     private void RebuildFileIndexNow()
     {
-        if (!CurrentSettings.FileSearchEnabled) return;
+        if (!CurrentSettings.FileSearchEnabled || App.Current.Files.IsBuilding) return;
+        _fileQueryGeneration++;
+        _fileLoadingMore = false;
+        _fileResultsHasMore = false;
+        _fileResultsLoaded = 0;
+        _lastSlashSignature = null;
         App.Current.StartFileIndex(RefreshAfterIndexBuild);
-        Rebuild(); // immediately swap the command row to its "正在重建…" wording
+        ShowSlashRows(new List<ResultRow>(), "正在重建索引…");
+        UpdateFileSearchChrome();
+        UpdateFileSearchCount();
     }
 
     private void RefreshAfterIndexBuild()
