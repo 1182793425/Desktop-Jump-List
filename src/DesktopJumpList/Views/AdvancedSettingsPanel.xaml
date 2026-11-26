@@ -211,6 +211,9 @@
                                          Background="{DynamicResource HoverBrush}"
                                          Foreground="{DynamicResource InkBrush}"
                                          BorderBrush="{DynamicResource CardBorderBrush}" />
+                                <Button Content="恢复默认白名单规则" Style="{StaticResource ActionButton}"
+                                        HorizontalAlignment="Stretch" Margin="0,10,0,0"
+                                        Click="OnResetFileExtensions" />
                             </StackPanel>
                         </Border>
 
@@ -231,6 +234,9 @@
                                     <Button Grid.Column="2" Content="选择文件夹…" Style="{StaticResource ActionButton}"
                                             Click="OnAddExcludeFolder" />
                                 </Grid>
+                                <Button Content="恢复默认黑名单规则" Style="{StaticResource ActionButton}"
+                                        HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                                        Click="OnResetExcludes" />
                             </StackPanel>
                         </Border>
 

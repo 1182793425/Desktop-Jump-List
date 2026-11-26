@@ -101,6 +101,14 @@ public partial class AdvancedSettingsPanel : UserControl
         UpdateFileStatus();
     }
 
+    private void OnResetFileExtensions(object sender, RoutedEventArgs e)
+    {
+        var defaults = new AppSettings().FileIndexExtensions;
+        FileExtBox.Text = string.Join(Environment.NewLine, defaults);
+        App.Current.SetFileIndexExtensions(defaults);
+        UpdateFileStatus();
+    }
+
     /// <summary>0 = no cap; anything else applies on the next rebuild.</summary>
     private void CommitFileLimit()
     {
@@ -342,6 +350,14 @@ public partial class AdvancedSettingsPanel : UserControl
         UpdateFileStatus();
     }
 
+    private void OnResetExcludes(object sender, RoutedEventArgs e)
+    {
+        var defaults = new AppSettings().FileIndexExcludes;
+        App.Current.SetFileIndexExcludes(defaults);
+        BuildExcludeRows();
+        UpdateFileStatus();
+    }
+
     private void OnFileSearchToggled(object sender, RoutedEventArgs e)
     {
         App.Current.SetFileSearchEnabled(FileSearchSwitch.IsChecked == true);
@@ -465,6 +481,16 @@ public partial class AdvancedSettingsPanel : UserControl
             toggle.Click += OnEngineToggled;
             actions.Children.Add(toggle);
 
+            var moveUp = MakeOrderButton("↑", "上移，提升搜索显示优先级", rule.Id);
+            moveUp.IsEnabled = index > 0;
+            moveUp.Click += OnMoveSearchJumpUp;
+            actions.Children.Add(moveUp);
+
+            var moveDown = MakeOrderButton("↓", "下移，降低搜索显示优先级", rule.Id);
+            moveDown.IsEnabled = index < rules.Count - 1;
+            moveDown.Click += OnMoveSearchJumpDown;
+            actions.Children.Add(moveDown);
+
             var edit = new Button
             {
                 Content = "编辑",
@@ -511,6 +537,17 @@ public partial class AdvancedSettingsPanel : UserControl
         }
     }
 
+    private Button MakeOrderButton(string glyph, string tooltip, string id) => new()
+    {
+        Content = glyph,
+        Style = (Style)Resources["LinkButton"],
+        Padding = new Thickness(5, 4, 5, 4),
+        Margin = new Thickness(3, 0, 0, 0),
+        FontSize = 13,
+        ToolTip = tooltip,
+        Tag = id
+    };
+
     private void OnEngineToggled(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox { Tag: string id } clicked) return;
@@ -551,6 +588,23 @@ public partial class AdvancedSettingsPanel : UserControl
         var rules = App.Current.Settings.SearchJumpRules;
         if (rules is null) return;
         App.Current.SetSearchJumpRules(rules.Where(rule => rule.Id != id));
+        BuildEngineRows();
+    }
+
+    private void OnMoveSearchJumpUp(object sender, RoutedEventArgs e) => MoveSearchJump(sender, -1);
+
+    private void OnMoveSearchJumpDown(object sender, RoutedEventArgs e) => MoveSearchJump(sender, 1);
+
+    private void MoveSearchJump(object sender, int offset)
+    {
+        if (sender is not Button { Tag: string id }) return;
+        var rules = App.Current.Settings.SearchJumpRules?.ToList();
+        if (rules is null) return;
+        var index = rules.FindIndex(rule => rule.Id == id);
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= rules.Count) return;
+        (rules[index], rules[target]) = (rules[target], rules[index]);
+        App.Current.SetSearchJumpRules(rules);
         BuildEngineRows();
     }
 

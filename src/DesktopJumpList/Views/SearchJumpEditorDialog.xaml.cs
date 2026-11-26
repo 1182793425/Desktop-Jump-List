@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using DesktopJumpList.Models;
 
 namespace DesktopJumpList.Views;
@@ -18,6 +19,9 @@ public partial class SearchJumpEditorDialog : Window
         DialogTitle.Text = "编辑搜索跳转";
         NameBox.Text = _original.Name;
         UrlBox.Text = _original.UrlTemplate;
+        ColorBox.Text = _original.ColorHex;
+        GlyphBox.Text = _original.Monogram;
+        RefreshIconPreview();
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
@@ -40,11 +44,40 @@ public partial class SearchJumpEditorDialog : Window
             return;
         }
 
+        var colorText = ColorBox.Text.Trim();
+        Color iconColor;
+        try
+        {
+            if (colorText.Length is not (7 or 9) || !colorText.StartsWith('#'))
+                throw new FormatException();
+            iconColor = (Color)ColorConverter.ConvertFromString(colorText);
+        }
+        catch
+        {
+            ErrorText.Text = "图标底色请输入 #RRGGBB 格式，例如 #2B34E8。";
+            ColorBox.Focus();
+            return;
+        }
+
         ResultRule = _original ?? new SearchJumpRule();
         ResultRule.Name = name;
         ResultRule.UrlTemplate = template;
-        if (string.IsNullOrEmpty(ResultRule.Monogram)) ResultRule.Monogram = name[..1];
+        ResultRule.ColorHex = iconColor.ToString();
+        ResultRule.Monogram = string.IsNullOrWhiteSpace(GlyphBox.Text) ? name[..1] : GlyphBox.Text.Trim();
         DialogResult = true;
+    }
+
+    private void OnIconAppearanceChanged(object sender, RoutedEventArgs e) => RefreshIconPreview();
+
+    private void RefreshIconPreview()
+    {
+        GlyphPreview.Text = string.IsNullOrWhiteSpace(GlyphBox.Text) ? "搜" : GlyphBox.Text.Trim();
+        try
+        {
+            if (ColorConverter.ConvertFromString(ColorBox.Text.Trim()) is Color color)
+                IconPreview.Background = new SolidColorBrush(color);
+        }
+        catch { }
     }
 
     private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
