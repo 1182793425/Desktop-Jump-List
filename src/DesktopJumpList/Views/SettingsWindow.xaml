@@ -300,10 +300,10 @@
                         <Border x:Name="LayoutCard" Style="{StaticResource SettingsCard}" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="布局与面板" Style="{StaticResource SettingsSection}" />
-                                <!-- 3 × 3 table of short values: every column has a fixed width, so a
-                                     label sits on the same optical line as its own box, and the boxes
-                                     of one column line up with each other. Labels are centred on the
-                                     box height instead of hanging from the top of the row. -->
+                                <!-- Short values in a 3 × 3 table, then the search box underneath in the
+                                     same grid — that is the only way its switch and its width box start on
+                                     the same left edge as the numbers above. Fixed column widths keep a
+                                     label on its own box's line; the groups are one fixed gap apart. -->
                                 <Grid Margin="0,6,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -317,6 +317,9 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -345,23 +348,24 @@
                                     <TextBlock Grid.Row="2" Text="图文间距" Style="{StaticResource GridLabel}" VerticalAlignment="Center" />
                                     <TextBox x:Name="GapBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource SettingsNumber}"
                                              Margin="0,2" VerticalAlignment="Center" />
-                                </Grid>
 
-                                <!-- 搜索框是另一件事：单独一行，和上面的排版数值分开 -->
-                                <Border Height="1" Background="{DynamicResource CardBorderBrush}" Opacity="0.7"
-                                        Margin="0,12,0,10" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="88" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="搜索框" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <!-- 搜索框是另一件事：分隔线以下单列，开关和宽度各自一行 -->
+                                    <Border Grid.Row="3" Grid.ColumnSpan="9" Height="1" Margin="0,12,0,10"
+                                            Background="{DynamicResource CardBorderBrush}" Opacity="0.7" />
+
+                                    <TextBlock Grid.Row="4" Text="搜索框" Style="{StaticResource GridLabel}"
+                                               VerticalAlignment="Center" />
+                                    <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="8"
+                                                Orientation="Horizontal" VerticalAlignment="Center">
                                         <CheckBox x:Name="SearchBoxSwitch" Style="{StaticResource Switch}"
                                                   VerticalAlignment="Center" Click="OnSearchBoxVisibleClick" />
                                         <TextBlock Style="{StaticResource InlineHint}" Text="默认显示" />
-                                        <TextBlock Text="宽度" Style="{StaticResource RowLabel}" Margin="28,0,8,0"
-                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Row="5" Text="宽度" Style="{StaticResource GridLabel}"
+                                               VerticalAlignment="Center" />
+                                    <StackPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="8"
+                                                Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBox x:Name="SearchWidthBox" Style="{StaticResource SettingsNumber}"
                                                  VerticalAlignment="Center" />
                                         <TextBlock Text="px" Style="{StaticResource Unit}" />
@@ -543,6 +547,9 @@
                                             <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
                                                     Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
                                                     Content="下载安装包" Visibility="Collapsed" />
+                                            <Button x:Name="CancelUpdateButton" Style="{StaticResource LinkButton}"
+                                                    Padding="8,4" Margin="4,0,0,0" Click="OnCancelUpdateClick"
+                                                    Content="取消下载" Visibility="Collapsed" />
                                         </StackPanel>
                                         <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
                                                    Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed" />

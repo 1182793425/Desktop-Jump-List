@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -28,6 +29,8 @@ public partial class SettingsWindow : Window
         // Safety net for the bounded lists inside the page (see WheelScroller.AttachNearest).
         WheelScroller.AttachNearest(this, SettingsScroll);
 
+        // A download must not outlive the window it reports into.
+        Closed += (_, _) => _downloadCts?.Cancel();
         SourceInitialized += (_, _) => CenterOnScreen();
         Loaded += (_, _) =>
         {
@@ -502,20 +505,36 @@ public partial class SettingsWindow : Window
         UpdateStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    private CancellationTokenSource? _downloadCts;
+
+    private void OnCancelUpdateClick(object sender, RoutedEventArgs e)
+    {
+        _downloadCts?.Cancel();
+        CancelUpdateButton.IsEnabled = false;
+        SetUpdateStatus("正在取消…");
+    }
+
     private async void OnDownloadUpdateClick(object sender, RoutedEventArgs e)
     {
         if (_pendingUpdate is not { AssetUrl: { } url, AssetFileName: { } name }) return;
         DownloadUpdateButton.IsEnabled = false;
+        CancelUpdateButton.IsEnabled = true;
+        CancelUpdateButton.Visibility = Visibility.Visible;
+
+        var cts = new CancellationTokenSource();
+        _downloadCts = cts;
+        var dest = string.Empty;
         try
         {
             var downloads = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             Directory.CreateDirectory(downloads);
-            var dest = Path.Combine(downloads, name);
+            dest = Path.Combine(downloads, name);
             SetUpdateStatus("正在下载…");
             await Services.UpdateService.DownloadAsync(url, dest,
-                percent => Dispatcher.Invoke(() => SetUpdateStatus($"正在下载… {percent}%")));
+                percent => Dispatcher.Invoke(() => SetUpdateStatus($"正在下载… {percent}%")), cts.Token);
             SetUpdateStatus($"下载完成：{dest}");
+            CancelUpdateButton.Visibility = Visibility.Collapsed;
             if (MessageBox.Show(this, $"安装包已下载到：\n{dest}\n\n立即运行安装？",
                     "Jump 更新", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
@@ -528,12 +547,23 @@ public partial class SettingsWindow : Window
             DownloadUpdateButton.Visibility = Visibility.Collapsed;
             _pendingUpdate = null;
         }
+        catch (OperationCanceledException)
+        {
+            SetUpdateStatus("已取消下载");
+            // The partial file is useless and would only confuse the next attempt.
+            try { File.Delete(dest + ".download"); } catch { }
+        }
         catch (Exception ex)
         {
             SetUpdateStatus($"下载失败：{ex.Message}");
+            try { File.Delete(dest + ".download"); } catch { }
         }
         finally
         {
+            if (ReferenceEquals(_downloadCts, cts)) _downloadCts = null;
+            cts.Dispose();
+            CancelUpdateButton.Visibility = Visibility.Collapsed;
+            CancelUpdateButton.IsEnabled = true;
             DownloadUpdateButton.IsEnabled = true;
         }
     }

@@ -33,8 +33,8 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
+; 只有中文：程序界面目前是中文硬编码，安装时让用户选 English 会给出"装完还是中文"的错误预期。
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: checkedonce
