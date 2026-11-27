@@ -6,6 +6,33 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display">
     <UserControl.Resources>
+        <!-- The app-wide scrollbar is a 4px hairline that all but disappears on the card grey,
+             which reads as "this list cannot scroll". Inside these panels the bar is wider, more
+             opaque, and inset by 2px so it never sits on top of a row's「移除」link. -->
+        <Style x:Key="PanelScrollBar" TargetType="ScrollBar">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Width" Value="9" />
+            <Setter Property="MinWidth" Value="9" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="4" Margin="2,0" Opacity="0.9"
+                                                    Background="{DynamicResource InkFaintBrush}" />
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource PanelScrollBar}" />
         <Style x:Key="LinkButton" TargetType="Button">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="Cursor" Value="Hand" />
@@ -263,10 +290,10 @@
                                         </Grid>
                                         <!-- Bounded height: the list fills the detail pane and scrolls
                                              inside it instead of stretching the whole settings page. -->
-                                        <ScrollViewer x:Name="IndexStatsScroller" MaxHeight="320" Focusable="False"
+                                        <ScrollViewer x:Name="IndexStatsScroller" MaxHeight="340" Focusable="False"
                                                       VerticalScrollBarVisibility="Auto"
                                                       HorizontalScrollBarVisibility="Disabled">
-                                            <StackPanel x:Name="IndexStatsRows" />
+                                            <StackPanel x:Name="IndexStatsRows" Margin="0,0,8,0" />
                                         </ScrollViewer>
                                     </StackPanel>
                                 </Border>
@@ -318,10 +345,10 @@
                                                      BorderBrush="{DynamicResource CardBorderBrush}"
                                                      ToolTip="模糊筛选排除项：按字符顺序匹配，空格分隔多个条件" />
                                         </Grid>
-                                        <ScrollViewer x:Name="ExcludeScroller" MaxHeight="320" Focusable="False"
+                                        <ScrollViewer x:Name="ExcludeScroller" MaxHeight="340" Focusable="False"
                                                       VerticalScrollBarVisibility="Auto"
                                                       HorizontalScrollBarVisibility="Disabled">
-                                            <StackPanel x:Name="ExcludeRows" />
+                                            <StackPanel x:Name="ExcludeRows" Margin="0,0,8,0" />
                                         </ScrollViewer>
                                         <TextBlock x:Name="ExcludeFilterEmpty" Style="{StaticResource Hint}"
                                                    Margin="2,4,0,0" Visibility="Collapsed"
@@ -375,7 +402,7 @@
                                         <ScrollViewer x:Name="EngineScroller" MaxHeight="440" Focusable="False"
                                                       VerticalScrollBarVisibility="Auto"
                                                       HorizontalScrollBarVisibility="Disabled">
-                                            <StackPanel x:Name="EngineRows" />
+                                            <StackPanel x:Name="EngineRows" Margin="0,0,8,0" />
                                         </ScrollViewer>
                                         <TextBlock x:Name="EngineFilterEmpty" Style="{StaticResource Hint}"
                                                    Margin="4,4,0,0" Visibility="Collapsed"

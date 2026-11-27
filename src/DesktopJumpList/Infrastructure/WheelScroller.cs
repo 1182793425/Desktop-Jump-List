@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace DesktopJumpList.Infrastructure;
 
@@ -50,5 +51,36 @@ public static class WheelScroller
             viewer.ScrollToVerticalOffset(target);
             e.Handled = true;
         };
+    }
+
+    /// <summary>
+    /// Window-level safety net: whatever element the wheel lands on, the nearest thing that can
+    /// actually scroll under the pointer wins — unless that is the page itself, which is left to
+    /// WPF so ordinary page scrolling keeps its native feel.
+    /// </summary>
+    public static void AttachNearest(Window window, ScrollViewer page)
+    {
+        window.PreviewMouseWheel += (_, e) =>
+        {
+            var sv = NearestScrollable(e.OriginalSource as DependencyObject);
+            if (sv is null || ReferenceEquals(sv, page)) return;
+
+            var range = sv.ScrollableHeight;
+            if (range <= 0.5) return;
+            var target = Math.Clamp(sv.VerticalOffset + (e.Delta > 0 ? -StepDips : StepDips), 0, range);
+            if (Math.Abs(target - sv.VerticalOffset) < 0.5) return;
+
+            sv.ScrollToVerticalOffset(target);
+            e.Handled = true;
+        };
+    }
+
+    private static ScrollViewer? NearestScrollable(DependencyObject? node)
+    {
+        for (var current = node; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is ScrollViewer viewer && viewer.ScrollableHeight > 0.5) return viewer;
+        }
+        return null;
     }
 }

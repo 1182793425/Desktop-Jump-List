@@ -25,6 +25,8 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
         NavigateTo("appearance");
+        // Safety net for the bounded lists inside the page (see WheelScroller.AttachNearest).
+        WheelScroller.AttachNearest(this, SettingsScroll);
 
         SourceInitialized += (_, _) => CenterOnScreen();
         Loaded += (_, _) =>

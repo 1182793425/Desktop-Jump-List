@@ -1009,6 +1009,24 @@ public partial class App : Application
                 RaiseWheel(scroll, -120);
                 window.UpdateLayout();
                 report.Add($"   routed wheel: {beforeRouted:0} -> {scroll.VerticalOffset:0}");
+
+                // The real thing: cursor on the list, OS wheel. Windows delivers the wheel to the
+                // focused window, so a window that never took focus scrolls nothing at all — which
+                // is the one failure mode a synthetic event cannot show.
+                var centre = scroll.PointToScreen(new Point(scroll.ActualWidth / 2, scroll.ActualHeight / 2));
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                Infrastructure.Native.GetCursorPos(out var savedCursor);
+                Infrastructure.Native.SetCursorPos((int)centre.X, (int)centre.Y);
+                window.Activate();
+                await Task.Delay(200);
+                var beforeReal = scroll.VerticalOffset;
+                report.Add($"   active={window.IsActive} foregroundIsWindow=" +
+                           $"{Infrastructure.Native.GetForegroundWindow() == hwnd}");
+                Infrastructure.Native.mouse_event(Infrastructure.Native.MOUSEEVENTF_WHEEL, 0, 0, -120, IntPtr.Zero);
+                await Task.Delay(250);
+                window.UpdateLayout();
+                report.Add($"   real wheel: {beforeReal:0} -> {scroll.VerticalOffset:0}");
+                Infrastructure.Native.SetCursorPos(savedCursor.X, savedCursor.Y);
             }
 
             window.Close();

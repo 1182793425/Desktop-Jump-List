@@ -372,11 +372,11 @@ public partial class LauncherWindow : Window
             IsOpen = false;
             _longPress?.Stop();
             _dragArmed = false;
-            _editMode = false;
+            // Leaving the panel always leaves edit mode behind: the glow, the hint strip and the
+            // sticky message have to come off here too, not just the flag, otherwise the next
+            // open still looks like the layout is being adjusted.
+            ExitEditMode();
             EndInternalDrag();
-            EditHintBar.To(OpacityProperty, 0, 0);
-            EditHintBar.Visibility = Visibility.Collapsed;
-
             Hide();
             Query.Text = string.Empty;
             Tiles.SelectedIndex = -1;
