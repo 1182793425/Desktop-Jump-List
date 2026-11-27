@@ -566,8 +566,11 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="项目地址" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
+                                    <!-- Padding 0: the link text has to start on the same x as 当前版本 and
+                                         下载统计 above/below it. The 8,4 padding was there to give the hover
+                                         highlight room, and it pushed this one line 8px to the right. -->
                                     <Button Grid.Column="1" Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
-                                            VerticalAlignment="Center" Padding="8,4" Click="OnOpenProjectPage"
+                                            VerticalAlignment="Center" Padding="0,4" Click="OnOpenProjectPage"
                                             Content="github.com/1182793425/Desktop-Jump-List"
                                             ToolTip="在浏览器打开项目主页" />
                                 </Grid>
