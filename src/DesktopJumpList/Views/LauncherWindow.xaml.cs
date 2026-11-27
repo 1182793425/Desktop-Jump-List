@@ -1810,10 +1810,28 @@ public partial class LauncherWindow : Window
 
         var menu = NewMenu(anchor);
         menu.Items.Add(Item("打开", () => OpenItem(item), "Enter"));
+
+        // Only recent-only rows (files opened from search, jump targets) need this: a real tile is
+        // already on the panel, and the recent row shows it too.
+        if (item.RecentOnly)
+        {
+            menu.Items.Add(Item("添加至常用面板", () =>
+            {
+                var promoted = _library.Promote(item);
+                _ordered = _library.Ordered();
+                Rebuild();
+                ShowMessage(promoted
+                    ? $"已添加「{item.Name}」到常用面板"
+                    : $"「{item.Name}」已在常用面板中");
+            }));
+        }
+
         if (item.Kind is ShortcutKind.File or ShortcutKind.Folder or ShortcutKind.App)
             menu.Items.Add(Item("打开所在位置", () => { ShellLauncher.Reveal(item); Close(animated: true); }));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item(item.Pinned ? "取消固定" : "固定在最前", () => TogglePin(item)));
+        // Pinning a recent-only row would do nothing: the grid does not list it until it is promoted.
+        if (!item.RecentOnly)
+            menu.Items.Add(Item(item.Pinned ? "取消固定" : "固定在最前", () => TogglePin(item)));
         menu.Items.Add(Item("重命名", () => BeginRename(item), "F2"));
 
         // Move between folders without dragging: each target is one direct menu item. A nested

@@ -91,6 +91,29 @@ public sealed class ShortcutLibrary
     private const int MaxRecentOnly = 40;
 
     /// <summary>
+    /// Turns a recently-used entry into a real tile, so a file that only ever lived in the recent
+    /// row can be kept on the panel. Returns false when it cannot become a tile because the panel
+    /// already holds the same target (the placeholder is dropped instead of showing it twice).
+    /// </summary>
+    public bool Promote(ShortcutItem item)
+    {
+        if (!item.RecentOnly || !Items.Contains(item)) return false;
+
+        var duplicate = Items.FirstOrDefault(i => !i.RecentOnly && !ReferenceEquals(i, item)
+            && string.Equals(i.Target, item.Target, StringComparison.OrdinalIgnoreCase));
+        if (duplicate is not null)
+        {
+            Items.Remove(item);
+            SaveSoon();
+            return false;
+        }
+
+        item.RecentOnly = false;
+        SaveSoon();
+        return true;
+    }
+
+    /// <summary>
     /// Records a one-off launch that is not a panel tile — a file opened from the local index or
     /// a click on a search-jump row. The entry lives only in the recently-used row: it is
     /// persisted, but <see cref="Ordered"/> leaves it out of the grid.
