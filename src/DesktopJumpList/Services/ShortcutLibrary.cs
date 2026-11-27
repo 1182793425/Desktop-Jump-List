@@ -196,7 +196,7 @@ public sealed class ShortcutLibrary
     private static int Rank(ShortcutItem item, string query, string compact, out int gap)
     {
         var rank = TextMatch.RankName(item.SearchName, item.SearchCompact, item.SearchInitials,
-            item.SearchWordInitials, query, compact, out gap);
+            item.SearchWordInitials, item.SearchPinyin, query, compact, out gap);
         if (rank >= 0) return rank;
 
         gap = 0;

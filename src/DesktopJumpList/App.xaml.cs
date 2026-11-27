@@ -76,6 +76,21 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 2 && e.Args[0].Equals("--file-search-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            // --file-search-probe <dir> <root> <query> [query...]
+            _ = RunFileSearchProbeAsync(e.Args[1], e.Args[2], e.Args.Skip(3).ToArray());
+            return;
+        }
+
+        if (e.Args.Length > 1 && e.Args[0].Equals("--pinyin-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var word in e.Args[1].Split(';', StringSplitOptions.RemoveEmptyEntries))
+                Console.WriteLine($"{word} -> full=[{TinyPinyin.PinyinHelper.GetPinyin(word)}] initials=[{TinyPinyin.PinyinHelper.GetPinyinInitials(word)}]");
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Length > 1 && e.Args[0].Equals("--icon-probe", StringComparison.OrdinalIgnoreCase))
         {
             // Diagnostic: every icon pipeline stage for one path, with size and ink extent.
@@ -1049,6 +1064,45 @@ public partial class App : Application
         Shutdown();
     }
 
+    /// <summary>
+    /// Hidden `--file-search-probe &lt;dir&gt; &lt;root&gt; &lt;query…&gt;`: builds a throwaway index over one
+    /// folder and prints the hits for each query. Exercises the real matcher (tokens, pinyin,
+    /// folder-path fallback) without touching the user's own index.
+    /// </summary>
+    private async Task RunFileSearchProbeAsync(string directory, string root, string[] queries)
+    {
+        var lines = new List<string>();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var data = Path.Combine(directory, "_preview-data");
+            Directory.CreateDirectory(data);
+            Storage = new Storage(data);
+            Settings = Storage.LoadSettings();
+            ThemeService.Initialize(AppTheme.Light);
+            Settings.FileSearchRoots = new List<string> { root };
+            Settings.FileSearchRootsCustomized = true;
+            Files = new FileIndex(data);
+            Files.Start(BuildIndexRules());
+            for (var i = 0; i < 400 && Files.IsBuilding; i++) await Task.Delay(50);
+            lines.Add($"index: {Files.Count} entries building={Files.IsBuilding}");
+            lines.Add("extensions: " + string.Join(" ", Settings.FileIndexExtensions.Take(20)));
+
+            foreach (var query in queries)
+            {
+                var hits = Files.Search(query, 5);
+                lines.Add($"\nquery [{query}] -> {hits.Count} hit(s)");
+                foreach (var hit in hits)
+                    lines.Add($"    {hit.Name}   ←   {hit.Folder}");
+            }
+        }
+        catch (Exception ex) { lines.Add("error: " + ex); }
+
+        foreach (var line in lines) Console.WriteLine(line);
+        try { File.WriteAllLines(Path.Combine(directory, "file-search-probe.txt"), lines); } catch { }
+        Shutdown();
+    }
+
     /// <summary>Raises a wheel notch the way the input system does: Preview tunnel, then bubble.</summary>
     private static void RaiseWheel(UIElement target, int delta)
     {
@@ -1426,6 +1480,13 @@ public partial class App : Application
                 Launcher.Query.Text = "/s";
                 await Task.Delay(420);
                 CaptureLauncher(Path.Combine(directory, $"slash-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                // An unknown "/xyz" must fall back to a file search, not「没有这个命令」.
+                Launcher.Query.Text = "/page 00";
+                await Task.Delay(900);
+                CaptureLauncher(Path.Combine(directory, $"slash-loose-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                Settings.FileSearchOnPlainQuery = false;
                 Launcher.Query.Text = string.Empty;
 
                 // Panel artwork for the first-run wizard (transparent, so it works on both themes).

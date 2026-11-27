@@ -27,6 +27,12 @@ public sealed class FileEntry
     public string Folder { get; set; } = string.Empty;
     public string Lower { get; set; } = string.Empty;
     public string Initials { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Full pinyin of the name, compact and lower-case ("shejigao"). For an ASCII name this is the
+    /// same string as <see cref="Lower"/>, so English names cost nothing extra.
+    /// </summary>
+    public string Pinyin { get; set; } = string.Empty;
 }
 
 /// <summary>Everything that shapes what the index may contain, snapshotted for one operation.</summary>
@@ -265,7 +271,7 @@ public sealed class FileIndex
                 long bytes = 0;
                 foreach (var entry in _byId.Values)
                     bytes += (entry.Path.Length + entry.Name.Length + entry.Folder.Length
-                              + entry.Lower.Length + entry.Initials.Length) * 2 + 180;
+                              + entry.Lower.Length + entry.Initials.Length + entry.Pinyin.Length) * 2 + 180;
                 return bytes;
             }
         }
@@ -308,6 +314,10 @@ public sealed class FileIndex
 
         var needle = query.Trim().ToLowerInvariant();
         var compact = needle.Replace(" ", string.Empty);
+        // Space-separated words are separate requirements, not one long string: "/s file 2026 11
+        // .csv" has to match a path like ...\Cache\File\2026-11\明细.csv, where no single
+        // substring contains all of it.
+        var tokens = needle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var hits = new List<(FileEntry entry, int rank)>();
 
         List<FileEntry> snapshot;
@@ -315,7 +325,9 @@ public sealed class FileIndex
 
         foreach (var entry in snapshot)
         {
-            var rank = Rank(entry, needle, compact);
+            var rank = tokens.Length <= 1
+                ? Rank(entry, needle, compact)
+                : RankAllTokens(entry, tokens);
             if (rank == int.MaxValue) continue;
             hits.Add((entry, rank));
         }
@@ -330,6 +342,19 @@ public sealed class FileIndex
             .ToList();
     }
 
+    /// <summary>Every token must hit somewhere (name, pinyin, or the folder path); ranks add up.</summary>
+    private static int RankAllTokens(FileEntry entry, string[] tokens)
+    {
+        var total = 0;
+        foreach (var token in tokens)
+        {
+            var rank = Rank(entry, token, token);
+            if (rank == int.MaxValue) return int.MaxValue;
+            total += rank;
+        }
+        return total;
+    }
+
     private static int Rank(FileEntry entry, string needle, string compact)
     {
         if (string.Equals(entry.Lower, needle, StringComparison.Ordinal)) return 0;
@@ -337,10 +362,29 @@ public sealed class FileIndex
         if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 2;
         if (entry.Initials.Length >= needle.Length && entry.Initials.StartsWith(needle, StringComparison.Ordinal)) return 3;
         if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 4;
-        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 5;
-        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 5;
-        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return 6;
+
+        // Full pinyin: "shejigao" → 设计稿. Only for letter queries, and only when the name really
+        // has Han characters (Pinyin equals Lower for ASCII names, where the rules above already
+        // covered the same ground).
+        if (IsAsciiWord(needle) && entry.Pinyin.Length > 0
+            && !string.Equals(entry.Pinyin, entry.Lower, StringComparison.Ordinal))
+        {
+            if (entry.Pinyin.StartsWith(needle, StringComparison.Ordinal)) return 5;
+            if (needle.Length >= 3 && entry.Pinyin.Contains(needle, StringComparison.Ordinal)) return 6;
+        }
+
+        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 7;
+        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 7;
+        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return 8;
         return int.MaxValue;
+    }
+
+    private static bool IsAsciiWord(string text)
+    {
+        if (text.Length == 0) return false;
+        foreach (var ch in text)
+            if (ch is < 'a' or > 'z') return false;
+        return true;
     }
 
     private static bool IsSubsequence(string text, string query)
@@ -616,6 +660,7 @@ public sealed class FileIndex
     private static FileEntry MakeEntry(ulong id, ulong parentId, string path, string name, bool isDirectory, DateTime writeTime)
     {
         var folder = Path.GetDirectoryName(path) ?? string.Empty;
+        var lower = name.ToLowerInvariant();
         return new FileEntry
         {
             Id = id,
@@ -625,8 +670,9 @@ public sealed class FileIndex
             WriteTime = writeTime,
             Path = path,
             Folder = folder,
-            Lower = name.ToLowerInvariant(),
-            Initials = Pinyin.Initials(name)
+            Lower = lower,
+            Initials = Pinyin.Initials(name),
+            Pinyin = Pinyin.HasHan(name) ? Pinyin.Full(name) : lower
         };
     }
 
@@ -1131,6 +1177,7 @@ public sealed class FileIndex
                 var ticks = reader.ReadInt64();
                 var flags = reader.ReadByte();
                 var name = reader.ReadString();
+                var lower = name.ToLowerInvariant();
                 var entry = new FileEntry
                 {
                     Id = id,
@@ -1140,8 +1187,9 @@ public sealed class FileIndex
                     WriteTime = FileTime(ticks),
                     Path = string.Empty,
                     Folder = string.Empty,
-                    Lower = name.ToLowerInvariant(),
-                    Initials = Pinyin.Initials(name)
+                    Lower = lower,
+                    Initials = Pinyin.Initials(name),
+                    Pinyin = Pinyin.HasHan(name) ? Pinyin.Full(name) : lower
                 };
                 entries.Add(entry);
             }

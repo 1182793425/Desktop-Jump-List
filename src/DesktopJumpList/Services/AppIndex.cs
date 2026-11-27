@@ -26,6 +26,7 @@ public sealed class AppEntry
     public string Compact { get; init; } = string.Empty;
     public string Initials { get; init; } = string.Empty;
     public string WordInitials { get; init; } = string.Empty;
+    public string Pinyin { get; init; } = string.Empty;
     public string ExeStem { get; init; } = string.Empty;
     public string PublisherLower { get; init; } = string.Empty;
 }
@@ -126,7 +127,7 @@ public sealed class AppIndex : IDisposable
     private static int Rank(AppEntry app, string needle, string compact, out int gap)
     {
         var rank = TextMatch.RankName(app.Lower, app.Compact, app.Initials, app.WordInitials,
-            needle, compact, out gap);
+            app.Pinyin, needle, compact, out gap);
         if (rank >= 0) return rank;
 
         gap = 0;
@@ -239,6 +240,7 @@ public sealed class AppIndex : IDisposable
                         Compact = TextMatch.Compact(name),
                         Initials = Pinyin.Initials(name.Trim()),
                         WordInitials = TextMatch.WordInitials(name.Trim()),
+                        Pinyin = Pinyin.Full(name.Trim()),
                         ExeStem = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant(),
                         PublisherLower = publisher.ToLowerInvariant(),
                     };

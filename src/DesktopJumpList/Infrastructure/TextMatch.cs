@@ -105,7 +105,7 @@ public static class TextMatch
     /// </summary>
     /// <param name="gap">Skipped-character count of the subsequence hit, for tie-breaking.</param>
     public static int RankName(string name, string compactName, string initials, string wordInitials,
-        string query, string compactQuery, out int gap)
+        string pinyin, string query, string compactQuery, out int gap)
     {
         gap = 0;
         if (name.Length == 0 || query.Length == 0) return -1;
@@ -120,12 +120,27 @@ public static class TextMatch
         if (initials.Length > 0 && initials.Contains(compactQuery, StringComparison.Ordinal)) return 7;
         if (wordInitials.Length > 0 && wordInitials.Contains(compactQuery, StringComparison.Ordinal)) return 8;
 
+        // Full pinyin: "weixin" and "shejigao" reach 微信 / 设计稿, not just their initials.
+        if (IsAsciiWord(compactQuery) && pinyin.Length > 0)
+        {
+            if (pinyin.StartsWith(compactQuery, StringComparison.Ordinal)) return 9;
+            if (compactQuery.Length >= 3 && pinyin.Contains(compactQuery, StringComparison.Ordinal)) return 10;
+        }
+
         // Abbreviations typed as one word: "vscode" is not a substring of "visual studio code",
         // but it is. Short queries are excluded — they would match almost everything.
-        if (compactQuery.Length >= 3 && IsSubsequence(name, compactQuery, out gap)) return 9;
+        if (compactQuery.Length >= 3 && IsSubsequence(name, compactQuery, out gap)) return 11;
         return -1;
     }
 
+    private static bool IsAsciiWord(string text)
+    {
+        if (text.Length == 0) return false;
+        foreach (var ch in text)
+            if (ch < 'a' || ch > 'z') return false;
+        return true;
+    }
+
     /// <summary>First rank a caller may use for its own tail rules (target path, exe name, ...).</summary>
-    public const int RankBelowName = 10;
+    public const int RankBelowName = 12;
 }

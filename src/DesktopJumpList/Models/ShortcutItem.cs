@@ -32,6 +32,7 @@ public sealed class ShortcutItem : ObservableObject
             _searchName = null;
             _searchInitials = null;
             _searchWordInitials = null;
+            _searchPinyin = null;
             _searchCompact = null;
             Raise(nameof(TooltipText));
         }
@@ -40,6 +41,7 @@ public sealed class ShortcutItem : ObservableObject
     private string? _searchName;
     private string? _searchInitials;
     private string? _searchWordInitials;
+    private string? _searchPinyin;
     private string? _searchCompact;
 
     /// <summary>Lower-cased name, computed once — search runs on every keystroke.</summary>
@@ -53,6 +55,9 @@ public sealed class ShortcutItem : ObservableObject
     /// which is what makes an abbreviation like "vsc" or "code" land on the right item.
     /// </summary>
     public string SearchWordInitials => _searchWordInitials ??= TextMatch.WordInitials(_name);
+
+    /// <summary>Full pinyin of the name ("shejigao"), so typing syllables works like initials.</summary>
+    public string SearchPinyin => _searchPinyin ??= Infrastructure.Pinyin.Full(_name ?? string.Empty);
 
     /// <summary>Name with spaces and punctuation dropped, so "vs code" matches "Visual Studio Code".</summary>
     public string SearchCompact => _searchCompact ??= TextMatch.Compact(_name);

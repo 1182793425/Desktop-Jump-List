@@ -3,8 +3,10 @@
 namespace DesktopJumpList.Infrastructure;
 
 /// <summary>
-/// Pinyin initials for common Chinese characters (GB2312 level-1, ~3700 chars), so "wx" finds 微信.
-/// Uses the GB2312 code-point ordering trick; no dictionary file needed.
+/// Pinyin for search. Initials come from the GB2312 code-point ordering trick (~3700 chars, no
+/// dictionary); full syllables come from TinyPinyin's table so "shejigao" reaches 设计稿 the way
+/// "sjg" already does. Both are only ever called on strings the user can see, never per keystroke
+/// over the whole index — the file entry caches its own copy at build/load time.
 /// </summary>
 public static class Pinyin
 {
@@ -50,6 +52,33 @@ public static class Pinyin
             if (c != '\0') sb.Append(c);
         }
         return sb.ToString();
+    }
+
+    /// <summary>True when the text has at least one Han character (the only case needing the table).</summary>
+    public static bool HasHan(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        foreach (var ch in text)
+            if (ch >= 0x3400 && ch <= 0x9FFF) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Full pinyin, lower-case and compact: 设计稿 → "shejigao", 违规明细_qsi.csv →
+    /// "weiguimingxi_qsi.csv". Pure-ASCII text is returned lower-cased untouched, which both keeps
+    /// the common case free of table lookups and lets callers store one string for both.
+    /// </summary>
+    public static string Full(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (!HasHan(text)) return text.ToLowerInvariant();
+        try
+        {
+            return TinyPinyin.PinyinHelper.GetPinyin(text)
+                .Replace(" ", string.Empty)
+                .ToLowerInvariant();
+        }
+        catch { return text.ToLowerInvariant(); }
     }
 
     private static char Initial(char ch)

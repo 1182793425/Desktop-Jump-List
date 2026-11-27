@@ -153,7 +153,7 @@ public partial class LauncherWindow
             if (q.Length == 0) return;
             if (q.StartsWith('/'))
             {
-                if (TryParseFileQuery(q, out var terms)) RebuildFileSearch(terms);
+                if (TryGetFileTerms(q, out var terms)) RebuildFileSearch(terms);
             }
             else
             {

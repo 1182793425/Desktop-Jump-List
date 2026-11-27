@@ -45,6 +45,36 @@ public partial class LauncherWindow
         return true;
     }
 
+    /// <summary>
+    /// Terms of the active file query, or false when this query is not a file search. Besides the
+    /// explicit "/s ..." it accepts an unknown "/xyz ...": once the command palette has nothing to
+    /// offer, the text after the slash is treated as a local-file query — so "/pengbo" and
+    /// "/file 2026 11 .csv" find files instead of answering "没有这个命令".
+    /// A partial command ("/se") keeps the palette, and the /s aliases are stripped when present.
+    /// </summary>
+    private bool TryGetFileTerms(string query, out string terms)
+    {
+        if (TryParseFileQuery(query, out terms)) return true;
+
+        terms = string.Empty;
+        if (query.Length == 0 || query[0] != '/') return false;
+
+        var body = query.TrimStart('/').Trim();
+        if (body.Length == 0) return false;
+        if (SlashRows(query).Count > 0) return false;   // still a (partial) command: keep the palette
+
+        var cut = body.IndexOf(' ');
+        var first = cut < 0 ? body : body[..cut];
+        if (cut > 0 && FileCommandAliases.Contains(first, StringComparer.CurrentCultureIgnoreCase))
+        {
+            terms = body[(cut + 1)..].Trim();
+            return terms.Length > 0;
+        }
+
+        terms = body;
+        return true;
+    }
+
     private void RebuildSlash(string query)
     {
         var rows = SlashRows(query);
@@ -120,7 +150,7 @@ public partial class LauncherWindow
         catch { return; }
 
         if (generation != _fileQueryGeneration || !IsOpen
-            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !TryGetFileTerms(CurrentQuery, out var liveQuery)
             || !string.Equals(liveQuery, terms, StringComparison.Ordinal)) return;
 
         matches = KeepExistingFiles(matches);
@@ -198,7 +228,7 @@ public partial class LauncherWindow
         }
 
         if (generation != _fileQueryGeneration || !IsOpen
-            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !TryGetFileTerms(CurrentQuery, out var liveQuery)
             || !string.Equals(liveQuery, query, StringComparison.Ordinal))
         {
             // A newer query owns the flag now; only the same generation may clear it.
@@ -288,7 +318,7 @@ public partial class LauncherWindow
         }
 
         if (generation != _fileQueryGeneration || !IsOpen
-            || !TryParseFileQuery(CurrentQuery, out var liveQuery)
+            || !TryGetFileTerms(CurrentQuery, out var liveQuery)
             || !string.Equals(liveQuery, terms, StringComparison.Ordinal))
         {
             if (generation == _fileQueryGeneration) _fileLoadingMore = false;
@@ -355,7 +385,7 @@ public partial class LauncherWindow
         {
             var text = CurrentQuery;
             if (text.Length == 0 || !CurrentSettings.FileSearchEnabled) return false;
-            if (TryParseFileQuery(text, out _)) return true;
+            if (TryGetFileTerms(text, out _)) return true;
             return !text.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
         }
     }
@@ -436,7 +466,7 @@ public partial class LauncherWindow
         if (!CurrentSettings.FileSearchEnabled || App.Current.Files.IsBuilding) return;
         // A plain query keeps its current results and refreshes once the walk is done; /s has
         // nothing useful to show meanwhile, so it swaps to the "rebuilding" line.
-        var keepResults = !TryParseFileQuery(CurrentQuery, out _);
+        var keepResults = !TryGetFileTerms(CurrentQuery, out _);
 
         _fileQueryGeneration++;
         _plainFileGeneration++;
@@ -471,7 +501,7 @@ public partial class LauncherWindow
             UpdateFileSearchCount();
             var q = CurrentQuery;
             if (q.Length == 0) return;
-            var fileMode = q.StartsWith('/') && TryParseFileQuery(q, out _);
+            var fileMode = TryGetFileTerms(q, out _);
             var plainMode = !q.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
             // In place, so the rows (and the page the user scrolled to) survive the rebuild.
             if (fileMode || plainMode)

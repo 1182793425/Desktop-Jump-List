@@ -40,6 +40,9 @@
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="TinyPinyin.Net" Version="1.0.2" />
+  </ItemGroup>
 
   <!-- Fail fast instead of silently building 0.0.0 when the version source is gone. -->
   <Target Name="RequireEnvVersion" BeforeTargets="BeforeBuild" Condition="!Exists('$(RepoEnvFile)')">

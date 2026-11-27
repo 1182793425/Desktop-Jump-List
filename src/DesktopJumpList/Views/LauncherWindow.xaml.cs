@@ -414,7 +414,9 @@ public partial class LauncherWindow : Window
             // Everything else starting with "/" stays the small command palette.
             _jumpMenuQuery = null;
             DropPlainFileResults();
-            if (TryParseFileQuery(q, out var fileTerms)) RebuildFileSearch(fileTerms);
+            // "/s ..." always searches files; an unknown "/xyz ..." falls back to the same search
+            // once the palette has nothing left to offer (see TryGetFileTerms).
+            if (TryGetFileTerms(q, out var fileTerms)) RebuildFileSearch(fileTerms);
             else RebuildSlash(q);
             return;
         }
