@@ -37,6 +37,12 @@ public sealed class FileEntry
     /// </summary>
     public string PathSearch { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How long this entry's own segment is inside <see cref="PathSearch"/>. Cached because the
+    /// ranking needs it for every candidate and recomputing it means lower-casing the name.
+    /// </summary>
+    public int SearchNameLength { get; set; }
+
     public string Folder { get; set; } = string.Empty;
     public string Lower { get; set; } = string.Empty;
     public string Initials { get; set; } = string.Empty;
@@ -244,13 +250,17 @@ public sealed class FileIndex
     // extends a token or adds one, and both can only remove matches.
     private string _narrowKey = string.Empty;
     private List<FileEntry>? _narrowSet;
+    private QueryTokens? _narrowTokens;
     private int _contentVersion;
-    private List<(string Extension, int Count)> _extensionStats = new();
+    // 扩展名 → 条数，增量维护：一次批处理只碰变更的条目，不再遍历整个索引。
+    // 读数时（设置页的「索引数据」）才排序，排序不落在写入路径上。
+    private readonly Dictionary<string, int> _extensionCounts = new(StringComparer.OrdinalIgnoreCase);
     private bool _searchListDirty = true;
 
     private CancellationTokenSource? _cancellation;
     private readonly string? _directory;
     private bool _dirty;
+    private int _dirtyBatches;
 
     public FileIndex(string? directory = null) => _directory = directory;
 
@@ -281,6 +291,12 @@ public sealed class FileIndex
         get { lock (_gate) return _dirty; }
     }
 
+    /// <summary>How many change batches piled up since the last write — the save throttle reads it.</summary>
+    public int DirtyBatches
+    {
+        get { lock (_gate) return _dirtyBatches; }
+    }
+
     public long MemoryBytes
     {
         get
@@ -305,7 +321,23 @@ public sealed class FileIndex
         _searchListDirty = true;
         _contentVersion++;
         _narrowSet = null;
+        _narrowTokens = null;
         _narrowKey = string.Empty;
+        _dirtyBatches++;
+        _dirty = true;
+    }
+
+    /// <summary>
+    /// A new entry can join the result set of the query the user is still typing, so the narrowing
+    /// cache is extended instead of thrown away — O(1) per added file instead of forcing the next
+    /// keystroke back to a full scan.
+    /// </summary>
+    private void AppendToNarrowSetLocked(FileEntry entry)
+    {
+        if (_narrowSet is not { } set || _narrowTokens is not { } tokens) return;
+        if (set.Count >= NarrowCacheLimit) return;
+        if (!TryMatch(entry, tokens, out _, out _)) return;
+        set.Add(entry);
     }
 
     private List<FileEntry> SnapshotLocked()
@@ -317,6 +349,77 @@ public sealed class FileIndex
             _searchListDirty = false;
         }
         return _searchList;
+    }
+
+    /// <summary>
+    /// Hidden `--index-bench` driver: seeds N synthetic rows through the real add path, then times
+    /// the operations that run on every delta batch. Returns a multi-line report.
+    /// </summary>
+    internal void BenchReport(int count)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        lock (_gate)
+        {
+            _searchListDirty = false;
+            _searchList.Clear();
+            for (var i = 1; i <= count; i++)
+            {
+                var parent = (ulong)(i / 50) + 1;
+                var name = $"file{i:0000000}.txt";
+                var path = $@"c://bench//dir{i / 50:0000}//{name}";
+                AddLocked(MakeEntry((ulong)i, parent, path, name, false, DateTime.UtcNow.AddMinutes(-i)));
+            }
+            MarkSearchDirtyLocked();
+        }
+        Console.WriteLine($"seed {count} rows: {sw.ElapsedMilliseconds} ms");
+
+        sw.Restart();
+        SnapshotLocked();
+        Console.WriteLine($"snapshot rebuild: {sw.ElapsedMilliseconds} ms");
+
+        // 每次击键一条：前缀越来越长，最容易触发全量扫描
+        foreach (var query in new[] { "f", "fi", "fil", "file", "file12", "file1234" })
+        {
+            sw.Restart();
+            var hits = Search(query, 31);
+            Console.WriteLine($"search [{query}] -> {hits.Count} hits: {sw.ElapsedMilliseconds} ms");
+        }
+
+        sw.Restart();
+        lock (_gate)
+        {
+            for (var i = 0; i < 1000; i++)
+            {
+                var id = (ulong)(count + 1 + i);
+                var name = $"added{i:0000}.txt";
+                AddLocked(MakeEntry(id, 1, $@"c://bench//dir0001//{name}", name, false, DateTime.UtcNow));
+            }
+            MarkSearchDirtyLocked();
+        }
+        Console.WriteLine($"1000 adds (one batch): {sw.ElapsedMilliseconds} ms");
+
+        sw.Restart();
+        for (var i = 0; i < 1000; i++)
+        {
+            lock (_gate) RemoveSubtreeLocked((ulong)(count + 1 + i));
+        }
+        Console.WriteLine($"1000 removes (1000 batches): {sw.ElapsedMilliseconds} ms");
+
+        sw.Restart();
+        for (var i = 0; i < 1000; i++)
+        {
+            lock (_gate)
+            {
+                if (!_byId.TryGetValue((ulong)(10 + i), out var entry)) continue;
+                ReparentLocked(entry, entry.ParentId, $"renamed{i:0000}.txt",
+                    $@"c://bench//dir{entry.ParentId:0000}//renamed{i:0000}.txt");
+            }
+        }
+        Console.WriteLine($"1000 renames: {sw.ElapsedMilliseconds} ms");
+
+        Console.WriteLine($"extension histogram: {_extensionCounts.Count} kinds");
+        Console.WriteLine($"memory estimate: {MemoryBytes / (1024.0 * 1024.0):0.0} MB");
     }
 
     /// <summary>A handful of entries for "/s" with no keyword yet: newest touched first.</summary>
@@ -365,36 +468,15 @@ public sealed class FileIndex
         foreach (var entry in source)
         {
             if (since is { } cutoff && entry.WriteTime < cutoff) continue;
-            // Layer 1 — the path, in order, with the spaces acting as wildcards:
-            // "download / set .exe" behaves like LIKE '%download%\%set%.exe%'.
-            var rank = RankPath(entry, tokens, out var gap, out var nameHit);
-            if (rank != int.MaxValue)
-            {
-                hits.Add(new Hit(entry, rank, gap, nameHit));
-                continue;
-            }
-
-            // Layer 2 — the name alone (pinyin, initials, subsequence). Path matching cannot see
-            // "weiguimingxi" because the pinyin is not in the path; these hits rank behind every
-            // path hit, which is what "search the path first" means.
-            var nameRank = 0;
-            foreach (var token in tokens.All)
-            {
-                var one = Rank(entry, token.Text, token.Text);
-                if (one == int.MaxValue) { nameRank = int.MaxValue; break; }
-                nameRank += one;
-            }
-            if (nameRank != int.MaxValue)
-                hits.Add(new Hit(entry, NameLayerRank + nameRank, 0, true));
+            if (!TryMatch(entry, tokens, out var rank, out var gap)) continue;
+            hits.Add(new Hit(entry, rank, gap));
         }
 
-        var ordered = hits
-            .OrderBy(hit => hit.Rank)
-            .ThenBy(hit => hit.Gap)
-            .ThenByDescending(hit => hit.Entry.WriteTime)
-            .ThenBy(hit => hit.Entry.Name.Length)
-            .Select(hit => hit.Entry)
-            .ToList();
+        // In-place sort instead of LINQ: on a query like "f" this is 200k hits, and OrderBy's
+        // iterator plus the key extraction costs more than the scan itself.
+        hits.Sort(HitOrder);
+        var ordered = new List<FileEntry>(hits.Count);
+        foreach (var hit in hits) ordered.Add(hit.Entry);
 
         // Remember this result set for the next keystroke — only while the index has not moved
         // (version) and only when it is small enough to be worth keeping.
@@ -406,6 +488,7 @@ public sealed class FileIndex
                 {
                     _narrowKey = tokens.Normalized;
                     _narrowSet = ordered;
+                    _narrowTokens = tokens;
                 }
             }
         }
@@ -419,7 +502,45 @@ public sealed class FileIndex
     /// <summary>Everything after this is a name-only hit, so path hits always come first.</summary>
     private const int NameLayerRank = 100;
 
-    private readonly record struct Hit(FileEntry Entry, int Rank, int Gap, bool NameHit);
+    private readonly record struct Hit(FileEntry Entry, int Rank, int Gap);
+
+    private static readonly Comparison<Hit> HitOrder = (a, b) =>
+    {
+        var byRank = a.Rank.CompareTo(b.Rank);
+        if (byRank != 0) return byRank;
+        var byGap = a.Gap.CompareTo(b.Gap);
+        if (byGap != 0) return byGap;
+        var byTime = b.Entry.WriteTime.CompareTo(a.Entry.WriteTime);
+        return byTime != 0 ? byTime : a.Entry.Name.Length.CompareTo(b.Entry.Name.Length);
+    };
+
+    /// <summary>
+    /// One entry against one prepared query. Layer 1 is the ordered path scan ("download / set
+    /// .exe" ≈ LIKE '%download%\%set%.exe%'); layer 2 is the name alone (pinyin, initials,
+    /// subsequence) — "weiguimingxi" is in no path, so it can only be answered from the name, and
+    /// those hits always rank behind path hits.
+    /// </summary>
+    private static bool TryMatch(FileEntry entry, in QueryTokens tokens, out int rank, out int gap)
+    {
+        var pathRank = RankPath(entry, tokens, out gap, out _);
+        if (pathRank != int.MaxValue)
+        {
+            rank = pathRank;
+            return true;
+        }
+
+        var nameRank = 0;
+        foreach (var token in tokens.All)
+        {
+            var one = Rank(entry, token.Text, token.Text);
+            if (one == int.MaxValue) { rank = 0; gap = 0; return false; }
+            nameRank += one;
+        }
+
+        rank = NameLayerRank + nameRank;
+        gap = 0;
+        return true;
+    }
 
     /// <summary>
     /// One query, prepared once per keystroke instead of once per entry: lower-case, '/' folded to
@@ -479,10 +600,10 @@ public sealed class FileIndex
     private static int RankPath(FileEntry entry, in QueryTokens tokens, out int gap, out bool nameHit)
     {
         var haystack = entry.PathSearch;
-        // Where the file name starts inside the haystack: the tail of the string is this entry's
-        // own segment, literal form plus (for Han names) its pinyin form.
-        var nameLength = Pinyin.SearchFormLength(entry.Name.ToLowerInvariant(), entry.Pinyin);
-        return RankAgainst(haystack, Math.Max(0, haystack.Length - nameLength), tokens, out gap, out nameHit);
+        // The tail of the haystack is this entry's own segment (literal form, plus its pinyin form
+        // for Han names) — see SearchNameLength.
+        return RankAgainst(haystack, Math.Max(0, haystack.Length - entry.SearchNameLength),
+            tokens, out gap, out nameHit);
     }
 
     /// <summary>The greedy in-order scan itself, over one haystack.</summary>
@@ -587,23 +708,30 @@ public sealed class FileIndex
 
     public List<(string Extension, int Count)> GetExtensionStats()
     {
-        lock (_gate) return _extensionStats.ToList();
+        lock (_gate)
+            return _extensionCounts
+                .OrderByDescending(pair => pair.Value)
+                .Select(pair => (pair.Key, pair.Value))
+                .ToList();
     }
 
+    /// <summary>Full recount — only for the initial load, where every row arrives at once.</summary>
     private void RebuildStatsLocked()
     {
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in _byId.Values)
-        {
-            if (entry.IsDirectory || IsAppEntry(entry)) continue;
-            var extension = Path.GetExtension(entry.Path);
-            if (extension.Length == 0) continue;
-            counts[extension] = counts.GetValueOrDefault(extension) + 1;
-        }
-        _extensionStats = counts
-            .OrderByDescending(pair => pair.Value)
-            .Select(pair => (pair.Key, pair.Value))
-            .ToList();
+        _extensionCounts.Clear();
+        foreach (var entry in _byId.Values) CountExtensionLocked(entry, +1);
+    }
+
+    /// <summary>Adds (or, with -1, removes) one entry's contribution to the extension histogram.</summary>
+    private void CountExtensionLocked(FileEntry entry, int delta)
+    {
+        if (entry.IsDirectory || IsAppEntry(entry)) return;
+        var extension = Path.GetExtension(entry.Path);
+        if (extension.Length == 0) return;
+
+        var next = _extensionCounts.GetValueOrDefault(extension) + delta;
+        if (next > 0) _extensionCounts[extension] = next;
+        else _extensionCounts.Remove(extension);
     }
 
     // ───────────────────────────── Full build ─────────────────────────────
@@ -861,6 +989,7 @@ public sealed class FileIndex
     {
         entry.Path = path;
         entry.PathSearch = Pinyin.SearchForm(path);
+        entry.SearchNameLength = Pinyin.SearchFormLength(entry.Lower, entry.Pinyin);
         entry.Folder = Path.GetDirectoryName(path) ?? string.Empty;
         return entry;
     }
@@ -968,7 +1097,7 @@ public sealed class FileIndex
                 if (isDirectory) changed += PopulateSubtreeLocked(entry, rules);
             }
 
-            if (changed > 0) { MarkSearchDirtyLocked(); RebuildStatsLocked(); }
+            if (changed > 0) MarkSearchDirtyLocked();
         }
         return changed;
     }
@@ -1030,7 +1159,7 @@ public sealed class FileIndex
                 if (isDirectory) changed += PopulateSubtreeLocked(entry, rules);
             }
 
-            if (changed > 0) { MarkSearchDirtyLocked(); RebuildStatsLocked(); }
+            if (changed > 0) MarkSearchDirtyLocked();
         }
 
         if (changed > 0) Changed?.Invoke();
@@ -1091,6 +1220,11 @@ public sealed class FileIndex
     {
         _byId[entry.Id] = entry;
         _byPath[entry.Path] = entry;
+        CountExtensionLocked(entry, +1);
+        // Appending keeps the flat search list usable without the O(n) rebuild; a removal is the
+        // only thing that has to start over.
+        if (!_searchListDirty) _searchList.Add(entry);
+        AppendToNarrowSetLocked(entry);
         // One list per *parent*, not per row: this is what makes a folder rename update its
         // whole subtree without scanning the index.
         if (!_childIds.TryGetValue(entry.ParentId, out var siblings))
@@ -1098,7 +1232,8 @@ public sealed class FileIndex
             siblings = new List<ulong>();
             _childIds[entry.ParentId] = siblings;
         }
-        if (!siblings.Contains(entry.Id)) siblings.Add(entry.Id);
+        // Callers guarantee a fresh id (the journal checks `_byId` first), so no O(siblings) scan.
+        siblings.Add(entry.Id);
     }
 
     private int RemoveSubtreeLocked(ulong id)
@@ -1112,6 +1247,7 @@ public sealed class FileIndex
         {
             var current = pending.Dequeue();
             if (!_byId.Remove(current, out var node)) continue;
+            CountExtensionLocked(node, -1);
             _byPath.Remove(node.Path);
             if (_childIds.TryGetValue(current, out var children))
             {
@@ -1142,6 +1278,8 @@ public sealed class FileIndex
         {
             // Name is init-only on the row; replace it in place to keep the id/parent stable.
             var replacement = MakeEntry(entry.Id, newParentId, newPath, newName, entry.IsDirectory, entry.WriteTime);
+            CountExtensionLocked(entry, -1);
+            CountExtensionLocked(replacement, +1);
             _byId[entry.Id] = replacement;
             _byPath[newPath] = replacement;
             CascadePathsLocked(replacement);
@@ -1163,8 +1301,10 @@ public sealed class FileIndex
     {
         if (!_childIds.TryGetValue(root.Id, out var children)) return;
         var pending = new Queue<FileEntry>();
+        // A parent chain that loops (corrupt row, odd hardlink) would otherwise spin forever here.
+        var seen = new HashSet<ulong>();
         foreach (var childId in children.ToArray())
-            if (_byId.TryGetValue(childId, out var child)) pending.Enqueue(child);
+            if (_byId.TryGetValue(childId, out var child) && seen.Add(childId)) pending.Enqueue(child);
 
         while (pending.Count > 0)
         {
@@ -1179,7 +1319,8 @@ public sealed class FileIndex
             }
             if (_childIds.TryGetValue(node.Id, out var grandChildren))
                 foreach (var grandChildId in grandChildren.ToArray())
-                    if (_byId.TryGetValue(grandChildId, out var grandChild)) pending.Enqueue(grandChild);
+                    if (seen.Add(grandChildId) && _byId.TryGetValue(grandChildId, out var grandChild))
+                        pending.Enqueue(grandChild);
         }
     }
 
@@ -1440,7 +1581,11 @@ public sealed class FileIndex
                 }
             }
             File.Move(temp, path, overwrite: true);
-            lock (_gate) _dirty = false;
+            lock (_gate)
+            {
+                _dirty = false;
+                _dirtyBatches = 0;
+            }
         }
         catch (Exception ex)
         {

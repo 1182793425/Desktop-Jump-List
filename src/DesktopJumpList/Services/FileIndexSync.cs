@@ -444,9 +444,12 @@ public sealed class FileIndexSync : IDisposable
     private void SaveIfNeeded()
     {
         if (!_index.IsDirty) return;
-        // Writing the whole index on every tick would cost more than the deltas themselves;
-        // the anchor is replay-safe, so a short window is fine.
-        if (DateTime.Now - _lastSave < TimeSpan.FromSeconds(10)) return;
+        // Writing the whole index on every tick would cost more than the deltas themselves; the
+        // anchor is replay-safe, so a longer window is fine. A download or a build can change
+        // files continuously — without this, the whole index would be rewritten every few seconds
+        // for nothing.
+        var elapsed = DateTime.Now - _lastSave;
+        if (elapsed < TimeSpan.FromSeconds(30) && _index.DirtyBatches < 40) return;
         _index.Save();
         _lastSave = DateTime.Now;
     }

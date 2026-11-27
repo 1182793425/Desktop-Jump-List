@@ -76,6 +76,14 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 1 && e.Args[0].Equals("--index-bench", StringComparison.OrdinalIgnoreCase))
+        {
+            var rows = int.TryParse(e.Args[1], out var parsed) ? Math.Clamp(parsed, 1000, 2_000_000) : 200_000;
+            new Services.FileIndex().BenchReport(rows);
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Length > 2 && e.Args[0].Equals("--file-search-probe", StringComparison.OrdinalIgnoreCase))
         {
             // --file-search-probe <dir> <root> <query> [query...]
