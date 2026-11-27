@@ -260,7 +260,7 @@
                                 <TextBlock Text="其他入口" FontSize="11.5" FontWeight="SemiBold"
                                            Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
                                 <TextBlock Style="{StaticResource StepBody}" LineHeight="22"
-                                           Text="●  拖文件到悬浮球 = 收藏进面板&#x0a;●  右键托盘图标 = 设置 / 重置配置 / 退出&#x0a;●  右键磁贴 = 打开 / 重命名 / 移动到分组" />
+                                           Text="●  拖文件到悬浮球 = 收藏进面板&#x0a;●  右键托盘图标 = 设置 / 重置 / 退出&#x0a;●  右键磁贴 = 打开 / 重命名 / 移动到分组" />
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource StepCard}" Margin="0,0,0,0">

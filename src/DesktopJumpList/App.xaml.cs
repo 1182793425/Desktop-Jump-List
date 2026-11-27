@@ -728,6 +728,29 @@ public partial class App : Application
         ResetSettings();
     }
 
+    /// <summary>Tray menu「重置 → 重置配置并引导」: restore the shipped defaults, then walk the
+    /// user through the first-run wizard again. No extra confirm dialog — the wizard itself is
+    /// the interactive step, and it re-commits FirstRunDone when it closes.</summary>
+    public void ResetSettingsAndOnboard()
+    {
+        if (IsShuttingDown) return;
+        ResetSettings();
+        Settings.FirstRunDone = false;
+        SaveSettings();
+        try
+        {
+            var wizard = new OnboardingWindow();
+            wizard.Show();
+            wizard.Activate();
+        }
+        catch (Exception ex)
+        {
+            Log(ex);
+            Settings.FirstRunDone = true;
+            SaveSettings();
+        }
+    }
+
     /// <summary>
     /// Restores the shipped defaults (the code-level defaults of <see cref="AppSettings"/>).
     /// The live settings object is overwritten in place so components holding a reference to

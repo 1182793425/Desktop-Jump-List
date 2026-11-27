@@ -35,18 +35,11 @@ public partial class SettingsWindow : Window
         };
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
-        MouseLeftButtonDown += OnWindowDragDown;
+        // Native WM_NCHITTEST drag: non-interactive surface returns HTCAPTION and Windows runs
+        // the drag loop (same mechanism as a normal title bar). DragMove-in-MouseLeftButtonDown
+        // proved unreliable here; the window stays borderless and shadow-free.
+        NativeSurfaceDrag.Enable(this, HitsInteractive);
         DownloadChart.SizeChanged += (_, _) => DrawDownloadChart();
-    }
-
-    /// <summary>
-    /// 无边框窗口整页可拖动：按下空白处（标题、卡片背景、说明文字等）即拖动窗口。
-    /// 交互控件（按钮、输入框、滑块、开关、列表等）不拦截，热键捕获框也放行。
-    /// </summary>
-    private void OnWindowDragDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is DependencyObject source && HitsInteractive(source)) return;
-        try { DragMove(); } catch { /* released mid-call: nothing to do */ }
     }
 
     private static bool HitsInteractive(DependencyObject? node)

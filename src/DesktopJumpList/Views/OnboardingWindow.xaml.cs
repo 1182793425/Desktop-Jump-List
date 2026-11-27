@@ -32,12 +32,9 @@ public partial class OnboardingWindow : Window
     {
         InitializeComponent();
 
-        MouseLeftButtonDown += (_, e) =>
-        {
-            // Blank surface drags the window; interactive controls keep their clicks.
-            if (e.OriginalSource is DependencyObject node && HitsInteractive(node)) return;
-            try { DragMove(); } catch { }
-        };
+        // Native WM_NCHITTEST drag: non-interactive surface returns HTCAPTION and Windows
+        // runs the drag loop; the window stays borderless and shadow-free.
+        NativeSurfaceDrag.Enable(this, HitsInteractive);
 
         FillDriveList();
         RefreshHotkeyUi();
@@ -49,6 +46,10 @@ public partial class OnboardingWindow : Window
     {
         while (node is not null)
         {
+            // The step pages scroll inside one ScrollViewer — it is a Control itself but must
+            // not swallow the drag; its ScrollBars are Controls and still will.
+            if (node is System.Windows.Controls.ScrollViewer)
+            { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
             if (node is System.Windows.Controls.Control) return true;
             node = System.Windows.Media.VisualTreeHelper.GetParent(node);
         }
