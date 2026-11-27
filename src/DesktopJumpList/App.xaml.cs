@@ -76,6 +76,12 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 2 && e.Args[0].Equals("--index-roundtrip", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = RunIndexRoundtripAsync(e.Args[1], e.Args[2]);
+            return;
+        }
+
         if (e.Args.Length > 1 && e.Args[0].Equals("--index-bench", StringComparison.OrdinalIgnoreCase))
         {
             var rows = int.TryParse(e.Args[1], out var parsed) ? Math.Clamp(parsed, 1000, 2_000_000) : 200_000;
@@ -1076,6 +1082,49 @@ public partial class App : Application
 
         foreach (var line in report) Console.WriteLine(line);
         try { File.WriteAllLines(Path.Combine(directory, "settings-scroll-selftest.txt"), report); } catch { }
+        Shutdown();
+    }
+
+    /// <summary>
+    /// Hidden `--index-roundtrip &lt;dir&gt; &lt;root&gt;`: writes an index, reloads it, then patches the
+    /// structure version in the file and reloads again — proving both that a matching version loads
+    /// and that a mismatched one is refused (which is what triggers the rebuild).
+    /// </summary>
+    private async Task RunIndexRoundtripAsync(string directory, string root)
+    {
+        Directory.CreateDirectory(directory);
+        var data = Path.Combine(directory, "_data");
+        Directory.CreateDirectory(data);
+
+        Storage = new Storage(data);
+        Settings = Storage.LoadSettings();
+        ThemeService.Initialize(AppTheme.Light);
+        Settings.FileSearchRoots = new List<string> { root };
+        Settings.FileSearchRootsCustomized = true;
+
+        var rules = BuildIndexRules();
+        var index = new FileIndex(data);
+        index.Start(rules);
+        for (var i = 0; i < 400 && index.IsBuilding; i++) await Task.Delay(50);
+        index.Save();
+        Console.WriteLine($"built {index.Count} rows, indexVersion={Infrastructure.BuildInfo.IndexVersion}");
+
+        var reloaded = new FileIndex(data);
+        var ok = reloaded.Load(rules);
+        Console.WriteLine($"reload same version -> loaded={ok} count={reloaded.Count} err={reloaded.LastLoadError ?? "-"}");
+
+        // Patch the stamp to 0 (an index written before the field existed).
+        var path = Path.Combine(data, "index.bin");
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length > 10)
+        {
+            bytes[6] = 0; bytes[7] = 0; bytes[8] = 0; bytes[9] = 0;
+            File.WriteAllBytes(path, bytes);
+        }
+        var stale = new FileIndex(data);
+        var ok2 = stale.Load(rules);
+        Console.WriteLine($"reload version 0 -> loaded={ok2} count={stale.Count} err={stale.LastLoadError ?? "-"}");
+
         Shutdown();
     }
 

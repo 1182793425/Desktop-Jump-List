@@ -101,7 +101,13 @@ public sealed class IndexRules
 
     private string BuildKey()
     {
-        var parts = new List<string> { "v" + RulesVersion, "limit=" + Limit, "drives=" + (DiscoverDriveRoots ? 1 : 0) };
+        var parts = new List<string>
+        {
+            "v" + RulesVersion,
+            "index=" + Infrastructure.BuildInfo.IndexVersion,
+            "limit=" + Limit,
+            "drives=" + (DiscoverDriveRoots ? 1 : 0)
+        };
         parts.AddRange(Roots.OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
         parts.Add("--ext--");
         parts.AddRange(Extensions.OrderBy(extension => extension, StringComparer.OrdinalIgnoreCase));
@@ -215,6 +221,9 @@ public sealed class IndexRules
 public sealed class IndexMeta
 {
     public string RuleKey { get; set; } = string.Empty;
+
+    /// <summary>Structure version this file was written with (0 = written before it existed).</summary>
+    public int IndexVersion { get; set; }
     public string BuiltAt { get; set; } = string.Empty;
     public bool Complete { get; set; }
 
@@ -1487,6 +1496,17 @@ public sealed class FileIndex
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
             using var reader = new BinaryReader(stream, Encoding.UTF8);
             if (reader.ReadString() != Magic) { LastLoadError = "magic"; return false; }
+
+            // Structure version sits right after the magic. A file written before this existed
+            // has the JSON length here instead, so the comparison fails and the index is rebuilt —
+            // which is exactly what we want for the first run of a release that changed the rows.
+            var storedVersion = reader.ReadInt32();
+            if (storedVersion != Infrastructure.BuildInfo.IndexVersion)
+            {
+                LastLoadError = $"structure {storedVersion} != {Infrastructure.BuildInfo.IndexVersion}";
+                return false;
+            }
+
             var metaJson = reader.ReadString();
             var meta = JsonSerializer.Deserialize<IndexMeta>(metaJson);
             if (meta is null || !meta.Complete) { LastLoadError = "incomplete"; return false; }
@@ -1569,6 +1589,8 @@ public sealed class FileIndex
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
             {
                 writer.Write(Magic);
+                writer.Write(Infrastructure.BuildInfo.IndexVersion);
+                meta.IndexVersion = Infrastructure.BuildInfo.IndexVersion;
                 writer.Write(JsonSerializer.Serialize(meta));
                 writer.Write(rows.Count);
                 foreach (var entry in rows)

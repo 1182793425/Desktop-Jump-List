@@ -21,11 +21,21 @@
          ONLY in .env; the build fails loudly if that file is missing. -->
     <RepoEnvFile>$(MSBuildThisFileDirectory)..\..\.env</RepoEnvFile>
     <Version Condition="Exists('$(RepoEnvFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(RepoEnvFile)')), '(?m)^APP_VERSION=([0-9][0-9.]*)').Value.Replace('APP_VERSION=','').Trim())</Version>
+    <!-- Index structure version, same single-source rule: bump INDEX_VERSION in .env whenever
+         the on-disk row format or its meaning changes. The app compares it with the stored index
+         and rebuilds automatically when the stored one is older (or missing). -->
+    <IndexVersion Condition="Exists('$(RepoEnvFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(RepoEnvFile)')), '(?m)^INDEX_VERSION=([0-9]+)').Value.Replace('INDEX_VERSION=','').Trim())</IndexVersion>
+    <IndexVersion Condition="'$(IndexVersion)' == ''">0</IndexVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <EnableDefaultApplicationDefinition>true</EnableDefaultApplicationDefinition>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Surfaces INDEX_VERSION to the runtime: AssemblyMetadata("IndexVersion", "1"). -->
+    <AssemblyMetadata Include="IndexVersion" Value="$(IndexVersion)" />
+  </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />

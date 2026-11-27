@@ -542,10 +542,13 @@ public partial class AdvancedSettingsPanel : UserControl
             : EffectiveRoots().Count == 0
                 ? "索引目录为空：/s 仍可搜到已安装应用"
                 : index.LastBuilt == DateTime.MinValue
-                    ? (index.LastLoadError == "rules"
+                    ? (index.LastLoadError?.StartsWith("structure", StringComparison.Ordinal) == true
+                        ? $"索引结构已升级（本机 v{App.Current.Files.Meta.IndexVersion} → 程序 v{Infrastructure.BuildInfo.IndexVersion}）：将自动重建"
+                        : index.LastLoadError == "rules"
                         ? "筛选规则已更新：请点上方或搜索框右侧的 ⟳ 手动重建"
                         : "尚未建立索引：点上方或搜索框右侧的 ⟳ 手动重建") + cap
-                    : $"已索引 {index.Count} 项 · 缓存约 {memory}{live} · 更新于 {index.LastBuilt:HH:mm}" + cap;
+                    : $"已索引 {index.Count} 项 · 缓存约 {memory}{live} · 更新于 {index.LastBuilt:HH:mm}"
+                      + $" · 结构 v{Infrastructure.BuildInfo.IndexVersion}" + cap;
     }
 
     private void UpdateIndexStats()
