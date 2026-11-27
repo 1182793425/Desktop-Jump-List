@@ -150,7 +150,7 @@
                 </StackPanel>
             </Grid>
 
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="30,6,30,0">
+            <ScrollViewer x:Name="PageScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="30,6,30,0">
                 <Grid>
                     <!-- 第 0 页：欢迎 -->
                     <StackPanel x:Name="PageWelcome" Visibility="Visible">
@@ -170,9 +170,8 @@
 
                     <!-- 第 1 页：选择索引盘符 -->
                     <StackPanel x:Name="PageIndex" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="选择要索引的磁盘" />
                         <TextBlock Style="{StaticResource StepBody}"
-                                   Text="索引让「/s 关键词」能像 Everything 一样全盘秒搜文件。勾选你想搜索的盘符（系统盘和常用资料盘就够了，全选会明显拉长首次建立时间），点击下方按钮开始建立。" />
+                                   Text="索引让「/s 关键词」能像 Everything 一样全盘秒搜文件。已默认选中所有磁盘，点击下方按钮开始建立；不想收录的目录，之后可在「设置 → 本地文件索引」的黑名单里排除。" />
                         <Border Style="{StaticResource StepCard}" Margin="0,14,0,0" Padding="10,8">
                             <StackPanel x:Name="DriveList" />
                         </Border>
@@ -184,12 +183,11 @@
                                        FontSize="11.5" Foreground="{DynamicResource InkFaintBrush}" />
                         </Grid>
                         <TextBlock Style="{StaticResource StepBody}" Margin="0,8,0,0" FontSize="11"
-                                   Text="建立期间可以继续下一步，索引在后台完成；之后随时可在设置里增删盘符或重建。" />
+                                   Text="索引在后台完成，建立期间即可进入下一步；之后随时可在设置里增删盘符或重建。" />
                     </StackPanel>
 
                     <!-- 第 2 页：快捷键 -->
                     <StackPanel x:Name="PageHotkey" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="设置呼出快捷键" />
                         <TextBlock Style="{StaticResource StepBody}"
                                    Text="快捷键在任何窗口下都能呼出/收起面板——窗口开得再多也不用手忙脚乱。推荐默认的 Ctrl + `（数字 1 左边那个键）。" />
                         <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
@@ -218,7 +216,6 @@
 
                     <!-- 第 3 页：直接搜索 -->
                     <StackPanel x:Name="PagePlainSearch" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="搜索方式：要不要带上本地文件？" />
                         <TextBlock Style="{StaticResource StepBody}"
                                    Text="「直接搜索」打开后，你在搜索栏输入任何词，结果里除了磁贴还会自动列出本地文件——不用再敲 /s 前缀。关闭则只在 /s 关键词 时检索文件，普通搜索更干净。" />
                         <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
@@ -240,9 +237,8 @@
                                    Text="两种方式随时可在「设置 → 本地文件索引」里切换。" />
                     </StackPanel>
 
-                    <!-- 第 4 页：教学 -->
+                    <!-- 第 4 页：教学 + 完成摘要 -->
                     <StackPanel x:Name="PageTeach" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="怎么用：搜索、打开与重建" />
                         <Border Style="{StaticResource StepCard}">
                             <StackPanel>
                                 <TextBlock Text="搜索与打开" FontSize="11.5" FontWeight="SemiBold"
@@ -259,7 +255,7 @@
                                            Text="●  搜索框右侧的 ⟳ 按钮，一键重建&#x0a;●  或在面板里按 Ctrl + Enter&#x0a;●  或「设置 → 本地文件索引」里的重建按钮&#x0a;●  日常新增/改名/删除文件是增量自动同步的，无需手动" />
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource StepCard}" Margin="0,0,0,0">
+                        <Border Style="{StaticResource StepCard}">
                             <StackPanel>
                                 <TextBlock Text="其他入口" FontSize="11.5" FontWeight="SemiBold"
                                            Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
@@ -267,18 +263,15 @@
                                            Text="●  拖文件到悬浮球 = 收藏进面板&#x0a;●  右键托盘图标 = 设置 / 重置配置 / 退出&#x0a;●  右键磁贴 = 打开 / 重命名 / 移动到分组" />
                             </StackPanel>
                         </Border>
-                    </StackPanel>
-
-                    <!-- 第 5 页：完成 -->
-                    <StackPanel x:Name="PageDone" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="设置完成！" />
-                        <TextBlock Style="{StaticResource StepBody}"
-                                   Text="全部就绪。下面是当前生效的配置，之后随时可以在设置里调整。" />
-                        <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
-                            <StackPanel x:Name="SummaryList" />
+                        <Border Style="{StaticResource StepCard}" Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="当前配置" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
+                                <StackPanel x:Name="SummaryList" />
+                            </StackPanel>
                         </Border>
-                        <TextBlock Style="{StaticResource StepBody}" Margin="0,12,0,0"
-                                   Text="点击「完成」关闭本窗口即可开始使用。祝顺手！" />
+                        <TextBlock Style="{StaticResource StepBody}" Margin="0,4,0,0"
+                                   Text="全部就绪。点击「完成」关闭本窗口即可开始使用，之后随时可在设置里调整。" />
                     </StackPanel>
                 </Grid>
             </ScrollViewer>

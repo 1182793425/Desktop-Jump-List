@@ -77,7 +77,6 @@ public partial class OnboardingWindow : Window
         PageHotkey.Visibility = _step == 2 ? Visibility.Visible : Visibility.Collapsed;
         PagePlainSearch.Visibility = _step == 3 ? Visibility.Visible : Visibility.Collapsed;
         PageTeach.Visibility = _step == 4 ? Visibility.Visible : Visibility.Collapsed;
-        PageDone.Visibility = _step == 4 ? Visibility.Visible : Visibility.Collapsed;
 
         HeaderTitle.Text = StepTitles[_step];
         HeaderSub.Text = _step switch
@@ -100,17 +99,27 @@ public partial class OnboardingWindow : Window
 
         BackButton.Visibility = _step == 0 ? Visibility.Collapsed : Visibility.Visible;
         SkipButton.Visibility = _step >= 1 && _step <= 3 ? Visibility.Visible : Visibility.Collapsed;
+        // Step 1 gates on actually starting the index build.
+        NextButton.IsEnabled = _step != 1 || _buildingStarted;
         NextButton.Content = _step switch
         {
             0 => "开始配置 →",
-            1 => _buildingStarted ? "下一步 →" : "下一步（稍后再建） →",
-            3 => "下一步 →",
             4 => "完成 ✓",
             _ => "下一步 →",
         };
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => ShowStep(_step - 1);
+
+    /// <summary>Preview hook (--onboarding-preview): jump straight to a step and fill its dynamic content.</summary>
+    public void ShowPreviewStep(int step)
+    {
+        ShowStep(step);
+        if (step == 4) FillSummary();
+    }
+
+    /// <summary>Preview hook: scroll the page area to the bottom (summary card).</summary>
+    public void ScrollPreviewToEnd() => PageScroller.ScrollToEnd();
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
@@ -159,11 +168,17 @@ public partial class OnboardingWindow : Window
             if (drive.DriveType is not DriveType.Fixed && drive.DriveType is not DriveType.Removable) continue;
             if (!drive.IsReady) continue;
 
-            var box = new CheckBox { Tag = $"{drive.Name}  ({drive.DriveLabel()})", IsChecked = drive.Name.Length == 3 && drive.DriveType == DriveType.Fixed };
+            var box = new CheckBox
+            {
+                Style = (Style)FindResource("DriveRow"),
+                Tag = $"{drive.Name}  ({drive.DriveLabel()})",
+                IsChecked = true // all drives preselected; exclusions are handled by the index blacklist
+            };
             var size = new TextBlock();
             // Wire the row sub-caption through the template's named slot: find it after load.
             box.Loaded += (_, _) =>
             {
+                box.ApplyTemplate(); // ensure the template is instantiated before FindName
                 if (box.Template.FindName("SizeText", box) is TextBlock text)
                 {
                     try
@@ -196,6 +211,7 @@ public partial class OnboardingWindow : Window
         BuildButton.IsEnabled = false;
         App.Current.StartFileIndex();
         IndexProgress.Text = "索引建立中…";
+        NextButton.IsEnabled = true;
 
         // Live progress: the index reports row counts through Changed.
         App.Current.Files.Changed += OnIndexChanged;

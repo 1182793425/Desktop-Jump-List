@@ -38,6 +38,13 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--onboarding-preview", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview");
+            _ = RenderOnboardingAsync(dir);
+            return;
+        }
+
         if (e.Args.Length > 0 && e.Args[0].Equals("--usn-selftest", StringComparison.OrdinalIgnoreCase))
         {
             UsnSelfTest.Run(e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview"));
@@ -271,14 +278,14 @@ public partial class App : Application
         // Toggling the switch must not start a disk walk: the index is only built by the
         // explicit rebuild button. It does start or stop the live sync.
         FileSync?.Nudge();
-        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+        if (Launcher?.IsOpen == true) Launcher.ApplyPanelStyle();
     }
 
     public void SetFileSearchOnPlainQuery(bool enabled)
     {
         Settings.FileSearchOnPlainQuery = enabled;
         SaveSettings();
-        if (Launcher.IsOpen) Launcher.ApplyPanelStyle();
+        if (Launcher?.IsOpen == true) Launcher.ApplyPanelStyle();
     }
 
     public void SetSearchBoxVisible(bool visible)
@@ -835,6 +842,53 @@ public partial class App : Application
         catch (Exception ex)
         {
             Console.WriteLine(ex);
+        }
+    }
+
+    /// <summary>
+    /// Hidden `--onboarding-preview &lt;dir&gt;` mode: renders every onboarding wizard
+    /// step to PNG. Preview-only, uses an isolated data folder.
+    /// </summary>
+    private async Task RenderOnboardingAsync(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var previewData = Path.Combine(directory, "_preview-data");
+            Directory.CreateDirectory(previewData);
+            Storage = new Storage(previewData);
+            Settings = Storage.LoadSettings();
+            Settings.Hotkey = "Ctrl+`";
+            Settings.HotkeyEnabled = true;
+            Settings.FileSearchOnPlainQuery = true;
+            EnsureSearchJumpRules();
+            ThemeService.Initialize(AppTheme.Dark);
+
+            var window = new Views.OnboardingWindow();
+            window.Show();
+            await Task.Delay(400);
+
+            var names = new[] { "onboarding-1-welcome", "onboarding-2-drives", "onboarding-3-hotkey", "onboarding-4-search", "onboarding-5-teach" };
+            for (var step = 0; step < names.Length; step++)
+            {
+                window.ShowPreviewStep(step);
+                await Task.Delay(320);
+                RenderElement(window, Path.Combine(directory, names[step] + ".png"), 1.5);
+            }
+
+            // Final step continues below the fold: capture the summary card too.
+            window.ShowPreviewStep(4);
+            window.ScrollPreviewToEnd();
+            await Task.Delay(320);
+            RenderElement(window, Path.Combine(directory, "onboarding-6-done.png"), 1.5);
+
+            window.Close();
+            Shutdown();
+        }
+        catch (Exception ex)
+        {
+            Log(ex);
+            Shutdown(-1);
         }
     }
 
