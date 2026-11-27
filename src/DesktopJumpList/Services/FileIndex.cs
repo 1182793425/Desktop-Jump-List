@@ -339,10 +339,12 @@ public sealed class FileIndex
         }
 
         return hits
-            // Words that hit the *directory* first: typing "file 2026 11 .csv" describes a location,
-            // so a file inside …\File\2026-11\ must beat one that merely has "11" in its name.
-            .OrderByDescending(hit => hit.folderHits)
-            .ThenBy(hit => hit.rank)
+            // Name relevance first. Ranking the folder hits above that was wrong: with "h exe" the
+            // "h" of a path like …\Users\shi.pengbo\… counted as a directory hit and pushed
+            // Hermes-Setup.exe out of the results entirely. A directory hit is only a bonus between
+            // otherwise equally good name matches.
+            .OrderBy(hit => hit.rank)
+            .ThenByDescending(hit => hit.folderHits)
             .ThenByDescending(hit => hit.entry.WriteTime)
             .ThenBy(hit => hit.entry.Name.Length)
             .Skip(Math.Max(0, skip))
