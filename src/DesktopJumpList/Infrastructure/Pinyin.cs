@@ -64,6 +64,34 @@ public static class Pinyin
     }
 
     /// <summary>
+    /// The one string file search scans: the lower-cased path, where every segment that contains
+    /// Han characters also carries its pinyin right behind it —
+    /// "d://新建文件夹//说明.txt" → "d://新建文件夹|xinjianwenjianjia//说明|shuoming.txt".
+    /// One scan then answers the literal query, the pinyin query, and a query that mixes both in
+    /// either order inside a segment. ASCII-only paths (the vast majority) come back lower-cased
+    /// and unchanged, so they pay nothing.
+    /// </summary>
+    public static string SearchForm(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return string.Empty;
+
+        var lower = path.ToLowerInvariant();
+        if (!HasHan(lower)) return lower;
+
+        var segments = lower.Split('\\');
+        for (var i = 0; i < segments.Length; i++)
+            if (HasHan(segments[i])) segments[i] = segments[i] + "|" + Full(segments[i]);
+        return string.Join('\\', segments);
+    }
+
+    /// <summary>Length this segment occupies inside <see cref="SearchForm"/>, for name-boundary math.</summary>
+    public static int SearchFormLength(string segment, string compactPinyin)
+    {
+        if (string.IsNullOrEmpty(segment)) return 0;
+        return HasHan(segment) ? segment.Length + 1 + compactPinyin.Length : segment.Length;
+    }
+
+    /// <summary>
     /// Full pinyin, lower-case and compact: 设计稿 → "shejigao", 违规明细_qsi.csv →
     /// "weiguimingxi_qsi.csv". Pure-ASCII text is returned lower-cased untouched, which both keeps
     /// the common case free of table lookups and lets callers store one string for both.

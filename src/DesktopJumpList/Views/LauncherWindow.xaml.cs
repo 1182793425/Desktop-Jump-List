@@ -628,7 +628,7 @@ public partial class LauncherWindow : Window
 
     /// <summary>True when a plain query should also read the local index.</summary>
     private static bool PlainFileSearchActive(string query) =>
-        query.Length > 0 && !query.StartsWith('/')
+        query.Length >= Math.Max(1, CurrentSettings.FileSearchMinChars) && !query.StartsWith('/')
         && CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery;
 
     /// <summary>Forgets the file section of the previous query (rows disappear next rebuild).</summary>

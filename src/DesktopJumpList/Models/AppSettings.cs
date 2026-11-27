@@ -267,6 +267,13 @@ public sealed class AppSettings
     public bool FileSearchOnPlainQuery { get; set; } = true;
 
     /// <summary>
+    /// How many characters a plain query needs before the local-file section joins in. One or two
+    /// characters match almost everything and cost a full scan for nothing, so the section waits
+    /// until the query is specific enough. `/s` is explicit and ignores this.
+    /// </summary>
+    public int FileSearchMinChars { get; set; } = 3;
+
+    /// <summary>
     /// 注册表应用搜索：索引 Uninstall 注册表项里的已安装软件（含监听增量更新）。
     /// 默认开启，独立于文件索引——不受盘符选择与文件夹黑名单影响。
     /// </summary>
@@ -323,6 +330,7 @@ public sealed class AppSettings
             StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
         FileSearchOnPlainQuery = FileSearchOnPlainQuery,
+        FileSearchMinChars = FileSearchMinChars,
         RegistrySearchEnabled = RegistrySearchEnabled,
         FileIndexExtensions = new List<string>(FileIndexExtensions),
         FileIndexExcludes = new List<string>(FileIndexExcludes),
@@ -373,6 +381,7 @@ public sealed class AppSettings
             StringComparer.OrdinalIgnoreCase);
         FileSearchLimit = source.FileSearchLimit;
         FileSearchOnPlainQuery = source.FileSearchOnPlainQuery;
+        FileSearchMinChars = source.FileSearchMinChars;
         RegistrySearchEnabled = source.RegistrySearchEnabled;
         FileIndexExtensions = new List<string>(source.FileIndexExtensions);
         FileIndexExcludes = new List<string>(source.FileIndexExcludes);

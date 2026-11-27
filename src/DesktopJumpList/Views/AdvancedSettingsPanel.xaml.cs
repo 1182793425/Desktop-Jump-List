@@ -75,6 +75,7 @@ public partial class AdvancedSettingsPanel : UserControl
     {
         FileSearchSwitch.IsChecked = App.Current.Settings.FileSearchEnabled;
         PlainFileSearchSwitch.IsChecked = App.Current.Settings.FileSearchOnPlainQuery;
+        PlainFileMinCharsBox.Text = App.Current.Settings.FileSearchMinChars.ToString();
         RegistrySearchSwitch.IsChecked = App.Current.Settings.RegistrySearchEnabled;
         FileLimitBox.Text = App.Current.Settings.FileSearchLimit.ToString();
         FileLimitBox.LostFocus += (_, _) => CommitFileLimit();
@@ -446,6 +447,26 @@ public partial class AdvancedSettingsPanel : UserControl
     private void OnPlainFileSearchToggled(object sender, RoutedEventArgs e)
     {
         App.Current.SetFileSearchOnPlainQuery(PlainFileSearchSwitch.IsChecked == true);
+        UpdateFileStatus();
+    }
+
+    private void OnPlainFileMinCharsChanged(object sender, RoutedEventArgs e) => CommitPlainFileMinChars();
+
+    private void OnPlainFileMinCharsKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        CommitPlainFileMinChars();
+        Keyboard.ClearFocus();
+        e.Handled = true;
+    }
+
+    private void CommitPlainFileMinChars()
+    {
+        var value = int.TryParse(PlainFileMinCharsBox.Text.Trim(), out var parsed)
+            ? Math.Clamp(parsed, 1, 12)
+            : App.Current.Settings.FileSearchMinChars;
+        PlainFileMinCharsBox.Text = value.ToString();
+        App.Current.SetFileSearchMinChars(value);
         UpdateFileStatus();
     }
 

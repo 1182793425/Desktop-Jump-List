@@ -30,7 +30,12 @@ public sealed class FileEntry
     /// (instead of lower-casing Path on each keystroke) is the space-for-time trade: ~2 bytes per
     /// character per entry, and the scan becomes a few IndexOf calls on an existing string.
     /// </summary>
-    public string PathLow { get; set; } = string.Empty;
+    /// <summary>
+    /// The string search actually scans: lower-cased path, with each Han segment followed by its
+    /// pinyin (see <see cref="Pinyin.SearchForm"/>). One scan therefore answers "新建文件夹",
+    /// "xinjianwenjianjia" and mixtures of the two.
+    /// </summary>
+    public string PathSearch { get; set; } = string.Empty;
 
     public string Folder { get; set; } = string.Empty;
     public string Lower { get; set; } = string.Empty;
@@ -234,6 +239,12 @@ public sealed class FileIndex
     private readonly Dictionary<ulong, string> _rootSeeds = new();
 
     private List<FileEntry> _searchList = new();
+    // Typing narrows: a longer query can only return fewer entries, so the previous result set is
+    // the only thing the next keystroke has to look at. Sound because every added character either
+    // extends a token or adds one, and both can only remove matches.
+    private string _narrowKey = string.Empty;
+    private List<FileEntry>? _narrowSet;
+    private int _contentVersion;
     private List<(string Extension, int Count)> _extensionStats = new();
     private bool _searchListDirty = true;
 
@@ -278,7 +289,7 @@ public sealed class FileIndex
             {
                 long bytes = 0;
                 foreach (var entry in _byId.Values)
-                    bytes += (entry.Path.Length + entry.PathLow.Length + entry.Name.Length
+                    bytes += (entry.Path.Length + entry.PathSearch.Length + entry.Name.Length
                               + entry.Folder.Length + entry.Lower.Length + entry.Initials.Length
                               + entry.Pinyin.Length) * 2 + 180;
                 return bytes;
@@ -287,6 +298,15 @@ public sealed class FileIndex
     }
 
     // ───────────────────────────── Queries ─────────────────────────────
+
+    /// <summary>Marks the flat search list stale and invalidates the narrowing cache.</summary>
+    private void MarkSearchDirtyLocked()
+    {
+        _searchListDirty = true;
+        _contentVersion++;
+        _narrowSet = null;
+        _narrowKey = string.Empty;
+    }
 
     private List<FileEntry> SnapshotLocked()
     {
@@ -325,10 +345,19 @@ public sealed class FileIndex
         if (tokens.Length == 0) return new List<FileEntry>();
 
         var hits = new List<Hit>();
-        List<FileEntry> snapshot;
-        lock (_gate) snapshot = SnapshotLocked();
+        List<FileEntry> source;
+        var version = 0;
+        lock (_gate)
+        {
+            version = _contentVersion;
+            // A longer query against the previous result set is enough — see _narrowSet.
+            source = _narrowSet is { Count: > 0 } previous
+                     && tokens.Normalized.StartsWith(_narrowKey, StringComparison.Ordinal)
+                ? previous
+                : SnapshotLocked();
+        }
 
-        foreach (var entry in snapshot)
+        foreach (var entry in source)
         {
             // Layer 1 — the path, in order, with the spaces acting as wildcards:
             // "download / set .exe" behaves like LIKE '%download%\%set%.exe%'.
@@ -353,16 +382,33 @@ public sealed class FileIndex
                 hits.Add(new Hit(entry, NameLayerRank + nameRank, 0, true));
         }
 
-        return hits
+        var ordered = hits
             .OrderBy(hit => hit.Rank)
             .ThenBy(hit => hit.Gap)
             .ThenByDescending(hit => hit.Entry.WriteTime)
             .ThenBy(hit => hit.Entry.Name.Length)
-            .Skip(Math.Max(0, skip))
-            .Take(max)
             .Select(hit => hit.Entry)
             .ToList();
+
+        // Remember this result set for the next keystroke — only while the index has not moved
+        // (version) and only when it is small enough to be worth keeping.
+        if (ordered.Count <= NarrowCacheLimit)
+        {
+            lock (_gate)
+            {
+                if (_contentVersion == version)
+                {
+                    _narrowKey = tokens.Normalized;
+                    _narrowSet = ordered;
+                }
+            }
+        }
+
+        return ordered.Skip(Math.Max(0, skip)).Take(max).ToList();
     }
+
+    /// <summary>Above this many matches, keeping the set for the next keystroke is not worth it.</summary>
+    private const int NarrowCacheLimit = 50_000;
 
     /// <summary>Everything after this is a name-only hit, so path hits always come first.</summary>
     private const int NameLayerRank = 100;
@@ -390,7 +436,14 @@ public sealed class FileIndex
 
         public readonly Token[] All;
 
-        private QueryTokens(Token[] all) => All = all;
+        /// <summary>The query as used for matching: lower-case, '/' folded, whitespace collapsed.</summary>
+        public readonly string Normalized;
+
+        private QueryTokens(Token[] all, string normalized)
+        {
+            All = all;
+            Normalized = normalized;
+        }
 
         public int Length => All.Length;
 
@@ -401,7 +454,7 @@ public sealed class FileIndex
             var pieces = normalized.Split(Separators, StringSplitOptions.RemoveEmptyEntries);
             var tokens = new Token[pieces.Length];
             for (var i = 0; i < pieces.Length; i++) tokens[i] = new Token(pieces[i]);
-            return new QueryTokens(tokens);
+            return new QueryTokens(tokens, normalized);
         }
 
         // Whitespace and the path separator both split: "download/set", "download\set" and
@@ -419,9 +472,19 @@ public sealed class FileIndex
     /// </summary>
     private static int RankPath(FileEntry entry, in QueryTokens tokens, out int gap, out bool nameHit)
     {
+        var haystack = entry.PathSearch;
+        // Where the file name starts inside the haystack: the tail of the string is this entry's
+        // own segment, literal form plus (for Han names) its pinyin form.
+        var nameLength = Pinyin.SearchFormLength(entry.Name.ToLowerInvariant(), entry.Pinyin);
+        return RankAgainst(haystack, Math.Max(0, haystack.Length - nameLength), tokens, out gap, out nameHit);
+    }
+
+    /// <summary>The greedy in-order scan itself, over one haystack.</summary>
+    private static int RankAgainst(string path, int nameStart, in QueryTokens tokens,
+        out int gap, out bool nameHit)
+    {
         gap = 0;
         nameHit = false;
-        var path = entry.PathLow;
         if (path.Length == 0) return int.MaxValue;
 
         var from = 0;
@@ -439,7 +502,6 @@ public sealed class FileIndex
             from = found + token.Text.Length;
         }
 
-        var nameStart = path.Length - entry.Name.Length;
         nameHit = lastStart >= nameStart;
         var atEnd = from == path.Length;
 
@@ -770,22 +832,31 @@ public sealed class FileIndex
 
     private static FileEntry MakeEntry(ulong id, ulong parentId, string path, string name, bool isDirectory, DateTime writeTime)
     {
-        var folder = Path.GetDirectoryName(path) ?? string.Empty;
         var lower = name.ToLowerInvariant();
-        return new FileEntry
+        var entry = new FileEntry
         {
             Id = id,
             ParentId = parentId,
             Name = name,
             IsDirectory = isDirectory,
             WriteTime = writeTime,
-            Path = path,
-            PathLow = path.ToLowerInvariant(),
-            Folder = folder,
             Lower = lower,
             Initials = Pinyin.Initials(name),
             Pinyin = Pinyin.HasHan(name) ? Pinyin.Full(name) : lower
         };
+        return WithPath(entry, path);
+    }
+
+    /// <summary>
+    /// Writes the three path-derived strings together. Every place that moves a node goes through
+    /// here: PathLow and PathPinyin are what search scans, so they must never drift from Path.
+    /// </summary>
+    private static FileEntry WithPath(FileEntry entry, string path)
+    {
+        entry.Path = path;
+        entry.PathSearch = Pinyin.SearchForm(path);
+        entry.Folder = Path.GetDirectoryName(path) ?? string.Empty;
+        return entry;
     }
 
     private static DateTime FileTime(long ticks)
@@ -891,7 +962,7 @@ public sealed class FileIndex
                 if (isDirectory) changed += PopulateSubtreeLocked(entry, rules);
             }
 
-            if (changed > 0) { _searchListDirty = true; RebuildStatsLocked(); }
+            if (changed > 0) { MarkSearchDirtyLocked(); RebuildStatsLocked(); }
         }
         return changed;
     }
@@ -953,7 +1024,7 @@ public sealed class FileIndex
                 if (isDirectory) changed += PopulateSubtreeLocked(entry, rules);
             }
 
-            if (changed > 0) { _searchListDirty = true; RebuildStatsLocked(); }
+            if (changed > 0) { MarkSearchDirtyLocked(); RebuildStatsLocked(); }
         }
 
         if (changed > 0) Changed?.Invoke();
@@ -1045,7 +1116,7 @@ public sealed class FileIndex
             removed++;
         }
 
-        _searchListDirty = true;
+        MarkSearchDirtyLocked();
         return removed;
     }
 
@@ -1074,14 +1145,12 @@ public sealed class FileIndex
             _byPath[newPath] = entry;
             if (!string.Equals(entry.Path, newPath, StringComparison.OrdinalIgnoreCase))
             {
-                entry.Path = newPath;
-                entry.PathLow = newPath.ToLowerInvariant();
-                entry.Folder = Path.GetDirectoryName(newPath) ?? string.Empty;
+                WithPath(entry, newPath);
                 CascadePathsLocked(entry);
             }
         }
 
-        _searchListDirty = true;
+        MarkSearchDirtyLocked();
     }
 
     private void CascadePathsLocked(FileEntry root)
@@ -1099,9 +1168,7 @@ public sealed class FileIndex
             if (!string.Equals(node.Path, newPath, StringComparison.OrdinalIgnoreCase))
             {
                 _byPath.Remove(node.Path);
-                node.Path = newPath;
-                node.PathLow = newPath.ToLowerInvariant();
-                node.Folder = parentPath;
+                WithPath(node, newPath);
                 _byPath[newPath] = node;
             }
             if (_childIds.TryGetValue(node.Id, out var grandChildren))
@@ -1129,7 +1196,7 @@ public sealed class FileIndex
 
         Meta = meta;
         ResolvePathsLocked();
-        _searchListDirty = true;
+        MarkSearchDirtyLocked();
         RebuildStatsLocked();
         _ = rules;
     }
@@ -1170,8 +1237,7 @@ public sealed class FileIndex
             for (var i = chain.Count - 1; i >= 0; i--)
             {
                 var node = chain[i];
-                node.Path = Path.Combine(basePath, node.Name);
-                node.PathLow = node.Path.ToLowerInvariant();
+                WithPath(node, Path.Combine(basePath, node.Name));
                 node.Folder = basePath;
                 basePath = node.Path;
                 node.Lower = node.Name.ToLowerInvariant();
@@ -1200,7 +1266,7 @@ public sealed class FileIndex
             _byId[NextSyntheticId()] = app;
             _byPath[app.Path] = app;
         }
-        _searchListDirty = true;
+        MarkSearchDirtyLocked();
     }
 
     private ulong _syntheticId = ulong.MaxValue;
@@ -1225,7 +1291,7 @@ public sealed class FileIndex
                 .ToList();
             foreach (var id in doomed) RemoveSubtreeLocked(id);
             RebuildStatsLocked();
-            _searchListDirty = true;
+            MarkSearchDirtyLocked();
             _dirty = true;
         }
         Changed?.Invoke();
@@ -1247,7 +1313,7 @@ public sealed class FileIndex
             if (removed > 0)
             {
                 RebuildStatsLocked();
-                _searchListDirty = true;
+                MarkSearchDirtyLocked();
                 _dirty = true;
             }
         }
@@ -1301,7 +1367,7 @@ public sealed class FileIndex
                     IsDirectory = (flags & 1) != 0,
                     WriteTime = FileTime(ticks),
                     Path = string.Empty,
-                    PathLow = string.Empty,
+                    PathSearch = string.Empty,
                     Folder = string.Empty,
                     Lower = lower,
                     Initials = Pinyin.Initials(name),

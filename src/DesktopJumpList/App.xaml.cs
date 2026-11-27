@@ -380,6 +380,13 @@ public partial class App : Application
         if (Launcher?.IsOpen == true) Launcher.ApplyPanelStyle();
     }
 
+    public void SetFileSearchMinChars(int value)
+    {
+        Settings.FileSearchMinChars = Math.Clamp(value, 1, 12);
+        SaveSettings();
+        if (Launcher?.IsOpen == true) Launcher.ApplyPanelStyle();
+    }
+
     public void SetSearchBoxVisible(bool visible)
     {
         Settings.SearchBoxVisible = visible;
