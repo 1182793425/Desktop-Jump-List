@@ -563,6 +563,10 @@ public partial class LauncherWindow : Window
         Scroller.Margin = recentVisible
             ? new Thickness(14, 0, 10, 14)
             : new Thickness(14, 14, 10, 14);
+        // Same box as the tiles: the empty hint belongs to the 常用 area, never over the recent row.
+        EmptyState.Margin = recentVisible
+            ? new Thickness(14, 2, 10, 12)
+            : new Thickness(14, 14, 10, 12);
 
         bool empty = _ordered.Count == 0;
         EmptyState.Visibility = empty && q.Length == 0 ? Visibility.Visible : Visibility.Collapsed;

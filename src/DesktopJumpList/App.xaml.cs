@@ -1825,6 +1825,31 @@ public partial class App : Application
             Launcher.Panel.Effect = null;
 
             Launcher.Query.Text = string.Empty;
+            // The artwork must not depend on what happens to be on this machine: exactly four
+            // curated tiles (plus 添加) fill one row, and no recent strip (earlier preview steps
+            // open tiles, which stamps LastOpenedAt). The real list is put back afterwards.
+            var savedItems = Library.Items.ToList();
+            var curated = new (string Name, ShortcutKind Kind, string Target)[]
+            {
+                ("QQ", ShortcutKind.App, @"C://Users//Public//Desktop//QQ.lnk"),
+                ("微信", ShortcutKind.App, @"D://Tencent//Weixin//Weixin.exe"),
+                ("Visual Studio Code", ShortcutKind.App,
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        @"AppData\Local\Programs\Microsoft VS Code\Code.exe")),
+                ("Chrome", ShortcutKind.App, @"C://Program Files//Google//Chrome//Application//chrome.exe"),
+                ("网易云音乐", ShortcutKind.App, @"D://CloudMusic//cloudmusic.exe"),
+            };
+            Library.Items.Clear();
+            var curatedCount = 0;
+            foreach (var (name, kind, target) in curated)
+            {
+                if (curatedCount >= 4) break;
+                if (!File.Exists(target)) continue;
+                Library.Items.Add(new ShortcutItem { Name = name, Kind = kind, Target = target });
+                curatedCount++;
+            }
+            _ = IconService.LoadAsync(Library.Items);
+            Launcher.ApplyLayout();
             await Task.Delay(700);
             RenderTransparent(Launcher.Stack, Path.Combine(directory, "asset-panel.png"), 2, AssetHeight);
 
@@ -1837,6 +1862,9 @@ public partial class App : Application
             RenderTransparent(Launcher.Stack, Path.Combine(directory, "asset-files.png"), 2, AssetHeight);
 
             Launcher.Query.Text = string.Empty;
+            Library.Items.Clear();
+            foreach (var item in savedItems) Library.Items.Add(item);
+            Launcher.ApplyLayout();
             Launcher.Pill.Effect = pillShadow;
             Launcher.Panel.Effect = panelShadow;
         }

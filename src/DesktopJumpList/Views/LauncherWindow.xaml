@@ -551,30 +551,30 @@
                                 </ListBox.ItemsPanel>
                             </ListBox>
                         </ScrollViewer>
+                            <!-- Empty library: lives in the tiles row, so an empty 常用 area shows its
+                                 hint below the 最近使用 strip instead of painting over it. -->
+                        <Border x:Name="EmptyState" Grid.Row="1" Margin="14,14,10,12" CornerRadius="16" Visibility="Collapsed"
+                                BorderBrush="{DynamicResource DashBrush}" BorderThickness="0" Background="Transparent"
+                                Cursor="Hand">
+                            <Grid>
+                                <Rectangle RadiusX="16" RadiusY="16" Stroke="{DynamicResource DashBrush}"
+                                           StrokeThickness="1.4" StrokeDashArray="4 3" />
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                                        <Ellipse Fill="{DynamicResource SelectedBrush}" />
+                                        <Path Data="M7,0 L7,10 M2.5,6 L7,10.5 L11.5,6 M0,14 L14,14" Stroke="{DynamicResource AccentBrush}"
+                                              StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <TextBlock Margin="0,14,0,0" HorizontalAlignment="Center" FontSize="14" FontWeight="SemiBold"
+                                               Text="把常用的文件、文件夹、应用拖到这里" />
+                                    <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="12"
+                                               Foreground="{DynamicResource InkSubBrush}"
+                                               Text="点击这里或拖入文件；也可以按 Ctrl+V 粘贴路径、网址" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </Grid>
-
-                    <!-- Empty library -->
-                    <Border x:Name="EmptyState" Margin="16" CornerRadius="16" Visibility="Collapsed"
-                            BorderBrush="{DynamicResource DashBrush}" BorderThickness="0" Background="Transparent"
-                            Cursor="Hand">
-                        <Grid>
-                            <Rectangle RadiusX="16" RadiusY="16" Stroke="{DynamicResource DashBrush}"
-                                       StrokeThickness="1.4" StrokeDashArray="4 3" />
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <Grid Width="44" Height="44" HorizontalAlignment="Center">
-                                    <Ellipse Fill="{DynamicResource SelectedBrush}" />
-                                    <Path Data="M7,0 L7,10 M2.5,6 L7,10.5 L11.5,6 M0,14 L14,14" Stroke="{DynamicResource AccentBrush}"
-                                          StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Grid>
-                                <TextBlock Margin="0,14,0,0" HorizontalAlignment="Center" FontSize="14" FontWeight="SemiBold"
-                                           Text="把常用的文件、文件夹、应用拖到这里" />
-                                <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="12"
-                                           Foreground="{DynamicResource InkSubBrush}"
-                                           Text="点击这里或拖入文件；也可以按 Ctrl+V 粘贴路径、网址" />
-                            </StackPanel>
-                        </Grid>
-                    </Border>
 
                     <!-- No search results -->
                     <TextBlock x:Name="NoMatch" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"
