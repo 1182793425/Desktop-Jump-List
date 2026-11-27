@@ -67,8 +67,26 @@ internal static class IndexSelfTest
             File.WriteAllText(Path.Combine(rank, "x", "dup.txt"), "7");
             File.WriteAllText(Path.Combine(rank, "y", "dup.txt"), "8");
 
+            // ".png" is asked of every image at once, so recency decides — not name length.
+            // The short name below is deliberately the *old* one (0.png used to win forever).
+            var shortOldPng = Path.Combine(rank, "0.png");
+            var longNewPng = Path.Combine(rank, "企业微信截图_17957763501157.png");
+            File.WriteAllText(shortOldPng, "9");
+            File.WriteAllText(longNewPng, "a");
+            File.SetLastWriteTime(shortOldPng, DateTime.Now.AddDays(-30));
+            File.SetLastWriteTime(Path.Combine(rank, "设计稿-v3.png"), DateTime.Now.AddDays(-10));
+            File.SetLastWriteTime(Path.Combine(rank, "sticker18-CJ6dyGZ3.png"), DateTime.Now.AddDays(-10));
+            // A minute into the future so it is the newest row no matter how fast the setup runs.
+            File.SetLastWriteTime(longNewPng, DateTime.Now.AddMinutes(1));
+
+            // An excluded folder must not appear as a row either (only its contents used to be).
+            var cacheDir = Path.Combine(rank, "cache");
+            Directory.CreateDirectory(cacheDir);
+            File.WriteAllText(Path.Combine(cacheDir, "inside.png"), "b");
+
             var rules = new IndexRules(new[] { root }, new Dictionary<string, RootLimitSetting>(),
-                new[] { ".txt", ".docx", ".png", ".md", ".exe" }, new[] { "*skipme*", "skipbyname.docx" }, 0,
+                new[] { ".txt", ".docx", ".png", ".md", ".exe" },
+                new[] { "*skipme*", "skipbyname.docx", @"*\cache\*" }, 0,
                 discoverDriveRoots: false);
 
             var data = Path.Combine(sandbox, "data");
@@ -145,6 +163,27 @@ internal static class IndexSelfTest
             Check("build report names each root",
                 index.RootCounts.TryGetValue(rules.Roots[0], out var rootCount) && rootCount > 0,
                 string.Join('|', index.RootCounts.Select(pair => $"{pair.Key}={pair.Value}")));
+
+            // ── "/s" without a keyword, and extension queries ──────────────────
+            // Reported from real use: the newest screenshot was invisible in "/s" (six folder
+            // rows above it) and ".png" listed 0.png/1.png from years ago first.
+            Check("extension query is newest-first",
+                Top(index, ".png") == "企业微信截图_17957763501157.png",
+                string.Join('|', index.Search(".png", 6).Select(entry => entry.Name)));
+
+            var newestRows = index.Take(6);
+            Check("newest list is files only, newest first",
+                newestRows.Count > 0
+                && newestRows.All(entry => !entry.IsDirectory)
+                && newestRows[0].Name == "企业微信截图_17957763501157.png"
+                && newestRows.Zip(newestRows.Skip(1)).All(pair => pair.First.WriteTime >= pair.Second.WriteTime),
+                string.Join('|', newestRows.Select(entry => entry.Name)));
+
+            Check("excluded folder itself is not indexed",
+                !index.Search("cache", 50).Any(entry =>
+                    string.Equals(entry.Name, "cache", StringComparison.OrdinalIgnoreCase)
+                    || entry.Path.Contains(@"\cache\", StringComparison.OrdinalIgnoreCase)),
+                string.Join('|', index.Search("cache", 50).Select(entry => entry.Name + "|" + entry.Path)));
 
             // ── Blacklist upgrade ──────────────────────────────────────────────
             // A release that ships new junk-folder patterns edits the user's config on startup.

@@ -86,7 +86,9 @@ public sealed class IndexRules
     public string Key { get; }
 
     // Bump when the filtering semantics change, so old indexes are dropped rather than trusted.
-    private const int RulesVersion = 3;
+    // 4: a wildcard exclusion now also matches the folder itself ("*\Temp\*" covers …\Temp),
+    //    so indexes built by 3 still carry folder rows that are no longer allowed.
+    private const int RulesVersion = 4;
 
     // Windows attribute bits used by the built-in exclusions (System.IO.FileAttributes has the
     // same values, but keeping them local avoids casting noise at every call site).
@@ -152,6 +154,9 @@ public sealed class IndexRules
             if (entry.IndexOf('*') >= 0 || entry.IndexOf('?') >= 0)
             {
                 if (MatchesWildcard(path, entry)) return true;
+                // "*\Temp\*" is written for the *contents* of a Temp folder, so the folder row
+                // itself slipped through and showed up in results. Test it as "…\Temp\" too.
+                if (path.Length > 0 && path[^1] != '\\' && MatchesWildcard(path + "\\", entry)) return true;
                 continue;
             }
 
@@ -468,6 +473,11 @@ public sealed class FileIndex
     }
 
     /// <summary>A handful of entries for "/s" with no keyword yet: newest touched first.</summary>
+    /// <remarks>
+    /// Files only. A folder's write time moves whenever anything inside it changes, so a
+    /// newest-first list that includes folders is a list of folders — the file the user just
+    /// saved ends up below six directory rows that were "touched" by something else.
+    /// </remarks>
     public List<FileEntry> Take(int max, int skip = 0)
     {
         if (max <= 0) return new List<FileEntry>();
@@ -478,7 +488,8 @@ public sealed class FileIndex
             if (_newest is null || _newestVersion != _contentVersion)
             {
                 _newest = new List<FileEntry>(_byId.Count);
-                _newest.AddRange(_byId.Values);
+                foreach (var entry in _byId.Values)
+                    if (!entry.IsDirectory) _newest.Add(entry);
                 _newest.Sort((a, b) => b.WriteTime.CompareTo(a.WriteTime));
                 _newestVersion = _contentVersion;
             }
@@ -665,7 +676,11 @@ public sealed class FileIndex
             {
                 var wordStart = !char.IsLetterOrDigit(name[at - 1]);
                 score = wordStart ? ScoreNameWord : ScoreNameContains;
-                position = at;
+                // ".png" matches every file of that type at *its own* offset, so the offset
+                // only says "shorter name wins" — which puts 0.png, 1.png, 2.png above the
+                // screenshot the user just saved. An extension carries no position signal;
+                // let the tie fall through to recency.
+                position = needle[0] == '.' ? 0 : at;
                 return true;
             }
 
