@@ -318,22 +318,31 @@ public sealed class FileIndex
         // .csv" has to match a path like ...\Cache\File\2026-11\明细.csv, where no single
         // substring contains all of it.
         var tokens = needle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var hits = new List<(FileEntry entry, int rank)>();
+        var hits = new List<(FileEntry entry, int rank, int folderHits)>();
 
         List<FileEntry> snapshot;
         lock (_gate) snapshot = SnapshotLocked();
 
         foreach (var entry in snapshot)
         {
-            var rank = tokens.Length <= 1
-                ? Rank(entry, needle, compact)
-                : RankAllTokens(entry, tokens);
+            if (tokens.Length <= 1)
+            {
+                var single = Rank(entry, needle, compact);
+                if (single == int.MaxValue) continue;
+                hits.Add((entry, single, 0));
+                continue;
+            }
+
+            var rank = RankAllTokens(entry, tokens, out var folderHits);
             if (rank == int.MaxValue) continue;
-            hits.Add((entry, rank));
+            hits.Add((entry, rank, folderHits));
         }
 
         return hits
-            .OrderBy(hit => hit.rank)
+            // Words that hit the *directory* first: typing "file 2026 11 .csv" describes a location,
+            // so a file inside …\File\2026-11\ must beat one that merely has "11" in its name.
+            .OrderByDescending(hit => hit.folderHits)
+            .ThenBy(hit => hit.rank)
             .ThenByDescending(hit => hit.entry.WriteTime)
             .ThenBy(hit => hit.entry.Name.Length)
             .Skip(Math.Max(0, skip))
@@ -342,15 +351,20 @@ public sealed class FileIndex
             .ToList();
     }
 
-    /// <summary>Every token must hit somewhere (name, pinyin, or the folder path); ranks add up.</summary>
-    private static int RankAllTokens(FileEntry entry, string[] tokens)
+    /// <summary>
+    /// Every token must hit somewhere (name, pinyin, or the folder path); ranks add up and the
+    /// number of tokens that matched the folder comes back for the sort.
+    /// </summary>
+    private static int RankAllTokens(FileEntry entry, string[] tokens, out int folderHits)
     {
         var total = 0;
+        folderHits = 0;
         foreach (var token in tokens)
         {
             var rank = Rank(entry, token, token);
             if (rank == int.MaxValue) return int.MaxValue;
             total += rank;
+            if (rank >= FolderRank) folderHits++;
         }
         return total;
     }
@@ -375,9 +389,12 @@ public sealed class FileIndex
 
         if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 7;
         if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 7;
-        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return 8;
+        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return FolderRank;
         return int.MaxValue;
     }
+
+    /// <summary>Rank of "only the folder path matched" — also marks a token as a folder hit.</summary>
+    private const int FolderRank = 8;
 
     private static bool IsAsciiWord(string text)
     {
