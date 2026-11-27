@@ -563,8 +563,8 @@
                                 <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
                                            Margin="0,6,0,0" TextWrapping="Wrap" />
 
-                                <!-- 下载统计：各历史版本安装包下载量折线 -->
-                                <Grid Margin="0,18,0,0">
+                                <!-- 下载统计：各历史版本安装包下载量折线（行距与其余设置行一致） -->
+                                <Grid Style="{StaticResource SettingsRow}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="88" />
                                         <ColumnDefinition Width="*" />

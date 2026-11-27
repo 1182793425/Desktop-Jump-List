@@ -53,12 +53,20 @@ public partial class SettingsWindow : Window
     {
         while (node is not null)
         {
+            // Skips MUST come before the Control check: ScrollViewer (the card stack's scroll
+            // host) and UserControl (the whole advanced-settings page) are Controls themselves.
+            // Checking `is Control` first would short-circuit every click in the content area
+            // and the window would never drag — that was the live bug.
+            // The whole card area scrolls inside one ScrollViewer — it is a Control itself
+            // but must not swallow the drag; its ScrollBars are Controls and still will.
+            if (node is System.Windows.Controls.ScrollViewer)
+            { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
+            // The advanced pages are one UserControl; walk past it to the real controls inside.
+            if (node is System.Windows.Controls.UserControl)
+            { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
             // Control covers buttons, text boxes, sliders, switches, radio dots, list boxes...
             if (node is System.Windows.Controls.Control) return true;
             if (node is FrameworkElement { Name: nameof(HotkeyBox) }) return true;
-            // The whole card area scrolls inside one ScrollViewer — it is a Control itself
-            // but must not swallow the drag; its ScrollBars are Controls and still will.
-            if (node is System.Windows.Controls.ScrollViewer) { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
             node = System.Windows.Media.VisualTreeHelper.GetParent(node);
         }
         return false;
@@ -559,6 +567,26 @@ public partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>Preview hook (--render-preview): fill the chart with synthetic multi-release
+    /// data so the axis layout can be verified offline.</summary>
+    internal void ShowPreviewStats()
+    {
+        var tags = new[] { "v3.14.13", "v3.14.14", "v3.14.15", "v3.14.16", "v3.14.17", "v3.14.18",
+            "v3.14.19", "v3.14.20", "v3.14.21", "v3.14.22", "v3.14.23", "v3.14.24" };
+        var rng = new Random(7);
+        var stats = new List<Services.UpdateService.DownloadStat>();
+        var acc = 20;
+        foreach (var t in tags)
+        {
+            acc += rng.Next(5, 40);
+            var v = t.TrimStart('v').Split('.');
+            stats.Add(new Services.UpdateService.DownloadStat(t, new Version(int.Parse(v[0]), int.Parse(v[1]), int.Parse(v[2])), acc));
+        }
+        _downloadStats = stats;
+        DownloadStatsStatus.Visibility = Visibility.Collapsed;
+        DrawDownloadChart();
+    }
+
     /// <summary>Draws the per-release download-count line on <see cref="DownloadChart"/>.
     /// Redrawn on refresh and whenever the card resizes (it starts collapsed → zero size).</summary>
     private void DrawDownloadChart()
@@ -613,15 +641,56 @@ public partial class SettingsWindow : Window
         };
         DownloadChart.Children.Add(line);
 
-        // x labels: skip so neighbours never overlap (tags are ~52px wide at this size)
-        var stride = Math.Max(1, (int)Math.Ceiling(52 * stats.Count / plotW));
-        for (var i = 0; i < stats.Count; i++)
+        // x labels: decide the visible set BEFORE creating any TextBlock. Neighbours need a
+        // full tag width plus real breathing room (the old 52px floor let ~10 tags pile up),
+        // the first and last tag are always shown, and the greedy pass drops crowded middle
+        // tags — including one that would collide with the mandatory last tag.
+        double ClampX(int i, double tagWidth) =>
+            Math.Min(Math.Max(points[i].X - tagWidth / 2, 2), w - tagWidth - 2);
+
+        double WidthOf(string tag)
         {
-            if (i % stride != 0 && i != stats.Count - 1) continue;
-            var label = new TextBlock { Text = stats[i].Tag, Style = hint, FontSize = 10 };
+            var t = new TextBlock { Text = tag, Style = hint, FontSize = 10 };
+            t.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return t.DesiredSize.Width;
+        }
+
+        var tagWidth = WidthOf(stats.Count > 0 ? stats[0].Tag : "v0.0.0");
+        var stride = Math.Max(1, (int)Math.Ceiling((tagWidth + 24) * Math.Max(1, stats.Count - 1) / plotW));
+        var candidates = new List<int>();
+        for (var i = 0; i < stats.Count; i += stride) candidates.Add(i);
+        if (candidates[^1] != stats.Count - 1) candidates.Add(stats.Count - 1);
+
+        var kept = new List<int>();
+        for (var c = 0; c < candidates.Count; c++)
+        {
+            var idx = candidates[c];
+            var cw = WidthOf(stats[idx].Tag);
+            var cLeft = ClampX(idx, cw);
+            var cRight = cLeft + cw;
+            if (kept.Count > 0)
+            {
+                var prev = kept[^1];
+                var prevW = WidthOf(stats[prev].Tag);
+                var prevLeft = ClampX(prev, prevW);
+                var prevRight = prevLeft + prevW;
+                if (cLeft < prevRight + 6)
+                {
+                    // The last tag must always show; if it collides, sacrifice the neighbour
+                    // in front of it (never the first tag).
+                    if (c == candidates.Count - 1 && kept.Count > 1) { kept.RemoveAt(kept.Count - 1); }
+                    else continue;
+                }
+            }
+            kept.Add(idx);
+        }
+
+        foreach (var i in kept)
+        {
+            var tag = stats[i].Tag;
+            var label = new TextBlock { Text = tag, Style = hint, FontSize = 10 };
             label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var x = Math.Min(Math.Max(points[i].X - label.DesiredSize.Width / 2, 2), w - label.DesiredSize.Width - 2);
-            Canvas.SetLeft(label, x);
+            Canvas.SetLeft(label, ClampX(i, label.DesiredSize.Width));
             Canvas.SetTop(label, top + plotH + 6);
             DownloadChart.Children.Add(label);
         }

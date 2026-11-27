@@ -9,3 +9,4 @@ installer/Output/
 .selftest/
 debug.log
 .workbuddy/
+shots/
