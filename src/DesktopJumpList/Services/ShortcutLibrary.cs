@@ -174,7 +174,7 @@ public sealed class ShortcutLibrary
     {
         var q = query.Trim().ToLowerInvariant();
         if (q.Length == 0) return ordered.ToList();
-        var compact = q.Replace(" ", string.Empty);
+        var compact = TextMatch.Compact(q);
 
         var results = new List<(ShortcutItem item, int rank, int gap, int order)>();
         var order = 0;
@@ -195,52 +195,13 @@ public sealed class ShortcutLibrary
 
     private static int Rank(ShortcutItem item, string query, string compact, out int gap)
     {
-        gap = 0;
-        var name = item.SearchName;
-        var initials = item.SearchInitials;
-        var words = item.SearchWordInitials;
-
-        if (name.StartsWith(query, StringComparison.Ordinal)) return 0;
-        if (initials.StartsWith(compact, StringComparison.Ordinal)) return 1;
-        if (words.Length > 0 && words.StartsWith(compact, StringComparison.Ordinal)) return 2;
-        if (name.Contains(query, StringComparison.Ordinal)) return 3;
-        if (initials.Contains(compact, StringComparison.Ordinal)) return 4;
-        if (words.Length > 0 && words.Contains(compact, StringComparison.Ordinal)) return 5;
-
-        // "vscode" is not a substring of "visual studio code", but it is a subsequence of it.
-        // Single-character queries are excluded: they would match almost everything.
-        if (compact.Length >= 3 && IsSubsequence(name, compact, out gap)) return 6;
+        var rank = TextMatch.RankName(item.SearchName, item.SearchCompact, item.SearchInitials,
+            item.SearchWordInitials, query, compact, out gap);
+        if (rank >= 0) return rank;
 
         gap = 0;
-        return item.Target.Contains(compact, StringComparison.OrdinalIgnoreCase) ? 7 : -1;
-    }
-
-    /// <summary>
-    /// Every character of the query appears in order. The first one must sit on a word boundary,
-    /// so "vscode" finds Visual Studio Code while "ode" does not pile up noise.
-    /// </summary>
-    private static bool IsSubsequence(string text, string query, out int gap)
-    {
-        gap = 0;
-        var from = 0;
-        var previous = -1;
-        var first = true;
-
-        foreach (var ch in query)
-        {
-            if (ch == ' ') continue;
-
-            var found = text.IndexOf(ch, from);
-            while (first && found > 0 && char.IsLetterOrDigit(text[found - 1]))
-                found = text.IndexOf(ch, found + 1);
-
-            if (found < 0) { gap = 0; return false; }
-            if (previous >= 0) gap += found - previous - 1;
-            previous = found;
-            from = found + 1;
-            first = false;
-        }
-
-        return true;
+        return item.Target.Contains(compact, StringComparison.OrdinalIgnoreCase)
+            ? TextMatch.RankBelowName
+            : -1;
     }
 }

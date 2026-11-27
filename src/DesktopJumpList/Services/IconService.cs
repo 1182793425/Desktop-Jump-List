@@ -107,6 +107,16 @@ public static class IconService
 
     public static ImageSource? Get(string path) => Get(path, depth: 0);
 
+    /// <summary>
+    /// A shell parsing name (shell:AppsFolder\AUMID) has no file behind it, but the Shell still
+    /// resolves it to a live item — that is how 计算器 / 便笺 / 画图 get their real artwork
+    /// instead of a letter placeholder.
+    /// </summary>
+    private static bool IsShellParsingName(string path) =>
+        path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase);
+
+    private const string AppsFolderPrefix = "shell:AppsFolder\\";
+
     private static ImageSource? Get(string path, int depth)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
@@ -118,10 +128,17 @@ public static class IconService
         ImageSource? result = null;
         try
         {
+            if (IsShellParsingName(path))
+            {
+                // Store / alias apps: the package logo first (it is the 256px artwork), then the
+                // Shell's jumbo image list, which also answers alias entries such as 画图.
+                result = FromAppsFolderLogo(path) ?? FromShellItemJumbo(path)
+                    ?? FromShellImage(path) ?? FromShellIcon(path);
+            }
             // Query the shortcut itself first: Windows resolves its configured IconLocation,
             // which can differ from the target executable. We do not request overlays, so
             // the custom icon is retained without Explorer's shortcut arrow.
-            if (File.Exists(path) || Directory.Exists(path))
+            else if (File.Exists(path) || Directory.Exists(path))
             {
                 result = FromJumboShellIcon(path) ?? FromShellImage(path)
                     ?? FromHighResFallback(path) ?? FromShellIcon(path);
@@ -141,6 +158,53 @@ public static class IconService
         if (result is not null)
             lock (Gate) { Cache[path] = result; }
         return result;
+    }
+
+    /// <summary>Packaged apps: the logo the Start menu shows, keyed by the AppUserModelId.</summary>
+    private static ImageSource? FromAppsFolderLogo(string path)
+    {
+        if (!path.StartsWith(AppsFolderPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var aumid = path[AppsFolderPrefix.Length..];
+        // Package AUMIDs look like "Name_publisherid!AppId"; aliases do not.
+        if (!aumid.Contains('!')) return null;
+        return StoreAppsService.GetLogo(aumid, IconPixels);
+    }
+
+    /// <summary>
+    /// 256px artwork for a shell item that has no file path: parse to a PIDL, ask for its index in
+    /// the system image list, then take the jumbo image — the same route as a real exe. Without
+    /// this, shell:AppsFolder rows only had the 32px shell bitmap, which is soft at panel sizes.
+    /// </summary>
+    private static ImageSource? FromShellItemJumbo(string path)
+    {
+        if (Native.SHParseDisplayName(path, IntPtr.Zero, out var pidl, 0, out _) != 0 || pidl == IntPtr.Zero)
+            return null;
+
+        try
+        {
+            var info = new Native.SHFILEINFO();
+            const uint SHGFI_PIDL = 0x8;
+            if (Native.SHGetFileInfoPidl(pidl, 0, ref info, (uint)Marshal.SizeOf<Native.SHFILEINFO>(),
+                    SHGFI_PIDL | SHGFI_SYSICONINDEX) == IntPtr.Zero)
+                return null;
+
+            Native.IImageList? images = null;
+            try
+            {
+                var iid = typeof(Native.IImageList).GUID;
+                if (Native.SHGetImageList(SHIL_JUMBO, ref iid, out images) != 0 || images is null)
+                    return null;
+                if (images.GetIcon(info.iIcon, ILD_TRANSPARENT, out var icon) != 0 || icon == IntPtr.Zero)
+                    return null;
+                return FromHandle(icon);
+            }
+            catch { return null; }
+            finally
+            {
+                if (images is not null && Marshal.IsComObject(images)) Marshal.ReleaseComObject(images);
+            }
+        }
+        finally { Native.ILFree(pidl); }
     }
 
     /// <summary>Gets the Shell's 256px image-list icon, matching Explorer's large icon artwork.</summary>

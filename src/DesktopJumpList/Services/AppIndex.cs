@@ -23,7 +23,11 @@ public sealed class AppEntry
     public string UninstallString { get; init; } = string.Empty;
 
     public string Lower { get; init; } = string.Empty;
+    public string Compact { get; init; } = string.Empty;
     public string Initials { get; init; } = string.Empty;
+    public string WordInitials { get; init; } = string.Empty;
+    public string ExeStem { get; init; } = string.Empty;
+    public string PublisherLower { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -87,43 +91,58 @@ public sealed class AppIndex : IDisposable
     // ───────────────────────────── Search ─────────────────────────────
 
     /// <summary>
-    /// Same ranking ladder as the file index: exact name, name prefix, name substring,
-    /// pinyin-initial prefix / substring, then a publisher match.
+    /// Same ranking ladder as the panel's tiles (see <see cref="TextMatch.RankName"/>): exact
+    /// name, prefix, word prefix, substring, compact substring, initials, subsequence — so
+    /// "vscode" finds "Microsoft Visual Studio Code" and "vs code" works too. Only then the exe
+    /// name and the publisher.
     /// </summary>
     public List<AppEntry> Search(string query, int max)
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return [];
 
         var needle = query.Trim().ToLowerInvariant();
-        var hits = new List<(AppEntry entry, int rank)>();
+        var compact = TextMatch.Compact(needle);
+        var hits = new List<(AppEntry entry, int rank, int gap)>();
 
         lock (_gate)
         {
             foreach (var app in _apps)
             {
-                var rank = Rank(app, needle);
-                if (rank == int.MaxValue) continue;
-                hits.Add((app, rank));
+                var rank = Rank(app, needle, compact, out var gap);
+                if (rank < 0) continue;
+                hits.Add((app, rank, gap));
             }
         }
 
         return hits
             .OrderBy(hit => hit.rank)
+            .ThenBy(hit => hit.gap)
             .ThenBy(hit => hit.entry.Name.Length)
             .Take(max)
             .Select(hit => hit.entry)
             .ToList();
     }
 
-    private static int Rank(AppEntry app, string needle)
+    private static int Rank(AppEntry app, string needle, string compact, out int gap)
     {
-        if (string.Equals(app.Lower, needle, StringComparison.Ordinal)) return 0;
-        if (app.Lower.StartsWith(needle, StringComparison.Ordinal)) return 1;
-        if (app.Lower.Contains(needle, StringComparison.Ordinal)) return 2;
-        if (app.Initials.Length >= needle.Length && app.Initials.StartsWith(needle, StringComparison.Ordinal)) return 3;
-        if (app.Initials.Length > needle.Length && app.Initials.Contains(needle, StringComparison.Ordinal)) return 4;
-        if (needle.Length >= 2 && app.Publisher.ToLowerInvariant().Contains(needle, StringComparison.Ordinal)) return 5;
-        return int.MaxValue;
+        var rank = TextMatch.RankName(app.Lower, app.Compact, app.Initials, app.WordInitials,
+            needle, compact, out gap);
+        if (rank >= 0) return rank;
+
+        gap = 0;
+        if (compact.Length == 0) return -1;
+
+        // The binary is what people type for tools with long product names: "code" → Code.exe.
+        if (app.ExeStem.Length > 0)
+        {
+            if (app.ExeStem.StartsWith(compact, StringComparison.Ordinal)) return TextMatch.RankBelowName;
+            if (app.ExeStem.Contains(compact, StringComparison.Ordinal)) return TextMatch.RankBelowName + 1;
+        }
+
+        if (needle.Length >= 2 && app.PublisherLower.Contains(needle, StringComparison.Ordinal))
+            return TextMatch.RankBelowName + 2;
+
+        return -1;
     }
 
     /// <summary>True when this path is the launch target of a registry app (dedup helper).</summary>
@@ -202,21 +221,26 @@ public sealed class AppIndex : IDisposable
 
                     var install = (key.GetValue("InstallLocation") as string)?.Trim() ?? string.Empty;
                     var uninstallString = (key.GetValue("UninstallString") as string)?.Trim() ?? string.Empty;
-                    var exe = ResolveExe(name, install, key.GetValue("DisplayIcon") as string);
+                    var exe = ResolveExe(name, install, key.GetValue("DisplayIcon") as string, uninstallString);
 
                     // Nothing launchable → not an app row (an uninstaller alone is useless here).
                     if (exe.Length == 0) continue;
 
+                    var publisher = (key.GetValue("Publisher") as string)?.Trim() ?? string.Empty;
                     var entry = new AppEntry
                     {
                         Name = name.Trim(),
-                        Publisher = (key.GetValue("Publisher") as string)?.Trim() ?? string.Empty,
+                        Publisher = publisher,
                         Version = (key.GetValue("DisplayVersion") as string)?.Trim() ?? string.Empty,
                         ExePath = exe,
                         InstallLocation = install,
                         UninstallString = uninstallString,
                         Lower = name.Trim().ToLowerInvariant(),
+                        Compact = TextMatch.Compact(name),
                         Initials = Pinyin.Initials(name.Trim()),
+                        WordInitials = TextMatch.WordInitials(name.Trim()),
+                        ExeStem = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant(),
+                        PublisherLower = publisher.ToLowerInvariant(),
                     };
                     // WOW64 views surface the same program twice; first hit wins.
                     var id = $"{name.Trim().ToLowerInvariant()}|{exe.ToLowerInvariant()}";
@@ -248,70 +272,174 @@ public sealed class AppIndex : IDisposable
 
     /// <summary>
     /// Picks the executable a user would want to start: DisplayIcon first (it almost always
-    /// points at the main exe), otherwise the top-level exe in InstallLocation that best
-    /// matches the product name, falling back to the largest non-uninstaller exe.
+    /// points at the main exe), otherwise the exe under InstallLocation that best matches the
+    /// product name — top level first, then one directory deeper, because plenty of vendors
+    /// install into "&lt;InstallLocation&gt;\bin" or "&lt;InstallLocation&gt;\&lt;Product&gt;" and
+    /// register no DisplayIcon at all. Without this the app had no launch target and vanished
+    /// from the list entirely (no row, so no icon either).
     /// </summary>
-    private static string ResolveExe(string displayName, string installLocation, string? displayIcon)
+    private static string ResolveExe(string displayName, string installLocation, string? displayIcon,
+        string uninstallString)
     {
-        // DisplayIcon is "C:\...\App.exe,0" (quotes optional, icon index optional).
-        if (!string.IsNullOrWhiteSpace(displayIcon))
+        var icon = ParseIconRef(displayIcon);
+
+        // DisplayIcon that ends in .exe is the program the vendor itself starts.
+        if (icon is { } fromIcon)
         {
-            var candidate = displayIcon.Trim().Trim('"');
-            var comma = candidate.LastIndexOf(',');
-            if (comma > 0 && candidate[(comma + 1)..].Trim().All(char.IsDigit))
-                candidate = candidate[..comma].Trim().Trim('"');
-            candidate = Environment.ExpandEnvironmentVariables(candidate);
-            var candidateStem = Path.GetFileNameWithoutExtension(candidate);
-            if (candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                && File.Exists(candidate)
-                // Some vendors point DisplayIcon at their uninstaller — never launchable.
-                && !candidateStem.StartsWith("unins", StringComparison.OrdinalIgnoreCase)
-                && !candidateStem.Contains("uninstall", StringComparison.OrdinalIgnoreCase))
-                return candidate;
+            if (fromIcon.Path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(fromIcon.Path) && !IsHelperExe(fromIcon.Path))
+                return fromIcon.Path;
         }
 
-        if (installLocation.Length == 0 || !Directory.Exists(installLocation)) return string.Empty;
-
-        string[] topExes;
-        try
+        foreach (var dir in CandidateFolders(installLocation, icon?.Path, uninstallString))
         {
-            topExes = Directory.GetFiles(installLocation, "*.exe", SearchOption.TopDirectoryOnly);
+            var found = FindMainExe(dir, displayName, icon?.Path);
+            if (found.Length > 0) return found;
         }
-        catch { return string.Empty; }
 
-        // Name-shape match: "360安全卫士" → "360safe" etc. Compare letters only.
+        return string.Empty;
+    }
+
+    /// <summary>"C:\...\App.exe,0" / quoted / %ENVVAR% / a bare .ico or .dll. Paths are expanded.</summary>
+    private static (string Path, int Index)? ParseIconRef(string? displayIcon)
+    {
+        if (string.IsNullOrWhiteSpace(displayIcon)) return null;
+
+        var text = Environment.ExpandEnvironmentVariables(displayIcon.Trim());
+        if (text.StartsWith("@", StringComparison.Ordinal)) return null; // indirect string resource
+
+        var index = 0;
+        var comma = text.LastIndexOf(',');
+        if (comma > 0 && int.TryParse(text[(comma + 1)..].Trim(), out var parsed))
+        {
+            text = text[..comma];
+            index = parsed;
+        }
+
+        text = text.Trim().Trim('"').Trim();
+        return text.Length == 0 ? null : (text, index);
+    }
+
+    /// <summary>
+    /// Folders that may hold the program, most trustworthy first. Some installers only fill one
+    /// of them: InstallLocation, the folder DisplayIcon lives in, or the uninstaller's folder.
+    /// </summary>
+    private static IEnumerable<string> CandidateFolders(string installLocation, string? iconPath,
+        string? uninstallString)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (installLocation.Length > 0)
+        {
+            var location = installLocation.Trim().Trim('"').Trim();
+            if (seen.Add(location) && Directory.Exists(location)) yield return location;
+        }
+
+        if (iconPath is { Length: > 0 })
+        {
+            var dir = SafeDirectoryOf(iconPath);
+            if (dir is not null && seen.Add(dir) && Directory.Exists(dir)) yield return dir;
+        }
+
+        if (!string.IsNullOrWhiteSpace(uninstallString))
+        {
+            var quoted = uninstallString.Trim();
+            var exe = quoted.StartsWith("\"", StringComparison.Ordinal)
+                ? quoted.Trim('"').Split('"')[0]
+                : quoted.Split(' ')[0];
+            var dir = SafeDirectoryOf(Environment.ExpandEnvironmentVariables(exe));
+            if (dir is not null && seen.Add(dir) && Directory.Exists(dir)) yield return dir;
+        }
+    }
+
+    private static string? SafeDirectoryOf(string path)
+    {
+        try { return Path.GetDirectoryName(path); }
+        catch { return null; }
+    }
+
+    /// <summary>Uninstallers, updaters and crash handlers are never the app itself.</summary>
+    private static bool IsHelperExe(string path)
+    {
+        var stem = Path.GetFileNameWithoutExtension(path);
+        return stem.StartsWith("unins", StringComparison.OrdinalIgnoreCase)
+               || stem.Contains("uninstall", StringComparison.OrdinalIgnoreCase)
+               || stem.Contains("crashreport", StringComparison.OrdinalIgnoreCase)
+               || stem.Contains("crashhandler", StringComparison.OrdinalIgnoreCase)
+               || stem.Equals("setup", StringComparison.OrdinalIgnoreCase)
+               || stem.Equals("update", StringComparison.OrdinalIgnoreCase)
+               || stem.Equals("install", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Best exe in <paramref name="folder"/>, looking at the top level and one level of
+    /// subdirectories. Ranking: the exe whose name matches the product name wins, then the one
+    /// named like DisplayIcon, then the largest file (the main program is rarely a small stub).
+    /// </summary>
+    private static string FindMainExe(string folder, string displayName, string? iconPath)
+    {
         static string Letters(string text) =>
             new(text.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
         var nameLetters = Letters(displayName);
+        var iconStem = iconPath is null ? string.Empty : Path.GetFileNameWithoutExtension(iconPath);
 
         string? best = null;
+        var bestScore = int.MinValue;
         var bestSize = -1L;
-        var bestNameMatch = false;
-        foreach (var exe in topExes)
+
+        foreach (var exe in EnumerateExes(folder, depth: 1))
         {
-            var file = new FileInfo(exe);
             var stem = Path.GetFileNameWithoutExtension(exe);
-            // Uninstallers and helpers are never the app itself.
-            if (stem.StartsWith("unins", StringComparison.OrdinalIgnoreCase)
-                || stem.Contains("uninstall", StringComparison.OrdinalIgnoreCase)
-                || stem.Equals("setup", StringComparison.OrdinalIgnoreCase)
-                || stem.Equals("update", StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsHelperExe(exe)) continue;
+
+            long size;
+            try { size = new FileInfo(exe).Length; } catch { continue; }
 
             var exeLetters = Letters(stem);
-            var nameMatch = exeLetters.Length > 0 && (
-                nameLetters.Contains(exeLetters, StringComparison.OrdinalIgnoreCase)
-                || exeLetters.Contains(nameLetters, StringComparison.OrdinalIgnoreCase));
+            var score = 0;
+            if (iconStem.Length > 0 && stem.Equals(iconStem, StringComparison.OrdinalIgnoreCase)) score += 4;
+            if (exeLetters.Length > 0 && (nameLetters.Contains(exeLetters, StringComparison.OrdinalIgnoreCase)
+                                          || exeLetters.Contains(nameLetters, StringComparison.OrdinalIgnoreCase)))
+                score += 2;
+            // Top-level programs beat the same-named tool buried in a subfolder.
+            if (string.Equals(Path.GetDirectoryName(exe), folder.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                score += 1;
 
-            // A name match always beats a size match; within the same class the bigger exe wins
-            // (the main program is almost always the largest file in the folder).
-            if (best is not null && (bestNameMatch || !nameMatch) && file.Length <= bestSize) continue;
-
-            best = exe;
-            bestSize = file.Length;
-            bestNameMatch = nameMatch;
+            if (score > bestScore || (score == bestScore && size > bestSize))
+            {
+                best = exe;
+                bestScore = score;
+                bestSize = size;
+            }
         }
 
         return best ?? string.Empty;
+    }
+
+    /// <summary>Exes directly in <paramref name="folder"/>, plus one level of subfolders (bounded).</summary>
+    private static IEnumerable<string> EnumerateExes(string folder, int depth)
+    {
+        string[] files;
+        try { files = Directory.GetFiles(folder, "*.exe", SearchOption.TopDirectoryOnly); }
+        catch { yield break; }
+
+        foreach (var file in files) yield return file;
+        if (depth <= 0) yield break;
+
+        string[] subfolders;
+        try { subfolders = Directory.GetDirectories(folder); }
+        catch { yield break; }
+
+        var visited = 0;
+        foreach (var sub in subfolders)
+        {
+            if (++visited > 40) break; // a wrongly registered root must not turn into a disk walk
+            string[] nested;
+            try { nested = Directory.GetFiles(sub, "*.exe", SearchOption.TopDirectoryOnly); }
+            catch { continue; }
+            foreach (var file in nested) yield return file;
+        }
     }
 
     // ───────────────────────────── Watch loop ─────────────────────────────

@@ -244,7 +244,7 @@
                                 <TextBlock Text="搜索与打开" FontSize="11.5" FontWeight="SemiBold"
                                            Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
                                 <TextBlock Style="{StaticResource StepBody}" LineHeight="22"
-                                           Text="●  呼出面板后直接打字：中文、英文、拼音首字母都认，如输入「bj」找「壁纸」&#x0a;●  ↑/↓ 选择，Enter 打开；Esc 清空搜索，再按一次收起面板&#x0a;●  /s 关键词  = 全盘文件检索（如 /s 报告.xlsx）&#x0a;●  网页搜索：结果末尾的「跳转」→ 选百度/谷歌/必应" />
+                                           Text="●  呼出面板后直接打字：中文、英文、拼音首字母都认，如输入「bj」找「壁纸」&#x0a;●  ↑/↓ 选择，Enter 打开；Esc 清空搜索，再按一次收起面板&#x0a;●  /s 关键词  = 全盘文件检索（如 /s 报告.xlsx）&#x0a;●  网页搜索：紧跟磁贴的「跳转」→ 选百度/谷歌/必应（在应用与本地文件之前）" />
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource StepCard}">

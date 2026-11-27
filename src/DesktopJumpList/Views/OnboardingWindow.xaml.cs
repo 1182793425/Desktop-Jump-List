@@ -46,10 +46,16 @@ public partial class OnboardingWindow : Window
     {
         while (node is not null)
         {
+            // Window derives from Control: stopping here keeps plain page chrome (headings,
+            // cards, the empty footer) draggable instead of making the whole wizard a button.
+            if (node is Window) return false;
             // The step pages scroll inside one ScrollViewer — it is a Control itself but must
             // not swallow the drag; its ScrollBars are Controls and still will.
             if (node is System.Windows.Controls.ScrollViewer)
             { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
+            // The hotkey picker is a Border with its own MouseLeftButtonDown, not a Control —
+            // without this rule a press on it would start a window drag instead of a capture.
+            if (node is FrameworkElement { Name: nameof(HotkeyBox) }) return true;
             if (node is System.Windows.Controls.Control) return true;
             node = System.Windows.Media.VisualTreeHelper.GetParent(node);
         }
@@ -100,15 +106,20 @@ public partial class OnboardingWindow : Window
 
         BackButton.Visibility = _step == 0 ? Visibility.Collapsed : Visibility.Visible;
         SkipButton.Visibility = _step >= 1 && _step <= 3 ? Visibility.Visible : Visibility.Collapsed;
-        // Step 1 gates on actually starting the index build.
+        // Step 1 gates on actually starting the index build — the disabled label says so
+        // instead of leaving a greyed-out "下一步" that reads as a broken button.
         NextButton.IsEnabled = _step != 1 || _buildingStarted;
         NextButton.Content = _step switch
         {
             0 => "开始配置 →",
+            1 when !_buildingStarted => "先点「开始建立索引」",
             4 => "完成 ✓",
             _ => "下一步 →",
         };
     }
+
+    /// <summary>Preview/self-test hook: would a press at this screen point drag the window?</summary>
+    internal bool WouldDragAt(Point screenPoint) => NativeSurfaceDrag.WouldDrag(this, HitsInteractive, screenPoint);
 
     private void OnBackClick(object sender, RoutedEventArgs e) => ShowStep(_step - 1);
 

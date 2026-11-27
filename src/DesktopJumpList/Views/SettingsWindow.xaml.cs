@@ -46,6 +46,10 @@ public partial class SettingsWindow : Window
     {
         while (node is not null)
         {
+            // Window derives from Control, so without this stop the walk always ends up
+            // "interactive" and no point of the window is ever draggable. Reaching the window
+            // means the cursor sits on plain background/card chrome, which should drag.
+            if (node is Window) return false;
             // Skips MUST come before the Control check: ScrollViewer (the card stack's scroll
             // host) and UserControl (the whole advanced-settings page) are Controls themselves.
             // Checking `is Control` first would short-circuit every click in the content area
@@ -64,6 +68,9 @@ public partial class SettingsWindow : Window
         }
         return false;
     }
+
+    /// <summary>Preview/self-test hook: would a press at this screen point drag the window?</summary>
+    internal bool WouldDragAt(Point screenPoint) => NativeSurfaceDrag.WouldDrag(this, HitsInteractive, screenPoint);
 
     private void CenterOnScreen()
     {

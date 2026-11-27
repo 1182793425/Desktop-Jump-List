@@ -473,7 +473,9 @@ public partial class LauncherWindow : Window
             if (q.Length == 0 && _ordered.Count > 0) next.Add(AddTile.Instance);
 
             // Typing also offers the web, through ONE "跳转" row: the engines live one level
-            // deeper, so the list is never padded with a row per engine.
+            // deeper, so the list is never padded with a row per engine. It is added here on
+            // purpose — the fixed result order is 磁贴 → 跳转 → 应用 → 本地文件, so the row sits
+            // right under the panel's own matches, not at the end of the list.
             if (q.Length > 0)
             {
                 var engines = SearchEngineCatalog
@@ -533,6 +535,9 @@ public partial class LauncherWindow : Window
             _lastResultSignature = signature;
             if (_listMode) next = next.Select(ToListItem).OfType<object>().ToList();
             Sync(_tiles, next);
+            // Installed-app rows land here with a letter placeholder: the registry snapshot only
+            // carries paths, so their icons are extracted on the deferred worker like file rows.
+            QueueDeferredIconLoad(next);
         }
 
         // One-row recently-used header above the divider. It keeps showing inside a folder, so

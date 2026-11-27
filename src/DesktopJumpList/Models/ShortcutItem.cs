@@ -32,6 +32,7 @@ public sealed class ShortcutItem : ObservableObject
             _searchName = null;
             _searchInitials = null;
             _searchWordInitials = null;
+            _searchCompact = null;
             Raise(nameof(TooltipText));
         }
     }
@@ -39,6 +40,7 @@ public sealed class ShortcutItem : ObservableObject
     private string? _searchName;
     private string? _searchInitials;
     private string? _searchWordInitials;
+    private string? _searchCompact;
 
     /// <summary>Lower-cased name, computed once — search runs on every keystroke.</summary>
     public string SearchName => _searchName ??= (_name ?? string.Empty).ToLowerInvariant();
@@ -50,32 +52,10 @@ public sealed class ShortcutItem : ObservableObject
     /// First letter of every word (and of camelCase humps): "Visual Studio Code" → "vsc",
     /// which is what makes an abbreviation like "vsc" or "code" land on the right item.
     /// </summary>
-    public string SearchWordInitials => _searchWordInitials ??= BuildWordInitials(_name);
+    public string SearchWordInitials => _searchWordInitials ??= TextMatch.WordInitials(_name);
 
-    private static string BuildWordInitials(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return string.Empty;
-        var builder = new System.Text.StringBuilder(name.Length);
-        var atWordStart = true;
-        var previous = '\0';
-
-        foreach (var ch in name)
-        {
-            if (!char.IsLetterOrDigit(ch))
-            {
-                atWordStart = true;
-                previous = ch;
-                continue;
-            }
-
-            var hump = char.IsUpper(ch) && (char.IsLower(previous) || char.IsDigit(previous));
-            if (atWordStart || hump) builder.Append(Infrastructure.Pinyin.FirstLetter(ch));
-            atWordStart = false;
-            previous = ch;
-        }
-
-        return builder.ToString();
-    }
+    /// <summary>Name with spaces and punctuation dropped, so "vs code" matches "Visual Studio Code".</summary>
+    public string SearchCompact => _searchCompact ??= TextMatch.Compact(_name);
 
     /// <summary>Absolute path for file/folder/app, an absolute URI for <see cref="ShortcutKind.Url"/>,
     /// or the AppUserModelId for <see cref="ShortcutKind.AppX"/>.</summary>

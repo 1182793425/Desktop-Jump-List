@@ -350,7 +350,7 @@
                                 <Grid>
                                     <TextBlock Text="搜索跳转" Style="{StaticResource Section}" />
                                     <TextBlock Style="{StaticResource InfoDot}" HorizontalAlignment="Right"
-                                               ToolTip="为每条规则设置显示名称和 URL 模板。模板必须包含 {input}，搜索词会自动进行 URL 编码；输入普通关键词后，匹配跳转会出现在结果列表末尾。" />
+                                               ToolTip="为每条规则设置显示名称和 URL 模板。模板必须包含 {input}，搜索词会自动进行 URL 编码；输入普通关键词后，匹配的跳转会作为一条「跳转」行排在磁贴结果之后、应用与本地文件之前。" />
                                 </Grid>
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="每条规则可独立启用、编辑名称和 URL 模板。搜索词以 {input} 替换并自动编码，例如京东可用 https://search.jd.com/Search?keyword={input}。" />

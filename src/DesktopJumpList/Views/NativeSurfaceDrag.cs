@@ -31,26 +31,33 @@ public static class NativeSurfaceDrag
             {
                 if (msg != WM_NCHITTEST) return IntPtr.Zero;
                 handled = true;
-                return new IntPtr(IsDraggablePoint(window, isInteractive, lparam) ? HTCAPTION : HTCLIENT);
+                // LOWORD/HIWORD as signed shorts: negative values appear on monitors left of /
+                // above the primary one.
+                var x = (short)((long)lparam & 0xFFFF);
+                var y = (short)(((long)lparam >> 16) & 0xFFFF);
+                return new IntPtr(WouldDrag(window, isInteractive, new Point(x, y)) ? HTCAPTION : HTCLIENT);
             };
             source.AddHook(hook);
         };
     }
 
-    private static bool IsDraggablePoint(Window window, Func<DependencyObject, bool> isInteractive, IntPtr lParam)
+    /// <summary>
+    /// True when pressing at this SCREEN point should start a window drag. Split out of the hook
+    /// so the preview self-test can ask the same question the live hit test does.
+    /// </summary>
+    internal static bool WouldDrag(Window window, Func<DependencyObject, bool> isInteractive, Point screenPoint)
     {
         try
         {
-            // LOWORD/HIWORD as signed shorts: negative values appear on monitors left of /
-            // above the primary one.
-            var x = (short)((long)lParam & 0xFFFF);
-            var y = (short)(((long)lParam >> 16) & 0xFFFF);
+            if (PresentationSource.FromVisual(window) is not HwndSource) return true;
 
-            if (PresentationSource.FromVisual(window) is not HwndSource source
-                || source.CompositionTarget is null) return true;
-            var toDips = source.CompositionTarget.TransformToDevice;
-            toDips.Invert();
-            var pt = toDips.Transform(new Point(x, y));
+            // WM_NCHITTEST reports SCREEN pixels while InputHitTest wants client DIPs. Comparing
+            // raw screen coordinates against ActualWidth/ActualHeight was wrong twice over: the
+            // window's own origin was never subtracted, so every point of a window that does not
+            // sit at the top-left of the screen looked "outside" and the whole surface answered
+            // HTCAPTION — buttons stopped receiving clicks. PointFromScreen does the DPI
+            // conversion and the origin shift in one step.
+            var pt = window.PointFromScreen(screenPoint);
 
             // Transparent margin outside the rounded content border: drag is fine there.
             if (pt.X < 0 || pt.Y < 0 || pt.X > window.ActualWidth || pt.Y > window.ActualHeight) return true;

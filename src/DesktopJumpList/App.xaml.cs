@@ -45,6 +45,13 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--drag-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview");
+            _ = RunDragSelfTestAsync(dir);
+            return;
+        }
+
         if (e.Args.Length > 0 && e.Args[0].Equals("--apps-selftest", StringComparison.OrdinalIgnoreCase))
         {
             // Headless check for the registry app index: scan + a few searches, printed to stdout.
@@ -53,11 +60,19 @@ public partial class App : Application
             Console.WriteLine($"apps={apps.Count}");
             foreach (var app in apps.Snapshot().Take(10))
                 Console.WriteLine($"  [{app.Name}] {app.Version} -> {app.ExePath}");
-            foreach (var query in new[] { "edge", "微信", "wx", "code", "QQ" })
+            foreach (var query in new[] { "edge", "微信", "wx", "code", "vscode", "vs code", "vsi", "QQ" })
             {
                 var hits = apps.Search(query, 5);
                 Console.WriteLine($"search \"{query}\": {string.Join(" | ", hits.Select(h => h.Name))}");
             }
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length > 0 && e.Args[0].Equals("--icon-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            // Headless check for the icon pipeline over both app sources.
+            IconSelfTest.Run();
             Shutdown();
             return;
         }
@@ -901,8 +916,80 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Hidden `--onboarding-preview &lt;dir&gt;` mode: renders every onboarding wizard
-    /// step to PNG. Preview-only, uses an isolated data folder.
+    /// Hidden `--drag-selftest &lt;dir&gt;` mode: asserts where the borderless windows answer
+    /// HTCAPTION (drag) versus HTCLIENT (the control keeps its click). Regression guard for the
+    /// screen-vs-client coordinate mistake that made every button of the first-run wizard
+    /// unclickable, and for Window being a Control (which made nothing draggable).
+    /// </summary>
+    private async Task RunDragSelfTestAsync(string directory)
+    {
+        var report = new List<string>();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var previewData = Path.Combine(directory, "_preview-data");
+            Directory.CreateDirectory(previewData);
+            Storage = new Storage(previewData);
+            Settings = Storage.LoadSettings();
+            EnsureSearchJumpRules();
+            ThemeService.Initialize(AppTheme.Light);
+
+            var wizard = new OnboardingWindow { Topmost = true };
+            wizard.Show();
+            wizard.Activate();
+            await Task.Delay(450);
+            report.Add($"onboarding at {wizard.Left:0},{wizard.Top:0} {wizard.ActualWidth:0}x{wizard.ActualHeight:0}");
+            Probe(report, wizard, "下一步按钮", wizard.FindName("NextButton") as FrameworkElement, false);
+            Probe(report, wizard, "页标题文字", wizard.FindName("HeaderTitle") as FrameworkElement, true);
+            wizard.ShowPreviewStep(2); // hotkey page: the picker is a Border with its own click handler
+            await Task.Delay(250);
+            Probe(report, wizard, "快捷键输入框", wizard.FindName("HotkeyBox") as FrameworkElement, false);
+            wizard.Close();
+
+            var settings = new SettingsWindow { Topmost = true };
+            settings.Show();
+            settings.Activate();
+            await Task.Delay(700);
+            report.Add($"settings at {settings.Left:0},{settings.Top:0} {settings.ActualWidth:0}x{settings.ActualHeight:0}");
+            var nav = (settings.FindName("SettingsNavList") as System.Windows.Controls.Panel)?.Children
+                .OfType<System.Windows.Controls.Button>().FirstOrDefault();
+            Probe(report, settings, "左侧分类按钮", nav, false);
+            Probe(report, settings, "空白背景", settings, true, new Point(10, settings.ActualHeight / 2));
+            settings.Close();
+        }
+        catch (Exception ex)
+        {
+            report.Add("error: " + ex);
+        }
+
+        foreach (var line in report) Console.WriteLine(line);
+        try { File.WriteAllLines(Path.Combine(directory, "drag-selftest.txt"), report); } catch { }
+        Shutdown();
+    }
+
+    private static void Probe(List<string> report, Window window, string what,
+        FrameworkElement? element, bool expectDrag, Point? clientPoint = null)
+    {
+        if (element is null || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            report.Add($"  [skip] {what}: not loaded");
+            return;
+        }
+
+        var client = clientPoint ?? new Point(element.ActualWidth / 2, element.ActualHeight / 2);
+        var screen = element.PointToScreen(client);
+        var drag = window switch
+        {
+            OnboardingWindow w => w.WouldDragAt(screen),
+            SettingsWindow s => s.WouldDragAt(screen),
+            _ => false,
+        };
+        report.Add($"  [{(drag == expectDrag ? "pass" : "FAIL")}] {what}: drag={drag} (expect {expectDrag})");
+    }
+
+    /// <summary>
+    /// Hidden `--onboarding-preview &lt;dir&gt;` mode: renders every onboarding wizard step
+    /// to PNG. Preview-only, uses an isolated data folder.
     /// </summary>
     private async Task RenderOnboardingAsync(string directory)
     {
