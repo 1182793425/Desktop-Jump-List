@@ -85,7 +85,6 @@ public sealed class DividerRow
 public partial class LauncherWindow : Window
 {
     private const double PanelChrome = 2 + 28; // border + inner padding
-    private const double EmptyHeight = 210;
     private const double CanvasMargin = 36;
     private const double PillRowHeight = 50; // 40 px pill + 10 px gap
     private const double IconTopPadding = 8;
@@ -1025,7 +1024,16 @@ public partial class LauncherWindow : Window
 
     private double TargetPanelHeight()
     {
-        if (_tiles.Count == 0) return EmptyHeight;
+        if (_tiles.Count == 0)
+        {
+            // The empty hint stands in for one row of tiles, so it has to follow the icon size and
+            // spacing from settings instead of a fixed number — with big icons the dashed box used
+            // to come out squashed, and with the recent strip above it lost more room still.
+            // 108 is the floor where the 44px badge plus its two lines still fit inside the
+            // margins; above that the row height follows the icon size like every other row.
+            var recentExtra0 = _recentTiles.Count > 0 ? CellHeight + 15 : 0;
+            return PanelChrome + Math.Max(CellHeight, 108) + recentExtra0;
+        }
 
         if (_listMode)
         {

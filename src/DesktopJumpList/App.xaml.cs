@@ -1534,6 +1534,50 @@ public partial class App : Application
 
                 settingsWindow.Close();
                 Launcher.Close(animated: false);
+
+                // Empty panel: the dashed hint must size itself from the icon setting, not a
+                // constant. Captured at the default and at a large icon size.
+                var keptItems = Library.Items.ToList();
+                Library.Items.Clear();
+                if (!Launcher.IsOpen) Launcher.Open();
+                Launcher.ApplyLayout();
+                await Task.Delay(600);
+                CaptureLauncher(Path.Combine(directory, $"panel-empty-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+
+                var keptIcon = Settings.PanelIconSize;
+                Settings.PanelIconSize = 72;
+                Launcher.ApplyLayout();
+                await Task.Delay(500);
+                CaptureLauncher(Path.Combine(directory, $"panel-empty-big-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                var bigPanel = Launcher.Panel.ActualHeight;
+                Settings.PanelIconSize = keptIcon;
+                Launcher.ApplyLayout();
+                await Task.Delay(300);
+                File.AppendAllText(Path.Combine(directory, "panel-empty-size.txt"),
+                    $"{mode}: icon={keptIcon} panel={Launcher.Panel.ActualHeight:0} | icon=72 panel={bigPanel:0}\n");
+                Settings.PanelIconSize = keptIcon;
+
+                // The reported case: 最近使用 has rows, 常用 is empty — the hint must keep a full
+                // row height *below* the strip instead of being squeezed by it.
+                Settings.PanelIconSize = keptIcon;
+                foreach (var item in keptItems)
+                {
+                    item.LastOpenedAt = DateTimeOffset.Now;
+                    Library.Items.Add(item);
+                }
+                const System.Reflection.BindingFlags privFlags =
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                typeof(LauncherWindow).GetField("_ordered", privFlags)?.SetValue(Launcher, new List<ShortcutItem>());
+                Launcher.ApplyLayout();
+                await Task.Delay(600);
+                CaptureLauncher(Path.Combine(directory, $"panel-recent-empty-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
+                File.AppendAllText(Path.Combine(directory, "panel-empty-size.txt"),
+                    $"{mode}: recent+empty panel={Launcher.Panel.ActualHeight:0}\n");
+
+                foreach (var item in keptItems) item.LastOpenedAt = null;
+                typeof(LauncherWindow).GetField("_ordered", privFlags)?.SetValue(Launcher, Library.Ordered());
+                Launcher.ApplyLayout();
+                Launcher.Close(animated: false);
             }
 
             DumpLayout(directory);
