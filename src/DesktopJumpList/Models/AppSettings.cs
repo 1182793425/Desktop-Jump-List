@@ -207,14 +207,14 @@ public sealed class AppSettings
 
     /// <summary>
     /// Shipped blacklist: pattern-based, so it works on any drive letter. Every entry is matched
-    /// against the whole path ('*' crosses separators), and the plain-folder entries match an
-    /// exact segment ("*\Temp\*" hits …\Temp\x.txt but not …\Temp Notes\x.txt).
+    /// against the whole path ('*' crosses separators), and a plain folder entry matches an exact
+    /// segment — "*\Temp\*" hits …\Temp\x.txt but not …\Temp Notes\x.txt.
     /// </summary>
     /// <remarks>
-    /// Measured on a real 100k-entry index: this list removes ~60% of the rows, and every one of
-    /// them is machine debris — chat caches, thumbnails, IDE/build output, log folders, Go module
-    /// cache. The user's own documents (Desktop / Documents / Downloads / project folders) are
-    /// untouched: nothing here matches a folder the user named.
+    /// Scope is deliberately narrow: **the system, its logs, and caches**. Nothing here is about
+    /// development habits — 3.14.37 briefly shipped a much longer list (AppData, vendor,
+    /// node_modules, obj, dist, target, pkg\mod, IDE folders …) and it hid files people actually
+    /// searched for, so it is gone. A user who wants those can add the one line they care about.
     /// </remarks>
     public static List<string> DefaultIndexExcludes { get; } = new()
     {
@@ -226,7 +226,7 @@ public sealed class AppSettings
         @"*\Users\All Users\*",
         @"*\Users\Default\*",
 
-        // Windows 升级 / 维护 / 回收站 / 卷信息残留
+        // Windows 自带、用户永远用不到的那些
         @"*\$WinREAgent\*",
         @"*\$SysReset\*",
         @"*\$Windows.~*",
@@ -237,94 +237,77 @@ public sealed class AppSettings
         @"*\PerfLogs\*",
         @"*\Windows.old\*",
         @"*\ESD\*",
+        @"*\WER\*",              // 错误报告归档
 
-        // 软件自己存的数据：整个 AppData 都不是"你的文件"
-        @"*\AppData\*",
-        @"*\Temp\*",
-        @"*\tmp\*",
-        @"*\_temp\*",
-        @"*\nt_temp\*",          // QQ 的 NT 版临时目录
+        // 系统日志
+        @"*\log\*",
+        @"*\logs\*",
 
-        // 缓存 / 缩略图 / 表情：目录名里带这些词的一律不要
-        // （微信/企微 Cache、Unity PackageCache、IDE caches、聊天 Pic\...\Thumb 都在这里）
+        // 缓存：目录名里带 cache / thumb / emoji 的一律不索引（系统缩略图、聊天表情、软件缓存）
         @"*\*cache*\*",
         @"*\*thumb*\*",
         @"*\*emoji*\*",
+        @"*\Temp\*",
+        @"*\tmp\*",
+        @"*\_temp\*"
+    };
 
-        // 日志
-        @"*\log\*",
-        @"*\*logs*\*",
-
-        // 依赖与构建产物
-        @"*\node_modules\*",
-        @"*\bower_components\*",
-        @"*\vendor\*",
-        @"*\obj\*",
-        @"*\dist\*",
-        @"*\target\*",
-        @"*\__pycache__\*",
-        @"*\.venv\*",
-        @"*\venv\*",
-        @"*\.git\*",
-        @"*\.svn\*",
-        @"*\.hg\*",
-        @"*\.vs\*",
-        @"*\.idea\*",
-        @"*\.vscode\*",
-        @"*\.gradle\*",
-        @"*\.m2\*",
-        @"*\.nuget\*",
-        @"*\.npm\*",
-        @"*\.pnpm-store\*",
-        @"*\.yarn\*",
-        @"*\.cargo\*",
-
-        // Go 模块缓存（每个依赖的源码都在这儿，几十万条）
-        @"*\pkg\mod\*",
-
-        // 安装包缓存
+    /// <summary>
+    /// Entries 3.14.37–3.14.39 shipped and 3.14.40 dropped for being too strict. Used exactly
+    /// once, to shrink a config that inherited them: anything in here that is not a current
+    /// default is removed, and anything the user added themselves is left alone.
+    /// </summary>
+    internal static readonly string[] RetiredDefaultIndexExcludes =
+    {
+        @"*\AppData\*", @"*\AppData\Local\Temp\*", @"*\AppData\Local\Packages\*",
+        @"*\nt_temp\*",
+        @"*\node_modules\*", @"*\bower_components\*", @"*\vendor\*", @"*\obj\*",
+        @"*\dist\*", @"*\target\*", @"*\__pycache__\*", @"*\venv\*",
+        @"*\.git\*", @"*\.svn\*", @"*\.hg\*", @"*\.vs\*", @"*\.idea\*", @"*\.vscode\*",
+        @"*\.venv\*", @"*\.gradle\*", @"*\.m2\*", @"*\.nuget\*", @"*\.npm\*",
+        @"*\.pnpm-store\*", @"*\.yarn\*", @"*\.cargo\*",
+        @"*\pkg\mod\*", @"*\*logs*\*",
         @"*\Downloaded Installations\*"
     };
 
-    /// <summary>
-    /// The list shipped up to v3.14.36. A config that still contains all of it has only ever been
-    /// *added to*, so appending the newer entries is safe; a config that dropped one of these has
-    /// made a decision we must not override.
-    /// </summary>
-    internal static readonly string[] PreviousDefaultIndexExcludes =
-    {
-        @"*\Windows\*", @"*\Program Files\*", @"*\Program Files (x86)\*", @"*\ProgramData\*",
-        @"*\Users\All Users\*", @"*\Users\Default\*",
-        @"*\$WinREAgent\*", @"*\$SysReset\*", @"*\Config.Msi\*", @"*\Recovery\*", @"*\PerfLogs\*",
-        @"*\Windows.old\*",
-        @"*\$Recycle.Bin\*", @"*\System Volume Information\*",
-        @"*\AppData\Local\Temp\*",
-        @"*\.git\*", @"*\.vs\*", @"*\node_modules\*", @"*\__pycache__\*", @"*\AppData\Local\Packages\*"
-    };
-
     /// <summary>Bump together with <see cref="DefaultIndexExcludes"/> so old configs catch up.</summary>
-    public const int CurrentExcludesVersion = 2;
+    public const int CurrentExcludesVersion = 3;
 
     /// <summary>
-    /// Appends the newly shipped entries to a list the user has only ever extended. Returns false
-    /// when there is nothing to add or when the list has been pruned (that is a decision, not an
-    /// oversight), in which case the caller should leave it alone.
+    /// Brings a stored blacklist up to the shipped one. Returns the list to store; the caller
+    /// writes it back with <see cref="CurrentExcludesVersion"/>.
     /// </summary>
-    public static bool TryMergeDefaultExcludes(IReadOnlyList<string> current, out List<string> merged)
+    /// <remarks>
+    /// Two different jobs, both driven by the stored version:
+    /// * below 3 the list was inflated by a release that over-reached, so the retired entries are
+    ///   dropped and the current defaults filled in — this is a correction, and it is why a plain
+    ///   append would not have been enough;
+    /// * an empty list stays empty (that is a decision), and once a config is current nothing is
+    ///   touched, so a user who deletes a default entry keeps it deleted.
+    /// </remarks>
+    public static List<string> UpgradeExcludes(IReadOnlyList<string> current, int version)
     {
-        merged = new List<string>(current);
-        if (current.Count == 0) return false;   // "index nothing extra" is a deliberate choice
+        var list = current
+            .Select(entry => entry.Trim())
+            .Where(entry => entry.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        var have = new HashSet<string>(current.Select(entry => entry.Trim()), StringComparer.OrdinalIgnoreCase);
-        // Only a superset of the previous generation may be extended: if an entry disappeared,
-        // the user removed it on purpose and re-adding it would undo their edit.
-        foreach (var previous in PreviousDefaultIndexExcludes)
-            if (!have.Contains(previous)) return false;
+        // The pre-wildcard list (drive-letter paths, %ENV% entries) is replaced wholesale.
+        if (IsLegacyDefaultExcludes(list)) return new List<string>(DefaultIndexExcludes);
 
-        var added = DefaultIndexExcludes.Where(entry => !have.Contains(entry)).ToList();
-        if (added.Count == 0) return false;
-        merged.AddRange(added);
-        return true;
+        if (list.Count == 0 || version >= CurrentExcludesVersion) return list;
+
+        if (version < 3)
+        {
+            var retired = new HashSet<string>(RetiredDefaultIndexExcludes, StringComparer.OrdinalIgnoreCase);
+            var defaults = new HashSet<string>(DefaultIndexExcludes, StringComparer.OrdinalIgnoreCase);
+            list = list.Where(entry => !retired.Contains(entry) || defaults.Contains(entry)).ToList();
+        }
+
+        var have = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+        list.AddRange(DefaultIndexExcludes.Where(entry => !have.Contains(entry)));
+        return list;
     }
 
     /// <summary>

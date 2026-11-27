@@ -226,17 +226,26 @@ internal static class IndexSelfTest
             Check("pinyin: chongqing finds 重庆火锅", Top(index, "chongqing") == "重庆火锅.txt", Top(index, "chongqing"));
 
             // ── Blacklist upgrade ──────────────────────────────────────────────
-            // A release that ships new junk-folder patterns edits the user's config on startup.
-            // It must only ever append: a list the user pruned stays exactly as they left it.
-            var mine = AppSettings.PreviousDefaultIndexExcludes.Concat(new[] { @"*Mine*" }).ToList();
-            Check("excludes: new shipped patterns are appended",
-                AppSettings.TryMergeDefaultExcludes(mine, out var mergedExcludes)
-                && mergedExcludes.Contains(@"*\*cache*\*") && mergedExcludes.Contains(@"*Mine*")
-                && mine.All(mergedExcludes.Contains),
-                $"{mine.Count} -> {mergedExcludes.Count}");
-            var pruned = AppSettings.PreviousDefaultIndexExcludes.Where(entry => entry != @"*\.git\*").ToList();
-            Check("excludes: a pruned list is left alone", !AppSettings.TryMergeDefaultExcludes(pruned, out _));
-            Check("excludes: an empty list is left alone", !AppSettings.TryMergeDefaultExcludes(new List<string>(), out _));
+            // 3.14.37 shipped a much wider list; 3.14.40 narrows it to system + logs + caches.
+            // Shrinking must drop only what we shipped, and keep what the user added.
+            var inflated = AppSettings.RetiredDefaultIndexExcludes
+                .Concat(new[] { @"*\Windows\*", @"*Mine*" })
+                .ToList();
+            var shrunk = AppSettings.UpgradeExcludes(inflated, version: 2);
+            Check("excludes: the over-broad entries are dropped",
+                !shrunk.Contains(@"*\vendor\*") && !shrunk.Contains(@"*\node_modules\*")
+                && !shrunk.Contains(@"*\AppData\*"),
+                string.Join('|', shrunk.Take(6)));
+            Check("excludes: the system entries and the user's own stay",
+                shrunk.Contains(@"*\Windows\*") && shrunk.Contains(@"*Mine*")
+                && shrunk.Contains(@"*\*cache*\*"),
+                $"{shrunk.Count} entries");
+            Check("excludes: a current list is left alone",
+                AppSettings.UpgradeExcludes(new[] { @"*Mine*" }, AppSettings.CurrentExcludesVersion)
+                    .SequenceEqual(new[] { @"*Mine*" }),
+                "no rewrite");
+            Check("excludes: an empty list is left alone",
+                AppSettings.UpgradeExcludes(Array.Empty<string>(), 0).Count == 0);
 
             // The two id sources (directory listing vs handle) must agree, or every watcher
             // upsert would create a second row for a file the walk already indexed.

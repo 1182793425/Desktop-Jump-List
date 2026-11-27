@@ -346,7 +346,7 @@
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="条目可以是文件夹路径（支持 %环境变量%，整棵子树都不索引）、文件名（如 thumbs.db，全盘同名项都排除），也可以是通配符，例如 *.bak、~$*、*\cache\*。更改在下次手动重建索引时生效。" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
-                                           Text="内置默认已经排掉系统与程序目录、AppData、临时目录、名字带 cache / thumb / emoji 的目录、log、依赖与构建产物（node_modules、vendor、obj、dist、target、.git 等）。始终生效的还有：以 ~$ 开头的 Office 临时文件、以 . 开头的名字、带「隐藏」或「系统」属性的文件与文件夹。" />
+                                           Text="内置默认只排三类：系统目录（Windows、Program Files、ProgramData、回收站、卷信息、Windows 更新残留、错误报告）、系统日志（名字为 log / logs 的目录）、缓存（名字带 cache / thumb / emoji 的目录，以及 Temp / tmp）。你的文档、项目目录和依赖目录都不受影响。始终生效的还有：以 ~$ 开头的 Office 临时文件、以 . 开头的名字、带「隐藏」或「系统」属性的文件与文件夹。" />
                                 <!-- 同结构：筛选 + 分隔线 + 列表 -->
                                 <StackPanel x:Name="ExcludeHost" Tag="ScrollZone" Margin="2,10,10,0">
                                     <Grid>

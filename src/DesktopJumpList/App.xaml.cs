@@ -185,23 +185,11 @@ public partial class App : Application
         Storage = new Storage();
         Settings = Storage.LoadSettings();
         EnsureSearchJumpRules();
-        // The shipped blacklist used to list drive letters; it is pattern-based now. Upgrade a
-        // list nobody touched, and leave an edited one exactly as the user left it.
-        var excludesChanged = false;
-        if (AppSettings.IsLegacyDefaultExcludes(Settings.FileIndexExcludes))
-        {
-            Settings.FileIndexExcludes = new List<string>(AppSettings.DefaultIndexExcludes);
-            excludesChanged = true;
-        }
-        else if (Settings.IndexExcludesVersion < AppSettings.CurrentExcludesVersion
-                 && AppSettings.TryMergeDefaultExcludes(Settings.FileIndexExcludes, out var mergedExcludes))
-        {
-            // A newer release knows about more junk folders (caches, build output, IM caches).
-            // Append them so nobody has to hand-edit the list, without touching entries the user
-            // added themselves or resurrecting one they deleted.
-            Settings.FileIndexExcludes = mergedExcludes;
-            excludesChanged = true;
-        }
+        // The shipped blacklist only ever covers the system, its logs and caches. A config that
+        // inherited the wider 3.14.37 list is shrunk back here; entries the user added stay.
+        var upgradedExcludes = AppSettings.UpgradeExcludes(Settings.FileIndexExcludes, Settings.IndexExcludesVersion);
+        var excludesChanged = !upgradedExcludes.SequenceEqual(Settings.FileIndexExcludes, StringComparer.OrdinalIgnoreCase);
+        if (excludesChanged) Settings.FileIndexExcludes = upgradedExcludes;
         if (Settings.IndexExcludesVersion != AppSettings.CurrentExcludesVersion)
         {
             Settings.IndexExcludesVersion = AppSettings.CurrentExcludesVersion;
