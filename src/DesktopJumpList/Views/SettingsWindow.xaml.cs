@@ -561,19 +561,24 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Preview hook (--render-preview): fill the chart with synthetic multi-release
-    /// data so the axis layout can be verified offline.</summary>
+    /// data so the axis layout can be verified offline. Tags are derived from the running
+    /// assembly version — nothing here is hardcoded, so it never goes stale.</summary>
     internal void ShowPreviewStats()
     {
-        var tags = new[] { "v3.14.13", "v3.14.14", "v3.14.15", "v3.14.16", "v3.14.17", "v3.14.18",
-            "v3.14.19", "v3.14.20", "v3.14.21", "v3.14.22", "v3.14.23", "v3.14.24" };
-        var rng = new Random(7);
+        var v = GetType().Assembly.GetName().Version ?? new Version(1, 0, 0);
+        const int count = 12;
+        var start = Math.Max(1, Math.Max(1, v.Build) - (count - 1));
         var stats = new List<Services.UpdateService.DownloadStat>();
+        var rng = new Random(7);
         var acc = 20;
-        foreach (var t in tags)
+        for (var i = 0; i < count; i++)
         {
             acc += rng.Next(5, 40);
-            var v = t.TrimStart('v').Split('.');
-            stats.Add(new Services.UpdateService.DownloadStat(t, new Version(int.Parse(v[0]), int.Parse(v[1]), int.Parse(v[2])), acc));
+            var patch = start + i;
+            stats.Add(new Services.UpdateService.DownloadStat(
+                $"v{v.Major}.{v.Minor}.{patch}",
+                new Version(v.Major, v.Minor, patch),
+                acc));
         }
         _downloadStats = stats;
         DownloadStatsStatus.Visibility = Visibility.Collapsed;
