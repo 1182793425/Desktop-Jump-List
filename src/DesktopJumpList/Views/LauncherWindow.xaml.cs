@@ -274,6 +274,7 @@ public partial class LauncherWindow : Window
         QueryContinueDrag += (_, e) => { if (e.Action == DragAction.Cancel) EndInternalDrag(); };
 
         _library.Items.CollectionChanged += OnLibraryChanged;
+        App.Current.Apps.Changed += OnAppIndexChanged;
 
         ApplyPanelMetrics();
         ApplyLayout(); // honour the configured columns/rows before first open
@@ -491,6 +492,21 @@ public partial class LauncherWindow : Window
             }
         }
 
+        // Plain query: installed apps from the registry snapshot sit between the panel's own
+        // matches and the local-file section — they are the most precise "open something" hits.
+        // Independent of the file-search switches: the registry flag rules this section alone.
+        if (AppSearchActive(q))
+        {
+            var appRows = AppRowsFor(q);
+            if (appRows.Count > 0)
+            {
+                _appDivider ??= new DividerRow("应用");
+                next.Add(_appDivider);
+                next.AddRange(appRows);
+            }
+        }
+        else if (q.Length == 0) DropAppResults();
+
         // Plain query with「普通搜索也检索本地文件」on: the index hits stay below a divider, so the
         // panel's own matches always keep the top of the list. The rows are kept in
         // _plainFileRows between rebuilds — re-creating them on every keystroke (or on every
@@ -662,6 +678,9 @@ public partial class LauncherWindow : Window
 
         _plainFileLoading = false;
         matches = KeepExistingFiles(matches);
+        // A file whose path is already a registry app's launch target would show up twice
+        // (once under「应用」, once under「本地文件」) — the app row is the better hit.
+        matches.RemoveAll(f => App.Current.Apps.IsKnownAppPath(f.Path));
         _plainFileHasMore = matches.Count > PlainFilePageSize;
 
         if (replace) _plainFileRows.Clear();
@@ -1210,6 +1229,7 @@ public partial class LauncherWindow : Window
             case AddTile: ShowAddMenu(anchor); break;
             case MoreRecentTile: OpenRecentView(); break;
             case FileEntry file: OpenFoundFile(file); break;
+            case AppEntry app: OpenInstalledApp(app); break;
             case ResultRow row: RunResultRow(row); break;
         }
     }
@@ -1327,9 +1347,9 @@ public partial class LauncherWindow : Window
             .Resolve(CurrentSettings.SearchJumpRules ?? new List<SearchJumpRule>())
             .ToList();
 
-        var rows = new List<ResultRow>
+        var rows = new List<object>
         {
-            new()
+            new ResultRow
             {
                 Title = "返回",
                 Subtitle = $"回到「{query}」的搜索结果（Esc）",
@@ -1668,6 +1688,7 @@ public partial class LauncherWindow : Window
         switch (c.DataContext)
         {
             case ResultRow { Item: FileEntry file }: ShowFileMenu(file); break;
+            case ResultRow { Item: AppEntry app }: ShowAppMenu(app); break;
             case ShortcutItem item: ShowShortcutMenu(item, c); break;
             case FolderTile folder: ShowFolderMenu(folder, c); break;
             case AddTile: ShowAddMenu(c); break;

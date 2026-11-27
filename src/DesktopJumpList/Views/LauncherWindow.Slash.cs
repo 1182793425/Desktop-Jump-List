@@ -48,7 +48,7 @@ public partial class LauncherWindow
     private void RebuildSlash(string query)
     {
         var rows = SlashRows(query);
-        ShowSlashRows(rows, rows.Count == 0 ? $"没有这个命令：{query}" : string.Empty);
+        ShowSlashRows(rows.Cast<object>().ToList(), rows.Count == 0 ? $"没有这个命令：{query}" : string.Empty);
     }
 
     /// <summary>"/s" results: matching local files and apps, loaded in scrollable pages.</summary>
@@ -60,7 +60,7 @@ public partial class LauncherWindow
         _fileResultsSkip = 0;
         _fileResultsHasMore = false;
         _fileLoadingMore = false;
-        var rows = new List<ResultRow>();
+        var rows = new List<object>();
         var index = App.Current.Files;
         string emptyText;
         if (!CurrentSettings.FileSearchEnabled)
@@ -83,13 +83,20 @@ public partial class LauncherWindow
         }
         else
         {
-            emptyText = "正在搜索本地索引…";
-            _lastSlashSignature = null;
-            ShowSlashRows(rows, emptyText);
-            UpdateFileSearchChrome();
-            UpdateFileSearchCount();
+            // The async loader re-renders with the app section on top of the file hits.
+            ShowAppSectionSeed(terms);
             LoadInitialFileResults(terms, _fileQueryGeneration, index);
             return;
+        }
+
+        // File results are unavailable — the registry apps may still answer the query.
+        var appRows = CurrentSettings.RegistrySearchEnabled ? AppRowsFor(terms) : [];
+        if (appRows.Count > 0)
+        {
+            _appDivider ??= new DividerRow("应用");
+            rows.Add(_appDivider);
+            rows.AddRange(appRows);
+            emptyText = string.Empty; // the app rows speak for themselves
         }
 
         _lastSlashSignature = null;
@@ -117,10 +124,24 @@ public partial class LauncherWindow
             || !string.Equals(liveQuery, terms, StringComparison.Ordinal)) return;
 
         matches = KeepExistingFiles(matches);
+        // Files whose path is a registry app's launch target show as「应用」rows instead.
+        matches.RemoveAll(f => App.Current.Apps.IsKnownAppPath(f.Path));
         _fileResultsHasMore = matches.Count > FileResultPageSize;
-        var rows = matches.Take(FileResultPageSize).Select(BuildFileRow).ToList();
-        _fileResultsLoaded = rows.Count;
-        _fileResultsSkip = rows.Count;
+        var rows = new List<object>();
+
+        // Installed apps lead the "/s" surface: they are the most direct "open something" hits.
+        var appRows = CurrentSettings.RegistrySearchEnabled ? AppRowsFor(terms) : [];
+        if (appRows.Count > 0)
+        {
+            _appDivider ??= new DividerRow("应用");
+            rows.Add(_appDivider);
+            rows.AddRange(appRows);
+        }
+
+        rows.AddRange(matches.Take(FileResultPageSize).Select(BuildFileRow));
+        var appPrefix = appRows.Count > 0 ? appRows.Count + 1 : 0; // divider + app rows
+        _fileResultsLoaded = rows.Count - appPrefix;
+        _fileResultsSkip = _fileResultsLoaded;
         var emptyText = rows.Count == 0 && terms.Length > 0
             ? $"没有找到「{terms}」"
             : rows.Count == 0 ? "索引中还没有可显示的项目" : string.Empty;
@@ -276,9 +297,18 @@ public partial class LauncherWindow
 
         _fileLoadingMore = false;
         matches = KeepExistingFiles(matches);
+        matches.RemoveAll(f => App.Current.Apps.IsKnownAppPath(f.Path));
         _fileResultsHasMore = matches.Count > want;
 
-        var desired = new List<ResultRow>(want);
+        // The app section (divider + registry rows) sits above the file rows and is rebuilt
+        // per query, so a refresh keeps whatever prefix is currently on screen untouched.
+        var prefix = new List<object>();
+        foreach (var item in _tiles)
+        {
+            if (item is ResultRow { Item: FileEntry }) break;
+            prefix.Add(item);
+        }
+        var desired = new List<object>(prefix);
         var fresh = new List<ResultRow>();
         foreach (var file in matches.Take(want))
         {
@@ -292,11 +322,11 @@ public partial class LauncherWindow
         for (var i = 0; unchanged && i < desired.Count; i++)
             unchanged = ReferenceEquals(desired[i], _tiles[i]);
 
-        _fileResultsLoaded = desired.Count;
-        _fileResultsSkip = desired.Count;
+        _fileResultsLoaded = desired.Count - prefix.Count;
+        _fileResultsSkip = _fileResultsLoaded;
         if (!unchanged)
         {
-            SyncRange(_tiles, 0, desired.Cast<object>().ToList());
+            SyncRange(_tiles, 0, desired);
             _lastSlashSignature = null; // content moved: the next rebuild must resync
             ApplyPanelHeightNow();
         }
@@ -337,13 +367,14 @@ public partial class LauncherWindow
     /// touches icons and BuildFileRow only reads the cache, so the result list appears with
     /// letter fallbacks instantly; each extracted icon then lands on its row via INPC.
     /// </summary>
-    private void QueueDeferredIconLoad(List<ResultRow> rows)
+    private void QueueDeferredIconLoad(IEnumerable<object> items)
     {
-        var pending = rows
-            .Where(r => r.Item is FileEntry && r.Icon is null)
-            .Select(r => (r, ((FileEntry)r.Item!).Path))
-            .DistinctBy(r => r.Path)
-            .Where(r => _iconLoadInFlight.Add(r.Path))
+        var pending = items.OfType<ResultRow>()
+            .Where(r => (r.Item is FileEntry || r.Item is AppEntry) && r.Icon is null)
+            .Select(r => (r, TargetPath(r.Item)))
+            .Where(r => r.Item2 is not null)
+            .DistinctBy(r => r.Item2)
+            .Where(r => _iconLoadInFlight.Add(r.Item2!))
             .ToList();
         if (pending.Count == 0) return;
 
@@ -355,7 +386,7 @@ public partial class LauncherWindow
                 ImageSource? icon = null;
                 try
                 {
-                    icon = IconService.Get(path);
+                    icon = IconService.Get(path!);
                 }
                 catch { /* a missing icon must never break the list */ }
 
@@ -364,12 +395,12 @@ public partial class LauncherWindow
                     var loadedIcon = icon;
                     dispatcher.BeginInvoke(new Action(() =>
                     {
-                        _iconLoadInFlight.Remove(path);
+                        _iconLoadInFlight.Remove(path!);
                         if (loadedIcon is null) return;
                         // Update the visible row as soon as extraction finishes. If the result
                         // disappeared meanwhile, the successful icon remains in IconService's cache.
                         foreach (var live in _tiles.OfType<ResultRow>())
-                            if (live.Item is FileEntry f && string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase))
+                            if (RowTargetsPath(live, path!))
                             {
                                 live.Icon = loadedIcon;
                                 live.Glyph = null; // collapse the letter overlay after the image arrives
@@ -383,6 +414,16 @@ public partial class LauncherWindow
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
     }
+
+    private static string? TargetPath(object? item) => item switch
+    {
+        FileEntry file => file.Path,
+        AppEntry app => app.ExePath,
+        _ => null
+    };
+
+    private static bool RowTargetsPath(ResultRow row, string path) => TargetPath(row.Item) is { } target
+        && string.Equals(target, path, StringComparison.OrdinalIgnoreCase);
 
     private readonly HashSet<string> _iconLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
 
@@ -407,7 +448,7 @@ public partial class LauncherWindow
 
         if (!keepResults)
         {
-            ShowSlashRows(new List<ResultRow>(), "正在重建索引…");
+            ShowSlashRows(new List<object>(), "正在重建索引…");
             UpdateFileSearchCount();
         }
         else
@@ -441,15 +482,20 @@ public partial class LauncherWindow
         }));
     }
 
-    /// <summary>Shared chrome for both slash surfaces: one-line rows, no recent section.</summary>
-    private void ShowSlashRows(List<ResultRow> rows, string emptyText)
+    /// <summary>Shared chrome for both slash surfaces: one-line rows, no recent section. The list may carry DividerRow headers (the app section).</summary>
+    private void ShowSlashRows(List<object> rows, string emptyText)
     {
         // ResultRows are rebuilt on every keystroke, but Sync compares by reference. Without
         // this guard an unchanged /s list would replace every container and the panel would
         // flicker on each character — the exact thing we fixed for folder navigation.
         var signature = rows.Count == 0
             ? "empty:" + emptyText
-            : string.Join("\u001f", rows.Select(r => r.Title + "\u001e" + r.Subtitle));
+            : string.Join("\u001f", rows.Select(r => r switch
+            {
+                ResultRow row => row.Title + "\u001e" + row.Subtitle,
+                DividerRow divider => "header:" + divider.Title,
+                _ => "row:" + r.GetType().Name
+            }));
         if (signature == _lastSlashSignature)
         {
             Tiles.SelectedIndex = rows.Count > 0 ? 0 : -1;
@@ -465,7 +511,7 @@ public partial class LauncherWindow
         // instead of short-circuiting on a stale result signature.
         _lastResultSignature = null;
 
-        Sync(_tiles, rows.Cast<object>().ToList());
+        Sync(_tiles, rows);
         Sync(_recentTiles, new List<object>());
 
         RecentSection.Visibility = Visibility.Collapsed;
@@ -586,6 +632,7 @@ public partial class LauncherWindow
     {
         ShortcutItem shortcut => BuildItemRow(shortcut),
         FileEntry file => BuildFileRow(file),
+        AppEntry app => BuildAppRow(app),
         JumpEntry jump => new ResultRow
         {
             Item = jump,

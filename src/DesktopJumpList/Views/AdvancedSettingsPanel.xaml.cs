@@ -70,6 +70,7 @@ public partial class AdvancedSettingsPanel : UserControl
     {
         FileSearchSwitch.IsChecked = App.Current.Settings.FileSearchEnabled;
         PlainFileSearchSwitch.IsChecked = App.Current.Settings.FileSearchOnPlainQuery;
+        RegistrySearchSwitch.IsChecked = App.Current.Settings.RegistrySearchEnabled;
         FileLimitBox.Text = App.Current.Settings.FileSearchLimit.ToString();
         FileLimitBox.LostFocus += (_, _) => CommitFileLimit();
         FileLimitBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitFileLimit(); };
@@ -441,6 +442,11 @@ public partial class AdvancedSettingsPanel : UserControl
     {
         App.Current.SetFileSearchOnPlainQuery(PlainFileSearchSwitch.IsChecked == true);
         UpdateFileStatus();
+    }
+
+    private void OnRegistrySearchToggled(object sender, RoutedEventArgs e)
+    {
+        App.Current.SetRegistrySearchEnabled(RegistrySearchSwitch.IsChecked == true);
     }
 
     /// <summary>The settings-side manual rebuild: same entry point as the search pill's ⟳.</summary>

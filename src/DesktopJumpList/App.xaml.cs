@@ -45,6 +45,23 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--apps-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            // Headless check for the registry app index: scan + a few searches, printed to stdout.
+            var apps = new AppIndex();
+            apps.Rebuild();
+            Console.WriteLine($"apps={apps.Count}");
+            foreach (var app in apps.Snapshot().Take(10))
+                Console.WriteLine($"  [{app.Name}] {app.Version} -> {app.ExePath}");
+            foreach (var query in new[] { "edge", "微信", "wx", "code", "QQ" })
+            {
+                var hits = apps.Search(query, 5);
+                Console.WriteLine($"search \"{query}\": {string.Join(" | ", hits.Select(h => h.Name))}");
+            }
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Length > 0 && e.Args[0].Equals("--usn-selftest", StringComparison.OrdinalIgnoreCase))
         {
             UsnSelfTest.Run(e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview"));
@@ -158,6 +175,9 @@ public partial class App : Application
             FileSync.Start();
         });
 
+        // Registry app index: scan once, then watch the Uninstall keys for install/uninstall.
+        if (Settings.RegistrySearchEnabled) Apps.Start();
+
         if (!Settings.FirstRunDone)
         {
             // First run on this machine: the onboarding wizard walks the user through drive
@@ -203,6 +223,18 @@ public partial class App : Application
 
     /// <summary>Keeps <see cref="Files"/> current through the USN journal or directory watchers.</summary>
     public FileIndexSync FileSync { get; private set; } = null!;
+
+    /// <summary>Registry-backed index of installed applications (independent of the file index).</summary>
+    public AppIndex Apps { get; } = new();
+
+    /// <summary>Starts or stops the registry app index + its Uninstall-key watchers.</summary>
+    public void SetRegistrySearchEnabled(bool enabled)
+    {
+        Settings.RegistrySearchEnabled = enabled;
+        SaveSettings();
+        if (enabled) Apps.Start(); else Apps.Dispose();
+        Launcher?.DropAppResults();
+    }
 
     private SettingsWindow? _settingsWindow;
 
@@ -941,6 +973,7 @@ public partial class App : Application
                 SeedPreviewItems();
             }
             _ = IconService.LoadAsync(Library.Items);
+            Apps.Start(); // preview too: the search screenshots should include app rows
 
             Launcher = new LauncherWindow(Library);
             Dock = new DockWindow(Settings) { PreviewMode = true };
@@ -1110,6 +1143,12 @@ public partial class App : Application
                 await Task.Delay(500);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 DumpSettingsLayout(directory, settingsWindow);
+
+                // Stress the download chart's axis logic with synthetic multi-release data.
+                settingsWindow.NavigateTo("about");
+                settingsWindow.ShowPreviewStats();
+                await Task.Delay(400);
+                RenderElement(settingsWindow, Path.Combine(directory, $"settings-stats-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
 
                 settingsWindow.NavigateTo("files");
                 await Task.Delay(400);
@@ -1311,9 +1350,54 @@ public partial class App : Application
             sb.AppendLine($"chrome={window.ActualHeight - window.SettingsScroll.ActualHeight:0.##}");
             if (window.SettingsScroll.Content is FrameworkElement content)
                 sb.AppendLine($"content={content.ActualWidth:0.##}x{content.ActualHeight:0.##}");
+
+            // Drag probe: hit-test a coarse grid and report whether each point would start
+            // a window drag under SettingsWindow.HitsInteractive's rules. Diagnoses
+            // "window cannot be dragged" reports without an interactive desktop.
+            var blocked = 0; var total = 0;
+            var samples = new System.Text.StringBuilder();
+            for (var y = 10; y < window.ActualHeight - 8; y += 30)
+            {
+                for (var x = 10; x < window.ActualWidth - 8; x += 30)
+                {
+                    total++;
+                    var hit = window.InputHitTest(new Point(x, y)) as DependencyObject;
+                    var verdict = ProbeInteractive(hit, window);
+                    if (verdict) blocked++;
+                    var name = Describe(hit);
+                    samples.AppendLine($"{x},{y}\t{(verdict ? "BLOCK" : "drag")}\t{name}");
+                }
+            }
+            sb.AppendLine($"drag-probe: {blocked}/{total} points block dragging");
             File.WriteAllText(Path.Combine(directory, "settings-layout.txt"), sb.ToString());
+            File.WriteAllText(Path.Combine(directory, "drag-probe.txt"), samples.ToString());
         }
         catch { }
+    }
+
+    private static bool ProbeInteractive(DependencyObject? node, DependencyObject window)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, window)) return false;
+            if (node is System.Windows.Controls.ScrollViewer || node is System.Windows.Controls.UserControl)
+            { node = System.Windows.Media.VisualTreeHelper.GetParent(node); continue; }
+            if (node is System.Windows.Controls.Control) return true;
+            node = System.Windows.Media.VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
+    private static string Describe(DependencyObject? node)
+    {
+        var chain = new List<string>();
+        for (var n = node; n is not null && chain.Count < 6; n = System.Windows.Media.VisualTreeHelper.GetParent(n))
+        {
+            var type = n.GetType().Name;
+            if (n is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name)) type += ":" + fe.Name;
+            chain.Add(type);
+        }
+        return string.Join(" < ", chain);
     }
 
     private static void RenderElement(FrameworkElement element, string path, double scale)

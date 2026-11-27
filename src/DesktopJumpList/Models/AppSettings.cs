@@ -239,6 +239,12 @@ public sealed class AppSettings
     /// </summary>
     public bool FileSearchOnPlainQuery { get; set; } = true;
 
+    /// <summary>
+    /// 注册表应用搜索：索引 Uninstall 注册表项里的已安装软件（含监听增量更新）。
+    /// 默认开启，独立于文件索引——不受盘符选择与文件夹黑名单影响。
+    /// </summary>
+    public bool RegistrySearchEnabled { get; set; } = true;
+
     /// <summary>How many recently-used entries to keep/show (4..20).</summary>
     public int RecentCount { get; set; } = 10;
 
@@ -290,6 +296,7 @@ public sealed class AppSettings
             StringComparer.OrdinalIgnoreCase),
         FileSearchLimit = FileSearchLimit,
         FileSearchOnPlainQuery = FileSearchOnPlainQuery,
+        RegistrySearchEnabled = RegistrySearchEnabled,
         FileIndexExtensions = new List<string>(FileIndexExtensions),
         FileIndexExcludes = new List<string>(FileIndexExcludes),
         RecentCount = RecentCount,
@@ -339,6 +346,7 @@ public sealed class AppSettings
             StringComparer.OrdinalIgnoreCase);
         FileSearchLimit = source.FileSearchLimit;
         FileSearchOnPlainQuery = source.FileSearchOnPlainQuery;
+        RegistrySearchEnabled = source.RegistrySearchEnabled;
         FileIndexExtensions = new List<string>(source.FileIndexExtensions);
         FileIndexExcludes = new List<string>(source.FileIndexExcludes);
         RecentCount = source.RecentCount;
