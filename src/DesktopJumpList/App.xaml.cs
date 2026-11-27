@@ -149,6 +149,13 @@ public partial class App : Application
         Storage = new Storage();
         Settings = Storage.LoadSettings();
         EnsureSearchJumpRules();
+        // The shipped blacklist used to list drive letters; it is pattern-based now. Upgrade a
+        // list nobody touched, and leave an edited one exactly as the user left it.
+        if (AppSettings.IsLegacyDefaultExcludes(Settings.FileIndexExcludes))
+        {
+            Settings.FileIndexExcludes = new List<string>(AppSettings.DefaultIndexExcludes);
+            Storage.SaveSettings(Settings);
+        }
         Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.0, 1.0);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
@@ -1416,6 +1423,7 @@ public partial class App : Application
                 // Stress the download chart's axis logic with synthetic multi-release data.
                 settingsWindow.NavigateTo("about");
                 settingsWindow.ShowPreviewStats();
+                settingsWindow.ShowPreviewUpdateStatus("发现新版本 v9.9.9（当前 v3.14.28）");
                 await Task.Delay(400);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-stats-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
 

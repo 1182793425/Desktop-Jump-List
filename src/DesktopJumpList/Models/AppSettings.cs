@@ -189,42 +189,69 @@ public sealed class AppSettings
     };
 
     /// <summary>
-    /// 文件夹路径黑名单：这些路径（含子目录）下的任何文件都不索引、不遍历。
-    /// 条目可使用环境变量；匹配为不区分大小写的前缀匹配。
-    /// 补充了符号链接别名（All Users）、默认用户模板、安装临时目录，
-    /// 以及所有盘符下的回收站和系统卷信息目录。
+    /// 文件夹 / 文件名黑名单：命中的文件不索引、命中的目录整棵子树都不遍历。
+    /// 默认值全部写成**通配符**，不写具体盘符 —— 每个人的盘符不一样，C: 之外还可能是 D:/E:，
+    /// 而系统目录、回收站、卷信息在每块盘上都存在。匹配为整条路径的通配（* 可跨目录分隔符），
+    /// 所以 "*\Windows\*" 同时覆盖 C:\Windows\System32 和 D:\Windows\Old。
+    /// 需要精确到某个盘时，用户自己加一条路径即可（支持 %环境变量%）。
     /// </summary>
-    public List<string> FileIndexExcludes { get; set; } = new List<string>
+    public List<string> FileIndexExcludes { get; set; } = new List<string>(DefaultIndexExcludes);
+
+    /// <summary>Shipped blacklist: pattern-based, so it works on any drive letter.</summary>
+    public static List<string> DefaultIndexExcludes { get; } = new()
     {
-        // 系统与程序目录
-        "%SystemRoot%",
-        "%ProgramFiles%",
-        "%ProgramFiles(x86)%",
-        "%ProgramData%",
-        "%ALLUSERSPROFILE%",
-        "%LOCALAPPDATA%",
-        "%APPDATA%",
-        "%TEMP%",
+        // 系统与程序目录（任何盘符）
+        @"*\Windows\*",
+        @"*\Program Files\*",
+        @"*\Program Files (x86)\*",
+        @"*\ProgramData\*",
+        @"*\Users\All Users\*",
+        @"*\Users\Default\*",
 
-        // 用户目录下的系统别名与模板
-        @"C:\Users\All Users",     // 指向 C:\ProgramData 的符号链接，之前漏网的根源
-        @"C:\Users\Default",       // 系统默认用户模板
+        // 系统维护目录
+        @"*\$WinREAgent\*",
+        @"*\$SysReset\*",
+        @"*\Config.Msi\*",
+        @"*\Recovery\*",
+        @"*\PerfLogs\*",
+        @"*\Windows.old\*",
 
-        // 系统隐藏 / 安装临时目录
-        @"C:\$WinREAgent",
-        @"C:\Config.Msi",
-        @"C:\Recovery",
-        @"C:\PerfLogs",
-        @"C:\Windows.old",
+        // 回收站与卷信息（每块盘都有，所以用通配）
+        @"*\$Recycle.Bin\*",
+        @"*\System Volume Information\*",
 
-        // 回收站与系统卷信息（覆盖常见盘符，按需增删）
-        @"C:\$Recycle.Bin",
-        @"D:\$Recycle.Bin",
-        @"E:\$Recycle.Bin",
-        @"C:\System Volume Information",
-        @"D:\System Volume Information",
-        @"E:\System Volume Information"
+        // 临时目录
+        @"*\AppData\Local\Temp\*",
+
+        // 开发 / 缓存噪音
+        @"*\.git\*",
+        @"*\.vs\*",
+        @"*\node_modules\*",
+        @"*\__pycache__\*",
+        @"*\AppData\Local\Packages\*"
     };
+
+    /// <summary>
+    /// The path-based blacklist this app shipped before the patterns above. An untouched list is
+    /// upgraded silently on load; a list the user edited is left alone.
+    /// </summary>
+    private static readonly string[] LegacyExcludes =
+    {
+        "%SystemRoot%", "%ProgramFiles%", "%ProgramFiles(x86)%", "%ProgramData%", "%ALLUSERSPROFILE%",
+        "%LOCALAPPDATA%", "%APPDATA%", "%TEMP%",
+        @"C:\Users\All Users", @"C:\Users\Default",
+        @"C:\$WinREAgent", @"C:\Config.Msi", @"C:\Recovery", @"C:\PerfLogs", @"C:\Windows.old",
+        @"C:\$Recycle.Bin", @"D:\$Recycle.Bin", @"E:\$Recycle.Bin",
+        @"C:\System Volume Information", @"D:\System Volume Information", @"E:\System Volume Information"
+    };
+
+    /// <summary>True when the blacklist is still exactly what older versions shipped.</summary>
+    public static bool IsLegacyDefaultExcludes(IReadOnlyList<string> excludes)
+    {
+        var set = new HashSet<string>(excludes.Select(e => e.Trim()), StringComparer.OrdinalIgnoreCase);
+        var legacy = new HashSet<string>(LegacyExcludes, StringComparer.OrdinalIgnoreCase);
+        return set.SetEquals(legacy);
+    }
 
     /// <summary>
     /// Upper bound on indexed entries; 0 (the default) means no cap. Entries are just path

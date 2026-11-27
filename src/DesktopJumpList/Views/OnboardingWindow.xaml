@@ -229,13 +229,8 @@
                         <Border Style="{StaticResource StepCard}" Margin="0,2,0,0" Padding="10,8">
                             <StackPanel x:Name="DriveList" />
                         </Border>
-                        <Grid Margin="0,6,0,0">
-                            <Button x:Name="BuildButton" Style="{StaticResource PrimaryButton}"
-                                    HorizontalAlignment="Left" Content="开始建立索引"
-                                    Click="OnBuildIndexClick" />
-                            <TextBlock x:Name="IndexProgress" VerticalAlignment="Center" HorizontalAlignment="Right"
-                                       FontSize="11.5" Foreground="{DynamicResource InkFaintBrush}" />
-                        </Grid>
+                        <TextBlock x:Name="IndexHint" Style="{StaticResource StepBody}" Margin="2,8,0,0" FontSize="11"
+                                   Text="点下一步就开始在后台建立索引" />
                     </StackPanel>
 
                     <!-- 第 2 页：快捷键 -->

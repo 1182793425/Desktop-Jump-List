@@ -527,20 +527,25 @@
                         <Border x:Name="AboutCard" Style="{StaticResource SettingsCard}" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="关于软件" Style="{StaticResource SettingsSection}" />
+                                <!-- 当前版本：更新动作和它的结果文字在同一行里，结果紧贴按钮下方 -->
                                 <Grid Style="{StaticResource SettingsRow}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="88" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="当前版本" Style="{StaticResource RowLabel}" />
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock x:Name="AboutVersion" Style="{StaticResource InlineHint}" Margin="0"
-                                                   VerticalAlignment="Center" />
-                                        <Button x:Name="CheckUpdateButton" Style="{StaticResource LinkButton}"
-                                                Padding="8,4" Margin="12,0,0,0" Click="OnCheckUpdateClick" Content="检查更新" />
-                                        <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
-                                                Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
-                                                Content="下载安装包" Visibility="Collapsed" />
+                                    <TextBlock Text="当前版本" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock x:Name="AboutVersion" Style="{StaticResource InlineHint}" Margin="0"
+                                                       VerticalAlignment="Center" />
+                                            <Button x:Name="CheckUpdateButton" Style="{StaticResource LinkButton}"
+                                                    Padding="8,4" Margin="12,0,0,0" Click="OnCheckUpdateClick" Content="检查更新" />
+                                            <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
+                                                    Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
+                                                    Content="下载安装包" Visibility="Collapsed" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
+                                                   Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
                                     </StackPanel>
                                 </Grid>
                                 <Grid Style="{StaticResource SettingsRow}">
@@ -548,16 +553,14 @@
                                         <ColumnDefinition Width="88" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="项目地址" Style="{StaticResource RowLabel}" />
+                                    <TextBlock Text="项目地址" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
                                     <Button Grid.Column="1" Style="{StaticResource LinkButton}" HorizontalAlignment="Left"
-                                            Padding="0,3" Click="OnOpenProjectPage"
+                                            VerticalAlignment="Center" Padding="8,4" Click="OnOpenProjectPage"
                                             Content="github.com/1182793425/Desktop-Jump-List"
                                             ToolTip="在浏览器打开项目主页" />
                                 </Grid>
-                                <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
-                                           Margin="0,6,0,0" TextWrapping="Wrap" />
 
-                                <!-- 下载统计：各历史版本安装包下载量折线（行距与其余设置行一致） -->
+                                <!-- 下载统计：各历史版本安装包下载量折线（行距与其他设置行一致） -->
                                 <Grid Style="{StaticResource SettingsRow}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="88" />
@@ -569,6 +572,7 @@
                                                Style="{StaticResource InlineHint}" Margin="0"
                                                Text="各版本安装包下载量（GitHub Releases）" TextTrimming="CharacterEllipsis" />
                                     <Button Grid.Column="2" Style="{StaticResource LinkButton}" Padding="8,4"
+                                            VerticalAlignment="Center"
                                             Click="OnRefreshDownloadStatsClick" Content="刷新" />
                                 </Grid>
                                 <Border Background="{DynamicResource HoverBrush}" CornerRadius="10"

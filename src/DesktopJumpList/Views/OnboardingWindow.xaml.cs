@@ -79,7 +79,7 @@ public partial class OnboardingWindow : Window
     private static readonly string[] StepSubs =
     [
         "碰一下滑出，点一下打开",
-        "建立索引后，/s 关键词 才能全盘找文件",
+        "勾选后点下一步，索引在后台建立",
         "任何窗口下都能呼出面板",
         "开启后，普通搜索也会找本地文件",
         "左右翻看三张图",
@@ -137,7 +137,23 @@ public partial class OnboardingWindow : Window
             Finish();
             return;
         }
+        if (_step == 1) StartIndexInBackground();
         ShowStep(_step + 1);
+    }
+
+    /// <summary>
+    /// Leaving the drive page is the "go" signal: the wizard has no build button, so the chosen
+    /// roots are handed to the index here and the walk runs on its own thread while the user
+    /// reads the next pages.
+    /// </summary>
+    private void StartIndexInBackground()
+    {
+        var roots = _drives.Where(d => d.Box.IsChecked == true).Select(d => d.Root).ToList();
+        if (roots.Count == 0) return;
+
+        App.Current.SetFileSearchRoots(roots);
+        if (!App.Current.Settings.FileSearchEnabled) App.Current.SetFileSearchEnabled(true);
+        App.Current.StartFileIndex();
     }
 
     private void Finish()
@@ -193,47 +209,6 @@ public partial class OnboardingWindow : Window
             _drives.Add(new DriveChoice(drive.Name, box, size));
             DriveList.Children.Add(box);
         }
-    }
-
-    private void OnBuildIndexClick(object sender, RoutedEventArgs e)
-    {
-        var roots = _drives.Where(d => d.Box.IsChecked == true).Select(d => d.Root).ToList();
-        if (roots.Count == 0)
-        {
-            IndexProgress.Text = "先勾选一个磁盘";
-            return;
-        }
-
-        App.Current.SetFileSearchRoots(roots);
-        if (!App.Current.Settings.FileSearchEnabled) App.Current.SetFileSearchEnabled(true);
-
-        BuildButton.IsEnabled = false;
-        App.Current.StartFileIndex();
-        IndexProgress.Text = "索引建立中…";
-
-        // Live progress: the index reports row counts through Changed.
-        App.Current.Files.Changed += OnIndexChanged;
-        OnIndexChanged();
-    }
-
-    private void OnIndexChanged()
-    {
-        try
-        {
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                var count = App.Current.Files.Count;
-                IndexProgress.Text = App.Current.Files.IsBuilding
-                    ? $"建立中… 已收录 {count} 项"
-                    : $"完成，共 {count} 项";
-                if (!App.Current.Files.IsBuilding)
-                {
-                    BuildButton.Content = "已建立 ✓";
-                    App.Current.Files.Changed -= OnIndexChanged;
-                }
-            }));
-        }
-        catch { /* window may be gone */ }
     }
 
     // ───────────────────────── Step 2: hotkey ─────────────────────────

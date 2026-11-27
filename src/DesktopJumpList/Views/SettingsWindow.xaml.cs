@@ -456,7 +456,7 @@ public partial class SettingsWindow : Window
         CheckUpdateButton.IsEnabled = false;
         DownloadUpdateButton.Visibility = Visibility.Collapsed;
         _pendingUpdate = null;
-        UpdateStatus.Text = "正在检查更新…";
+        SetUpdateStatus("正在检查更新…");
         try
         {
             var snapshot = await Services.UpdateService.CheckLatestAsync();
@@ -464,27 +464,40 @@ public partial class SettingsWindow : Window
             var current = typeof(App).Assembly.GetName().Version;
             if (snapshot is null || latest is null || current is null)
             {
-                UpdateStatus.Text = "无法获取版本信息：网络不可用且没有本地缓存，可稍后再试";
+                SetUpdateStatus("无法获取版本信息：网络不可用且没有本地缓存，可稍后再试");
                 return;
             }
             var notice = UpdateServiceExtensions.CacheNotice(snapshot);
             if (latest.Version <= current)
             {
-                UpdateStatus.Text = $"已是最新版本（v{current.ToString(3)}）{notice}";
+                SetUpdateStatus($"已是最新版本（v{current.ToString(3)}）{notice}");
                 return;
             }
             _pendingUpdate = latest;
-            UpdateStatus.Text = $"发现新版本 {latest.Tag}（当前 v{current.ToString(3)}）{notice}";
+            SetUpdateStatus($"发现新版本 {latest.Tag}（当前 v{current.ToString(3)}）{notice}");
             DownloadUpdateButton.Visibility = latest.AssetUrl is null ? Visibility.Collapsed : Visibility.Visible;
         }
         catch (Exception ex)
         {
-            UpdateStatus.Text = $"检查更新失败：{ex.Message}";
+            SetUpdateStatus($"检查更新失败：{ex.Message}");
         }
         finally
         {
             CheckUpdateButton.IsEnabled = true;
         }
+    }
+
+    /// <summary>
+    /// Update feedback lives directly under the 检查更新 button; the row collapses while there is
+    /// nothing to say so it stays the same height as the other rows.
+    /// </summary>
+    /// <summary>Preview hook: show a canned update result so the row layout can be checked.</summary>
+    internal void ShowPreviewUpdateStatus(string text) => SetUpdateStatus(text);
+
+    private void SetUpdateStatus(string text)
+    {
+        UpdateStatus.Text = text;
+        UpdateStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private async void OnDownloadUpdateClick(object sender, RoutedEventArgs e)
@@ -497,21 +510,25 @@ public partial class SettingsWindow : Window
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             Directory.CreateDirectory(downloads);
             var dest = Path.Combine(downloads, name);
-            UpdateStatus.Text = "正在下载…";
+            SetUpdateStatus("正在下载…");
             await Services.UpdateService.DownloadAsync(url, dest,
-                percent => Dispatcher.Invoke(() => UpdateStatus.Text = $"正在下载… {percent}%"));
-            UpdateStatus.Text = $"下载完成：{dest}";
+                percent => Dispatcher.Invoke(() => SetUpdateStatus($"正在下载… {percent}%")));
+            SetUpdateStatus($"下载完成：{dest}");
             if (MessageBox.Show(this, $"安装包已下载到：\n{dest}\n\n立即运行安装？",
                     "Jump 更新", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 Process.Start(new ProcessStartInfo(dest) { UseShellExecute = true });
+                // The installer replaces files under {app}; a resident Jump would keep them locked
+                // and only make the setup ask (or fail) to close the running app. Step aside.
+                _ = Dispatcher.BeginInvoke(new Action(() => Application.Current.Shutdown()),
+                    System.Windows.Threading.DispatcherPriority.Background);
             }
             DownloadUpdateButton.Visibility = Visibility.Collapsed;
             _pendingUpdate = null;
         }
         catch (Exception ex)
         {
-            UpdateStatus.Text = $"下载失败：{ex.Message}";
+            SetUpdateStatus($"下载失败：{ex.Message}");
         }
         finally
         {
