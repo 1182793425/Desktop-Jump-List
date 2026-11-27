@@ -44,14 +44,19 @@ public partial class LauncherWindow
             if (CurrentSettings.RegistrySearchEnabled)
             {
                 // A tile the user already pinned answers first anyway; its registry twin would
-                // just be a second row for the same program, so skip names the panel matched.
-                var tileNames = ShortcutLibrary.Search(_ordered, query)
-                    .Select(i => i.Name.Trim())
+                // just be a second row for the same program, so skip what the panel matched —
+                // by name (「微信」 vs 「微信」) and by launch target (a tile holding Code.exe
+                // versus the registry entry "Microsoft Visual Studio Code").
+                var matched = ShortcutLibrary.Search(_ordered, query);
+                var tileNames = matched.Select(i => i.Name.Trim())
                     .ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+                var tileTargets = matched.Select(i => i.Target)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var app in App.Current.Apps.Search(query, AppResultLimit + tileNames.Count))
                 {
                     if (tileNames.Contains(app.Name.Trim())) continue;
+                    if (tileTargets.Contains(app.ExePath)) continue;
                     _appRows.Add(BuildAppRow(app));
                     if (_appRows.Count >= AppResultLimit) break;
                 }

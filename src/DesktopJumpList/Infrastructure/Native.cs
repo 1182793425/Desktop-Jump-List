@@ -36,6 +36,14 @@ internal static class Native
     public static extern bool GetCursorPos(out POINT pt);
 
     [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint flags, int dx, int dy, int data, IntPtr extra);
+
+    public const uint MOUSEEVENTF_WHEEL = 0x0800;
+
+    [DllImport("user32.dll")]
     public static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -59,6 +67,9 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr hIcon);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     public static extern int SHCreateItemFromParsingName(string path, IntPtr pbc, ref Guid riid, out IShellItemImageFactory factory);

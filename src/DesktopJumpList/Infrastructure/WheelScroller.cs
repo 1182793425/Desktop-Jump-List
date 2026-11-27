@@ -29,4 +29,26 @@ public static class WheelScroller
             e.Handled = true;
         };
     }
+
+    /// <summary>
+    /// Wheeling anywhere inside <paramref name="host"/> scrolls <paramref name="viewer"/> — the
+    /// list plus its title row, status line and padding. A bounded list sitting inside a scrolling
+    /// page otherwise has dead zones around it: the wheel falls through to the page, the page
+    /// moves instead of the list, and the list reads as "won't scroll". At either end the event
+    /// is left alone, so the page keeps taking over exactly where the list runs out.
+    /// </summary>
+    public static void RouteWheelTo(UIElement host, ScrollViewer viewer)
+    {
+        host.PreviewMouseWheel += (_, e) =>
+        {
+            var range = viewer.ScrollableHeight;
+            if (range <= 0.5) return;
+
+            var target = Math.Clamp(viewer.VerticalOffset + (e.Delta > 0 ? -StepDips : StepDips), 0, range);
+            if (Math.Abs(target - viewer.VerticalOffset) < 0.5) return;
+
+            viewer.ScrollToVerticalOffset(target);
+            e.Handled = true;
+        };
+    }
 }

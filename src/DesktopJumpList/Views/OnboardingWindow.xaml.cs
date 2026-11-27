@@ -4,14 +4,18 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using DesktopJumpList.Services;
 
 namespace DesktopJumpList.Views;
 
 /// <summary>
-/// First-run onboarding wizard: welcome → pick drives to index and start the walk → hotkey →
-/// plain-search switch → usage crash course → summary. Driven by !AppSettings.FirstRunDone;
-/// the flag is committed when the window closes, whatever the exit path.
+/// First-run onboarding wizard: welcome → pick drives to index → hotkey → plain-search switch →
+/// three screenshots plus the summary. Driven by !AppSettings.FirstRunDone; the flag is committed
+/// when the window closes, whatever the exit path. Every page is one short line plus the control
+/// it is about — the wizard teaches by showing, not by explaining.
 /// </summary>
 public partial class OnboardingWindow : Window
 {
@@ -26,7 +30,6 @@ public partial class OnboardingWindow : Window
 
     private readonly List<DriveChoice> _drives = [];
     private bool _capturingHotkey;
-    private bool _buildingStarted;
 
     public OnboardingWindow()
     {
@@ -69,9 +72,17 @@ public partial class OnboardingWindow : Window
         "欢迎使用 Jump",
         "选择要索引的磁盘",
         "设置呼出快捷键",
-        "搜索方式：要不要带上本地文件？",
-        "怎么用：搜索、打开与重建",
-        "设置完成！",
+        "普通搜索要不要带文件",
+        "怎么用",
+    ];
+
+    private static readonly string[] StepSubs =
+    [
+        "碰一下滑出，点一下打开",
+        "建立索引后，/s 关键词 才能全盘找文件",
+        "任何窗口下都能呼出面板",
+        "开启后，普通搜索也会找本地文件",
+        "左右翻看三张图",
     ];
 
     private int _step;
@@ -86,15 +97,7 @@ public partial class OnboardingWindow : Window
         PageTeach.Visibility = _step == 4 ? Visibility.Visible : Visibility.Collapsed;
 
         HeaderTitle.Text = StepTitles[_step];
-        HeaderSub.Text = _step switch
-        {
-            0 => "三分钟完成设置，之后一切只需一键",
-            1 => "第 1 步 · 让 /s 和直接搜索能全盘找文件",
-            2 => "第 2 步 · 任何窗口下一键呼出",
-            3 => "第 3 步 · 决定普通搜索的结果范围",
-            4 => "第 4 步 · 花三十秒看完，少走弯路",
-            _ => "",
-        };
+        HeaderSub.Text = StepSubs[_step];
 
         for (var i = 0; i < StepCount; i++)
         {
@@ -105,17 +108,11 @@ public partial class OnboardingWindow : Window
         }
 
         BackButton.Visibility = _step == 0 ? Visibility.Collapsed : Visibility.Visible;
-        SkipButton.Visibility = _step >= 1 && _step <= 3 ? Visibility.Visible : Visibility.Collapsed;
-        // Step 1 gates on actually starting the index build — the disabled label says so
-        // instead of leaving a greyed-out "下一步" that reads as a broken button.
-        NextButton.IsEnabled = _step != 1 || _buildingStarted;
-        NextButton.Content = _step switch
-        {
-            0 => "开始配置 →",
-            1 when !_buildingStarted => "先点「开始建立索引」",
-            4 => "完成 ✓",
-            _ => "下一步 →",
-        };
+        // No gate and no skip: 下一步 always works, and building the index stays a plain
+        // optional action on its own page instead of a lock on the wizard.
+        NextButton.Content = _step == 4 ? "完成 ✓" : "下一步 →";
+        if (_step == 4) ShowSlide(_slide, 0);
+        PageScroller.ScrollToTop();
     }
 
     /// <summary>Preview/self-test hook: would a press at this screen point drag the window?</summary>
@@ -127,11 +124,11 @@ public partial class OnboardingWindow : Window
     public void ShowPreviewStep(int step)
     {
         ShowStep(step);
-        if (step == 4) FillSummary();
+        if (step == 4) ShowSlide(0, 0);
     }
 
-    /// <summary>Preview hook: scroll the page area to the bottom (summary card).</summary>
-    public void ScrollPreviewToEnd() => PageScroller.ScrollToEnd();
+    /// <summary>Preview hook: which screenshot the carousel shows.</summary>
+    public void ShowPreviewSlide(int index) => ShowSlide(index, 0);
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
@@ -140,17 +137,8 @@ public partial class OnboardingWindow : Window
             Finish();
             return;
         }
-        if (_step == 3)
-        {
-            // Last step: usage crash course plus the live configuration summary.
-            FillSummary();
-            ShowStep(4);
-            return;
-        }
         ShowStep(_step + 1);
     }
-
-    private void OnSkipClick(object sender, RoutedEventArgs e) => Finish();
 
     private void Finish()
     {
@@ -212,18 +200,16 @@ public partial class OnboardingWindow : Window
         var roots = _drives.Where(d => d.Box.IsChecked == true).Select(d => d.Root).ToList();
         if (roots.Count == 0)
         {
-            IndexProgress.Text = "请先勾选至少一个盘符";
+            IndexProgress.Text = "先勾选一个磁盘";
             return;
         }
 
         App.Current.SetFileSearchRoots(roots);
         if (!App.Current.Settings.FileSearchEnabled) App.Current.SetFileSearchEnabled(true);
 
-        _buildingStarted = true;
         BuildButton.IsEnabled = false;
         App.Current.StartFileIndex();
         IndexProgress.Text = "索引建立中…";
-        NextButton.IsEnabled = true;
 
         // Live progress: the index reports row counts through Changed.
         App.Current.Files.Changed += OnIndexChanged;
@@ -238,9 +224,9 @@ public partial class OnboardingWindow : Window
             {
                 var count = App.Current.Files.Count;
                 IndexProgress.Text = App.Current.Files.IsBuilding
-                    ? $"索引建立中… 已收录 {count} 项"
-                    : $"索引完成，共 {count} 项";
-                if (!App.Current.Files.IsBuilding && _buildingStarted)
+                    ? $"建立中… 已收录 {count} 项"
+                    : $"完成，共 {count} 项";
+                if (!App.Current.Files.IsBuilding)
                 {
                     BuildButton.Content = "已建立 ✓";
                     App.Current.Files.Changed -= OnIndexChanged;
@@ -255,12 +241,81 @@ public partial class OnboardingWindow : Window
     private void RefreshHotkeyUi()
     {
         var s = App.Current.Settings;
-        HotkeyText.Text = _capturingHotkey ? "按下组合键…" : s.Hotkey;
+        // Stored as key-enum names ("Ctrl+Oem3"); people type and read keys, not enums.
+        HotkeyText.Text = _capturingHotkey ? "按下组合键…" : HotkeyService.FormatForDisplay(s.Hotkey);
         HotkeySwitch.IsChecked = s.HotkeyEnabled;
-        HotkeyHint.Text = s.HotkeyEnabled
-            ? $"当前：{s.Hotkey} · 点击组合键框可更换"
-            : "已关闭，打开开关后生效";
+        HotkeyHint.Text = _capturingHotkey
+            ? "按下组合键，Esc 取消"
+            : s.HotkeyEnabled ? "数字 1 左边那个键 · 点键框可更换" : "打开「启用」后生效";
+        RefreshKeycaps();
     }
+
+    /// <summary>
+    /// Draws the current combination as keycaps: Ctrl + `, one cap per part. Punctuation keys get
+    /// the shifted symbol above the base one, like the legend on a real keyboard, because a bare
+    /// backtick is a single faint mark that reads as an empty key.
+    /// </summary>
+    private void RefreshKeycaps()
+    {
+        if (KeycapRow is null) return;
+        KeycapRow.Children.Clear();
+
+        var parts = HotkeyService.ParseParts(App.Current.Settings.Hotkey);
+        for (var i = 0; i < parts.Count; i++)
+        {
+            if (i > 0) KeycapRow.Children.Add(new TextBlock { Style = (Style)FindResource("KeyCapPlus") });
+
+            var label = HotkeyService.PrettyKey(parts[i]);
+            var cap = new Border { Style = (Style)FindResource("KeyCap") };
+            if (label.Length == 1 && ShiftedLegend.TryGetValue(label, out var shifted))
+            {
+                var legend = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                legend.Children.Add(new TextBlock
+                {
+                    Text = shifted,
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 11,
+                    Foreground = (Brush)FindResource("InkFaintBrush"),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                });
+                legend.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 22,
+                    LineHeight = 18,
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Bottom
+                });
+                cap.Child = legend;
+            }
+            else
+            {
+                cap.Child = new TextBlock { Style = (Style)FindResource("KeyCapText"), Text = label };
+            }
+
+            KeycapRow.Children.Add(cap);
+        }
+
+        KeycapRow.Opacity = App.Current.Settings.HotkeyEnabled ? 1 : 0.4;
+    }
+
+    /// <summary>Legend printed above the base character on a key cap.</summary>
+    private static readonly Dictionary<string, string> ShiftedLegend = new()
+    {
+        ["`"] = "~",
+        ["-"] = "_",
+        ["="] = "+",
+        ["["] = "{",
+        ["]"] = "}",
+        ["\\"] = "|",
+        [";"] = ":",
+        ["'"] = "\"",
+        [","] = "<",
+        ["."] = ">",
+        ["/"] = "?",
+    };
 
     private void OnHotkeyBoxClick(object sender, MouseButtonEventArgs e)
     {
@@ -274,7 +329,16 @@ public partial class OnboardingWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        if (!_capturingHotkey) return;
+        if (!_capturingHotkey)
+        {
+            // Arrow keys flip the carousel on the last page — the same gesture as the buttons.
+            if (_step == 4 && e.Key is Key.Left or Key.Right)
+            {
+                ShowSlide(_slide + (e.Key == Key.Right ? 1 : -1), e.Key == Key.Right ? 1 : -1);
+                e.Handled = true;
+            }
+            return;
+        }
         e.Handled = true;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
 
@@ -294,18 +358,18 @@ public partial class OnboardingWindow : Window
 
         var mods = Keyboard.Modifiers;
         var vk = (uint)KeyInterop.VirtualKeyFromKey(key);
-        if (mods == ModifierKeys.None && !Services.HotkeyService.AllowsStandalone(vk))
+        if (mods == ModifierKeys.None && !HotkeyService.AllowsStandalone(vk))
         {
             RefreshHotkeyUi();
-            HotkeyHint.Text = "该键已被系统占用，请加一个修饰键（如 Ctrl）";
+            HotkeyHint.Text = "这个键要加修饰键（如 Ctrl）";
             return;
         }
 
         var text = FormatHotkey(mods, key);
         if (App.Current.TrySetHotkey(text, out var error))
-            HotkeyHint.Text = $"已设置为 {text}";
+            HotkeyHint.Text = "已设置";
         else
-            HotkeyHint.Text = error ?? "无法注册该快捷键，换一个试试";
+            HotkeyHint.Text = error ?? "无法注册，换一个";
         RefreshHotkeyUi();
     }
 
@@ -331,7 +395,7 @@ public partial class OnboardingWindow : Window
         var want = HotkeySwitch.IsChecked == true;
         var ok = App.Current.SetHotkeyEnabled(want, out var error);
         RefreshHotkeyUi();
-        if (!ok) HotkeyHint.Text = error ?? "无法启用该快捷键";
+        if (!ok) HotkeyHint.Text = error ?? "无法启用";
     }
 
     // ───────────────────────── Step 3: plain search ─────────────────────────
@@ -339,34 +403,75 @@ public partial class OnboardingWindow : Window
     private void OnPlainSearchChanged(object sender, RoutedEventArgs e) =>
         App.Current.SetFileSearchOnPlainQuery(PlainSearchSwitch.IsChecked == true);
 
-    // ───────────────────────── Step 5: summary ─────────────────────────
+    // ───────────────────────── Step 4: screenshot carousel ─────────────────────────
 
-    private void FillSummary()
+    private static readonly (string Source, string Caption)[] Slides =
+    [
+        ("/Assets/onboarding-panel.png", "面板：常用的都在这，点一下就开"),
+        ("/Assets/onboarding-search.png", "搜索：打字即搜，vscode 也能命中"),
+        ("/Assets/onboarding-files.png", "/s 关键词：全盘找文件"),
+    ];
+
+    private readonly BitmapImage?[] _slideImages = new BitmapImage?[Slides.Length];
+    private int _slide;
+
+    private void OnPrevSlide(object sender, RoutedEventArgs e) => ShowSlide(_slide - 1, -1);
+    private void OnNextSlide(object sender, RoutedEventArgs e) => ShowSlide(_slide + 1, 1);
+
+    /// <summary>
+    /// One screenshot at a time. Direction drives the little slide-in (the incoming image enters
+    /// from the side the user is heading to), so paging reads as a carousel instead of a swap.
+    /// </summary>
+    private void ShowSlide(int index, int direction)
     {
-        var s = App.Current.Settings;
-        SummaryList.Children.Clear();
-        AddSummary("索引盘符", s.FileSearchRoots.Count > 0 ? string.Join("  ", s.FileSearchRoots) : "未设置（/s 不可用）");
-        AddSummary("索引状态", App.Current.Files.IsBuilding ? "建立中…" : $"已收录 {App.Current.Files.Count} 项");
-        AddSummary("全局快捷键", (s.HotkeyEnabled ? "已启用 " : "未启用 ") + s.Hotkey);
-        AddSummary("普通搜索带文件", s.FileSearchOnPlainQuery ? "开启" : "关闭（/s 时才检索文件）");
+        if (Slides.Length == 0) return;
+        index = Math.Clamp(index, 0, Slides.Length - 1);
+        _slide = index;
+
+        SlideImage.Source = _slideImages[index] ??= LoadAsset(Slides[index].Source);
+        SlideCaption.Text = Slides[index].Caption;
+
+        PrevSlideButton.IsEnabled = index > 0;
+        NextSlideButton.IsEnabled = index < Slides.Length - 1;
+        RefreshDots();
+
+        if (direction == 0) return;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        SlideImage.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(170)));
+        SlideShift.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(direction * 26, 0, TimeSpan.FromMilliseconds(200)) { EasingFunction = ease });
     }
 
-    private void AddSummary(string label, string value)
+    private static BitmapImage? LoadAsset(string packPath)
     {
-        var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-        grid.Children.Add(new TextBlock { Text = label, FontSize = 11.5, Foreground = (Brush)FindResource("InkSubBrush") });
-        var valueText = new TextBlock
+        try
         {
-            Text = value,
-            FontSize = 11.5,
-            FontWeight = FontWeights.SemiBold,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = (Brush)FindResource("InkBrush"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxWidth = 360,
-        };
-        grid.Children.Add(valueText);
-        SummaryList.Children.Add(grid);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.UriSource = new Uri($"pack://application:,,,{packPath}", UriKind.Absolute);
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch { return null; }
+    }
+
+    private void RefreshDots()
+    {
+        SlideDots.Children.Clear();
+        for (var i = 0; i < Slides.Length; i++)
+        {
+            SlideDots.Children.Add(new Ellipse
+            {
+                Width = 7,
+                Height = 7,
+                Margin = new Thickness(4, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = (Brush)FindResource(i == _slide ? "AccentBrush" : "InkFaintBrush"),
+            });
+        }
     }
 }
 

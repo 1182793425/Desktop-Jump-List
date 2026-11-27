@@ -322,10 +322,10 @@
                                     <TextBlock Text="每行" Style="{StaticResource GridLabel}" />
                                     <TextBox x:Name="ColumnsBox" Grid.Column="1" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
-                                    <TextBlock Grid.Column="3" Text="最大行数" Style="{StaticResource GridLabel}" />
+                                    <TextBlock Grid.Column="3" Text="行数" Style="{StaticResource GridLabel}" />
                                     <TextBox x:Name="RowsBox" Grid.Column="4" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
-                                    <TextBlock Grid.Column="6" Text="最近使用" Style="{StaticResource GridLabel}" />
+                                    <TextBlock Grid.Column="6" Text="最近项" Style="{StaticResource GridLabel}" />
                                     <TextBox x:Name="RecentBox" Grid.Column="7" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
 
@@ -340,16 +340,10 @@
                                              Margin="0,3,0,3" />
 
                                     <!-- The two gaps side by side, each named for what it actually separates. -->
-                                    <TextBlock Grid.Row="2" Text="图标与文字" Style="{StaticResource GridLabel}" Margin="0,0,6,0" />
+                                    <TextBlock Grid.Row="2" Text="图文间距" Style="{StaticResource GridLabel}" Margin="0,0,6,0" />
                                     <TextBox x:Name="GapBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource SettingsNumber}"
                                              Margin="0,3,0,3" />
-                                    <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="6"
-                                               Style="{StaticResource InlineHint}" VerticalAlignment="Center"
-                                               TextWrapping="Wrap"
-                                               Text="图标与它下面文字的距离；「项间距」是图标之间、行之间的空隙" />
                                 </Grid>
-                                <TextBlock Style="{StaticResource InlineHint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                           Text="面板宽高由每行数量、图标大小、项间距撑开；行数按「最大行数」铺开，超出屏幕才滚动" />
                                 <Grid Style="{StaticResource SettingsRow}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="88" />
@@ -359,7 +353,7 @@
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <CheckBox x:Name="SearchBoxSwitch" Style="{StaticResource Switch}"
                                                   VerticalAlignment="Center" Click="OnSearchBoxVisibleClick" />
-                                        <TextBlock Style="{StaticResource InlineHint}" Text="打开面板时默认显示搜索框" />
+                                        <TextBlock Style="{StaticResource InlineHint}" Text="默认显示" />
                                     </StackPanel>
                                 </Grid>
                                 <Grid Style="{StaticResource SettingsRow}">
@@ -371,7 +365,7 @@
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBox x:Name="SearchWidthBox" Style="{StaticResource SettingsNumber}" />
                                         <TextBlock Text="px" Style="{StaticResource Unit}" />
-                                        <TextBlock Style="{StaticResource InlineHint}" Text="最大为面板宽度 530" />
+                                        <TextBlock Style="{StaticResource InlineHint}" Text="上限 530" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

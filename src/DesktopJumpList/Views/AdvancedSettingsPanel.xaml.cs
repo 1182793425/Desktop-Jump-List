@@ -24,6 +24,11 @@ public partial class AdvancedSettingsPanel : UserControl
         BuildEngineRows();
         WireDebounce();
         WireFileSearch();
+        // The three bounded lists scroll from anywhere inside their own box, not only when the
+        // pointer happens to sit on a row (see WheelScroller.RouteWheelTo).
+        WheelScroller.RouteWheelTo(IndexStatsHost, IndexStatsScroller);
+        WheelScroller.RouteWheelTo(ExcludeHost, ExcludeScroller);
+        WheelScroller.RouteWheelTo(EngineHost, EngineScroller);
         ExcludeFilterBox.TextChanged += (_, _) => ApplyExcludeFilter();
         EngineFilterBox.TextChanged += (_, _) => ApplyEngineFilter();
         Loaded += (_, _) =>

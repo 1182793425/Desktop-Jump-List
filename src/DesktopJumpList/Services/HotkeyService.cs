@@ -99,6 +99,49 @@ public sealed class HotkeyService : IDisposable
         _ => "这个键单独注册会被系统或其他程序占用，请加一个修饰键"
     };
 
+    /// <summary>The stored spelling of a hotkey uses key-enum names ("Ctrl+Oem3"); show it as keys
+    /// read on a keyboard ("Ctrl + `"). Storage stays untouched, this is display only.</summary>
+    public static string FormatForDisplay(string? hotkey) =>
+        string.Join(" + ", ParseParts(hotkey).Select(PrettyKey));
+
+    public static IReadOnlyList<string> ParseParts(string? hotkey) =>
+        string.IsNullOrWhiteSpace(hotkey)
+            ? Array.Empty<string>()
+            : hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>One key, printed the way it looks on a keycap.</summary>
+    public static string PrettyKey(string part) => part.ToLowerInvariant() switch
+    {
+        "ctrl" or "control" or "leftctrl" or "rightctrl" => "Ctrl",
+        "alt" or "leftalt" or "rightalt" => "Alt",
+        "shift" or "leftshift" or "rightshift" => "Shift",
+        "win" or "lwin" or "rwin" => "Win",
+        "oem3" => "`",
+        "oem1" => ";",
+        "oem2" => "/",
+        "oem4" => "[",
+        "oem5" => @"\",
+        "oem6" => "]",
+        "oem7" => "'",
+        "oem8" => "\\",
+        "oemminus" => "-",
+        "oemplus" => "=",
+        "oemcomma" => ",",
+        "oemperiod" => ".",
+        "oemquestion" => "/",
+        "oemtild" or "oemtilde" => "`",
+        "space" => "空格",
+        "escape" => "Esc",
+        "return" => "Enter",
+        "back" => "退格",
+        "capital" => "Caps",
+        "next" => "PgDn",
+        "prior" => "PgUp",
+        "snapshot" => "PrtSc",
+        _ when part.Length == 2 && (part[0] is 'D' or 'd') && char.IsDigit(part[1]) => part[1..],
+        _ => part
+    };
+
     public void Dispose()
     {
         Unregister();

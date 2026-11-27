@@ -140,8 +140,13 @@ public static class IconService
             // the custom icon is retained without Explorer's shortcut arrow.
             else if (File.Exists(path) || Directory.Exists(path))
             {
-                result = FromJumboShellIcon(path) ?? FromShellImage(path)
-                    ?? FromHighResFallback(path) ?? FromShellIcon(path);
+                // A .lnk answers with its own artwork, so the first usable stage wins there; any
+                // other file takes the largest one, because stages disagree wildly — the same
+                // program can come back as 48px from one Shell call and 256px from another.
+                result = path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+                    ? FromJumboShellIcon(path) ?? FromShellImage(path) ?? FromHighResFallback(path)
+                        ?? FromShellIcon(path)
+                    : LargestIcon(path);
             }
 
             // A broken or icon-less shortcut can still use the target's icon as a fallback.
@@ -152,6 +157,24 @@ public static class IconService
         }
         catch { result = null; }
 
+        // Icons can arrive as a big canvas with the actual picture parked in one corner (the
+        // Shell pads small artwork into the next size slot). Stretched into a 48px tile that
+        // reads as "a tiny icon shrunk into the top-left"; trimming makes the ink fill the bitmap.
+        if (!IsShellParsingName(path)) result = TrimTransparentFrame(result);
+
+        // A .lnk can answer with nothing but a small shell icon even though the program it starts
+        // carries a full 256px one — phpstudy_pro.lnk reports 32px while its exe has 256px.
+        // Swap in the better artwork, but keep the link's own icon whenever it is already good
+        // enough (a shortcut may deliberately point at a custom IconLocation).
+        if (InkEdge(result) < LowQualityIconEdge && depth < 2
+            && path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+            && TryResolveShortcutTarget(path, out var source)
+            && IsIconHost(source))
+        {
+            var fromSource = Get(source, depth + 1);
+            if (InkEdge(fromSource) > InkEdge(result)) result = fromSource;
+        }
+
         // Keep successful results only. Shell associations and removable/virtual file providers
         // can briefly fail while their caches wake up; a null must remain retryable on the next
         // visible search instead of poisoning this path for the whole process lifetime.
@@ -159,6 +182,46 @@ public static class IconService
             lock (Gate) { Cache[path] = result; }
         return result;
     }
+
+    /// <summary>Below this edge length a tile would visibly upscale the artwork.</summary>
+    private const int LowQualityIconEdge = 64;
+
+    /// <summary>
+    /// The biggest usable icon this file can offer. Every stage is measured by its trimmed ink, so
+    /// a 256px canvas holding a 32px picture loses to a real 48px icon; the cheap stages run first
+    /// and the expensive resource extraction is skipped once the artwork is already good enough.
+    /// </summary>
+    private static ImageSource? LargestIcon(string path)
+    {
+        ImageSource? best = null;
+        var bestEdge = 0;
+
+        void Consider(ImageSource? candidate)
+        {
+            candidate = TrimTransparentFrame(candidate);
+            var edge = InkEdge(candidate);
+            if (candidate is null || edge <= bestEdge) return;
+            best = candidate;
+            bestEdge = edge;
+        }
+
+        Consider(FromJumboShellIcon(path));
+        if (bestEdge < IconPixels / 2) Consider(FromShellImage(path));
+        if (bestEdge < IconPixels / 2) Consider(FromHighResFallback(path));
+        if (bestEdge == 0) Consider(FromShellIcon(path));
+        return best;
+    }
+
+    /// <summary>Files whose icon is the program's own artwork, worth borrowing for a shortcut.</summary>
+    private static bool IsIconHost(string path) =>
+        File.Exists(path)
+        && (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".ico", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Longest edge of an icon in pixels; 0 when there is no image.</summary>
+    private static int InkEdge(ImageSource? image) =>
+        image is BitmapSource bitmap ? Math.Max(bitmap.PixelWidth, bitmap.PixelHeight) : 0;
 
     /// <summary>Packaged apps: the logo the Start menu shows, keyed by the AppUserModelId.</summary>
     private static ImageSource? FromAppsFolderLogo(string path)
@@ -378,15 +441,124 @@ public static class IconService
         finally { Native.DestroyIcon(icon); }
     }
 
-    /// <summary>Diagnostic: pixel size of each pipeline stage for one path.</summary>
+    /// <summary>Diagnostic: what each pipeline stage returns for one path, size and ink extent.</summary>
     public static string DiagnoseSizes(string path)
     {
-        var highRes = FromHighResFallback(path);
-        var shell = FromShellIcon(path);
-        static string Size(ImageSource? img) =>
-            img is BitmapSource b ? $"{b.PixelWidth}x{b.PixelHeight}" : "null";
-        return $"path={path}\nhighRes={Size(highRes)}\nshellIcon={Size(shell)}\n" +
-               $"iconPixelsSetting={IconPixels} scale={Native.SystemScale:0.##}";
+        var lines = new List<string> { $"path={path}" };
+        if (TryResolveShortcutTarget(path, out var target))
+        {
+            lines.Add($"target={target}");
+            lines.Add($"targetIcon={Describe(Get(target))}");
+        }
+
+        lines.Add($"jumbo   : {Describe(FromJumboShellIcon(path))}");
+        lines.Add($"shellImg: {Describe(FromShellImage(path))}");
+        lines.Add($"highRes : {Describe(FromHighResFallback(path))}");
+        lines.Add($"shellIco: {Describe(FromShellIcon(path))}");
+        lines.Add($"trimmed : {Describe(TrimTransparentFrame(FromShellIcon(path)))}");
+        lines.Add($"chosen  : {Describe(Get(path))}");
+        lines.Add($"iconPixels={IconPixels} scale={Native.SystemScale:0.##}");
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>Diagnostic: writes the icon the app would show for this path to a PNG.</summary>
+    public static bool SaveChosen(string path, string pngPath)
+    {
+        try
+        {
+            if (Get(path) is not BitmapSource bitmap) return false;
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var stream = File.Create(pngPath);
+            encoder.Save(stream);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>"256x256 content=16x16 at (0,0)" — the ink box is what the eye actually sees.</summary>
+    private static string Describe(ImageSource? image)
+    {
+        if (image is not BitmapSource bitmap) return "null";
+
+        int width = bitmap.PixelWidth, height = bitmap.PixelHeight;
+        try
+        {
+            var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+            var stride = width * 4;
+            var buffer = new byte[stride * height];
+            converted.CopyPixels(buffer, stride, 0);
+
+            int minX = width, minY = height, maxX = -1, maxY = -1;
+            for (var y = 0; y < height; y++)
+            {
+                var row = y * stride;
+                for (var x = 0; x < width; x++)
+                {
+                    if (buffer[row + x * 4 + 3] <= 8) continue;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+            return maxX < 0
+                ? $"{width}x{height} (fully transparent)"
+                : $"{width}x{height} content={maxX - minX + 1}x{maxY - minY + 1} at ({minX},{minY})";
+        }
+        catch (Exception ex) { return $"{width}x{height} (probe failed: {ex.GetType().Name})"; }
+    }
+
+    /// <summary>
+    /// Trims the transparent frame around an icon and returns an image whose ink fills the bitmap.
+    /// The Shell hands back a 256px canvas for icons that only exist at 16 or 32px, with the small
+    /// picture parked in one corner — stretched into a 48px tile that reads as "a tiny icon shrunk
+    /// into the corner" instead of a real one.
+    /// </summary>
+    private static ImageSource? TrimTransparentFrame(ImageSource? image)
+    {
+        if (image is not BitmapSource bitmap) return image;
+
+        int width = bitmap.PixelWidth, height = bitmap.PixelHeight;
+        try
+        {
+            var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+            var stride = width * 4;
+            var buffer = new byte[stride * height];
+            converted.CopyPixels(buffer, stride, 0);
+
+            const int inkThreshold = 8;
+            int minX = width, minY = height, maxX = -1, maxY = -1;
+            for (var y = 0; y < height; y++)
+            {
+                var row = y * stride;
+                for (var x = 0; x < width; x++)
+                {
+                    if (buffer[row + x * 4 + 3] <= inkThreshold) continue;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+            if (maxX < 0) return image;                     // nothing visible: keep as-is
+            var inkWidth = maxX - minX + 1;
+            var inkHeight = maxY - minY + 1;
+
+            // Only the Shell's "small bitmap parked in the corner of a big canvas" case gets
+            // trimmed. Artwork that simply carries generous margins (VLC's cone, a vendor logo)
+            // is deliberate — trimming it would make that tile bigger than its neighbours.
+            var cornered = minX <= width * 0.06 && minY <= height * 0.06;
+            var muchSmaller = inkWidth <= width * 0.72 || inkHeight <= height * 0.72;
+            if (!cornered || !muchSmaller) return image;
+
+            var crop = new CroppedBitmap(bitmap, new System.Windows.Int32Rect(minX, minY, inkWidth, inkHeight));
+            crop.Freeze();
+            return crop;
+        }
+        catch { return image; }
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]

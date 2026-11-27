@@ -177,7 +177,7 @@ public partial class SettingsWindow : Window
         ColorRose.IsChecked = string.Equals(s.DockColor, "#F43F5E", StringComparison.OrdinalIgnoreCase);
         _settingsRefreshing = false;
 
-        HotkeyText.Text = s.Hotkey;
+        HotkeyText.Text = HotkeyService.FormatForDisplay(s.Hotkey);
         HotkeySwitch.IsChecked = s.HotkeyEnabled;
         AutostartSwitch.IsChecked = StartupService.IsEnabled;
         if (!_capturingHotkey)
@@ -381,8 +381,8 @@ public partial class SettingsWindow : Window
             _capturingHotkey = false;
             RefreshSettings();
             HotkeyHint.Text = App.Current.Settings.HotkeyEnabled
-                ? $"已更新为 {text}"
-                : $"已设置为 {text}；打开开关后生效";
+                ? $"已更新为 {HotkeyService.FormatForDisplay(text)}"
+                : $"已设置为 {HotkeyService.FormatForDisplay(text)}；打开开关后生效";
         }
         else
         {
@@ -395,7 +395,7 @@ public partial class SettingsWindow : Window
         if (!_capturingHotkey) return;
         _capturingHotkey = false;
         HotkeyHint.Text = DefaultHotkeyHint(App.Current.Settings.HotkeyEnabled);
-        HotkeyText.Text = App.Current.Settings.Hotkey;
+        HotkeyText.Text = HotkeyService.FormatForDisplay(App.Current.Settings.Hotkey);
     }
 
     /// <summary>The hint sits on the same line as the switch, so it has to stay short.</summary>

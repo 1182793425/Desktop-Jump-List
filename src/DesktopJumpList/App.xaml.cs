@@ -45,6 +45,13 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--settings-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview");
+            _ = RunSettingsScrollSelfTestAsync(dir);
+            return;
+        }
+
         if (e.Args.Length > 0 && e.Args[0].Equals("--drag-selftest", StringComparison.OrdinalIgnoreCase))
         {
             var dir = e.Args.Length > 1 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "JumpPreview");
@@ -65,6 +72,22 @@ public partial class App : Application
                 var hits = apps.Search(query, 5);
                 Console.WriteLine($"search \"{query}\": {string.Join(" | ", hits.Select(h => h.Name))}");
             }
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length > 1 && e.Args[0].Equals("--icon-probe", StringComparison.OrdinalIgnoreCase))
+        {
+            // Diagnostic: every icon pipeline stage for one path, with size and ink extent.
+            Console.WriteLine(IconService.DiagnoseSizes(e.Args[1]));
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length > 2 && e.Args[0].Equals("--icon-save", StringComparison.OrdinalIgnoreCase))
+        {
+            var saved = IconService.SaveChosen(e.Args[1], e.Args[2]);
+            Console.WriteLine(saved ? $"saved {e.Args[2]}" : "no icon");
             Shutdown();
             return;
         }
@@ -916,6 +939,120 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Hidden `--settings-selftest &lt;dir&gt;` mode: reports whether the inner lists of the
+    /// settings pages can actually scroll, both as a routed event and as a real
+    /// WM_MOUSEWHEEL. Diagnoses "the list does not scroll with the wheel".
+    /// </summary>
+    private async Task RunSettingsScrollSelfTestAsync(string directory)
+    {
+        var report = new List<string>();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var previewData = Path.Combine(directory, "_preview-data");
+            Directory.CreateDirectory(previewData);
+            Storage = new Storage(previewData);
+            Settings = Storage.LoadSettings();
+            EnsureSearchJumpRules();
+            ThemeService.Initialize(AppTheme.Light);
+            Files = new FileIndex(previewData);
+
+            var window = new SettingsWindow();
+            window.Show();
+            window.Activate();
+            // Mouse input is only reported for the active window; without this the wheel test
+            // below proves nothing.
+            Infrastructure.Native.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(window).Handle);
+            await Task.Delay(600);
+
+            foreach (var (module, host, scroller) in new[]
+                     {
+                         ("files", "IndexStatsHost", "IndexStatsScroller"),
+                         ("excludes", "ExcludeHost", "ExcludeScroller"),
+                         ("engines", "EngineHost", "EngineScroller"),
+                     })
+            {
+                window.NavigateTo(module);
+                await Task.Delay(350);
+                window.UpdateLayout();
+
+                var scroll = FindScrollViewer(window, scroller);
+                var box = FindElement(window, host);
+                if (scroll is null || box is null)
+                {
+                    report.Add($"{module}/{scroller}: NOT FOUND (scroll={scroll is not null} host={box is not null})");
+                    continue;
+                }
+
+                var before = scroll.VerticalOffset;
+                report.Add($"{module}/{scroller}: h={scroll.ActualHeight:0} extent={scroll.ExtentHeight:0} " +
+                           $"viewport={scroll.ViewportHeight:0} scrollable={scroll.ScrollableHeight:0}");
+
+                // Wheel over the card chrome (title, status line, padding) must scroll the list.
+                if (scroll.ScrollableHeight > 0.5)
+                {
+                    RaiseWheel(box, -120);
+                    await Task.Delay(120);
+                    window.UpdateLayout();
+                    report.Add($"   wheel on card chrome: {before:0} -> {scroll.VerticalOffset:0}");
+                }
+
+                // Routed event straight at the scroll viewer (does its own logic work?).
+                var beforeRouted = scroll.VerticalOffset;
+                RaiseWheel(scroll, -120);
+                window.UpdateLayout();
+                report.Add($"   routed wheel: {beforeRouted:0} -> {scroll.VerticalOffset:0}");
+            }
+
+            window.Close();
+        }
+        catch (Exception ex)
+        {
+            report.Add("error: " + ex);
+        }
+
+        foreach (var line in report) Console.WriteLine(line);
+        try { File.WriteAllLines(Path.Combine(directory, "settings-scroll-selftest.txt"), report); } catch { }
+        Shutdown();
+    }
+
+    /// <summary>Raises a wheel notch the way the input system does: Preview tunnel, then bubble.</summary>
+    private static void RaiseWheel(UIElement target, int delta)
+    {
+        var args = new System.Windows.Input.MouseWheelEventArgs(
+            System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, delta);
+        args.RoutedEvent = UIElement.PreviewMouseWheelEvent;
+        target.RaiseEvent(args);
+        if (args.Handled) return;
+        args.RoutedEvent = UIElement.MouseWheelEvent;
+        target.RaiseEvent(args);
+    }
+
+    private static System.Windows.Controls.ScrollViewer? FindScrollViewer(DependencyObject root, string name)
+    {
+        if (root is System.Windows.Controls.ScrollViewer { } sv && sv.Name == name) return sv;
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindScrollViewer(System.Windows.Media.VisualTreeHelper.GetChild(root, i), name);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static FrameworkElement? FindElement(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement fe && fe.Name == name) return fe;
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindElement(System.Windows.Media.VisualTreeHelper.GetChild(root, i), name);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Hidden `--drag-selftest &lt;dir&gt;` mode: asserts where the borderless windows answer
     /// HTCAPTION (drag) versus HTCLIENT (the control keeps its click). Regression guard for the
     /// screen-vs-client coordinate mistake that made every button of the first-run wizard
@@ -1018,11 +1155,21 @@ public partial class App : Application
                 RenderElement(window, Path.Combine(directory, names[step] + ".png"), 1.5);
             }
 
-            // Final step continues below the fold: capture the summary card too.
+            // Final step: the carousel on its last slide, so the end state (next arrow
+            // disabled, last dot active) is on record too.
             window.ShowPreviewStep(4);
-            window.ScrollPreviewToEnd();
+            window.ShowPreviewSlide(2);
             await Task.Delay(320);
             RenderElement(window, Path.Combine(directory, "onboarding-6-done.png"), 1.5);
+
+            // The same page in the light palette: the panel artwork is a dark screenshot, so it
+            // has to stay readable when the wizard itself is light.
+            ThemeService.SetMode(AppTheme.Light);
+            await Task.Delay(260);
+            window.ShowPreviewStep(4);
+            window.ShowPreviewSlide(0);
+            await Task.Delay(220);
+            RenderElement(window, Path.Combine(directory, "onboarding-7-light.png"), 1.5);
 
             window.Close();
             Shutdown();
@@ -1082,6 +1229,7 @@ public partial class App : Application
             {
                 SeedPreviewItems();
             }
+            SeedDemoTilesFromDisk();
             _ = IconService.LoadAsync(Library.Items);
             Apps.Start(); // preview too: the search screenshots should include app rows
 
@@ -1247,12 +1395,23 @@ public partial class App : Application
                 CaptureLauncher(Path.Combine(directory, $"slash-files-{mode.ToString().ToLowerInvariant()}.png"), 1.5);
                 Launcher.Query.Text = string.Empty;
 
+                // Panel artwork for the first-run wizard (transparent, so it works on both themes).
+                if (mode == AppTheme.Dark) await CaptureOnboardingAssets(directory);
+
                 var settingsWindow = new SettingsWindow();
                 settingsWindow.NavigateTo("appearance");
                 settingsWindow.Show();
                 await Task.Delay(500);
                 RenderElement(settingsWindow, Path.Combine(directory, $"settings-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
                 DumpSettingsLayout(directory, settingsWindow);
+
+                // Layout and hotkey pages: the two surfaces the copy trims touched most.
+                settingsWindow.NavigateTo("layout");
+                await Task.Delay(400);
+                RenderElement(settingsWindow, Path.Combine(directory, $"settings-layout-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
+                settingsWindow.NavigateTo("startup");
+                await Task.Delay(400);
+                RenderElement(settingsWindow, Path.Combine(directory, $"settings-startup-{mode.ToString().ToLowerInvariant()}.png"), 1.4);
 
                 // Stress the download chart's axis logic with synthetic multi-release data.
                 settingsWindow.NavigateTo("about");
@@ -1359,6 +1518,44 @@ public partial class App : Application
             IsShuttingDown = true;
             Shutdown();
         }
+    }
+
+    /// <summary>
+    /// Tops the preview panel up with the programs and folders that actually exist on this
+    /// machine, so the screenshots (and the onboarding artwork) show real icons instead of a
+    /// panel with one lonely tile. Preview data only — the real shortcut list is never touched.
+    /// </summary>
+    private void SeedDemoTilesFromDisk()
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var candidates = new (string Name, ShortcutKind Kind, string Target)[]
+        {
+            ("微信", ShortcutKind.App, @"D:\Tencent\Weixin\Weixin.exe"),
+            ("Visual Studio Code", ShortcutKind.App,
+                Path.Combine(profile, @"AppData\Local\Programs\Microsoft VS Code\Code.exe")),
+            ("Chrome", ShortcutKind.App, @"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            ("网易云音乐", ShortcutKind.App, @"D:\CloudMusic\cloudmusic.exe"),
+            ("Bandizip", ShortcutKind.App, @"C:\Program Files\Bandizip\Bandizip.exe"),
+            ("下载", ShortcutKind.Folder, Path.Combine(profile, "Downloads")),
+            ("桌面", ShortcutKind.Folder, Path.Combine(profile, "Desktop")),
+            ("文档", ShortcutKind.Folder, Path.Combine(profile, "Documents")),
+        };
+
+        var added = 0;
+        foreach (var (name, kind, target) in candidates)
+        {
+            // Four tiles in total (plus the 添加 slot) fill exactly one row: the panel keeps its
+            // single-row shape — no half-empty second row — and the onboarding artwork stays wide.
+            if (Library.Items.Count >= 4 || added >= 3) break;
+            var exists = kind == ShortcutKind.Folder ? Directory.Exists(target) : File.Exists(target);
+            if (!exists) continue;
+            if (Library.Items.Any(i => string.Equals(i.Target, target, StringComparison.OrdinalIgnoreCase))) continue;
+            // Every slot counts: one tile per program keeps the panel readable at a glance.
+            Library.Items.Add(new ShortcutItem { Name = name, Kind = kind, Target = target });
+            added++;
+        }
+
+        if (added > 0) Storage.SaveShortcuts(Library.Items);
     }
 
     private void SeedPreviewItems()
@@ -1508,6 +1705,84 @@ public partial class App : Application
             chain.Add(type);
         }
         return string.Join(" < ", chain);
+    }
+
+    /// <summary>
+    /// Panel artwork for the onboarding page: the search pill plus the tile panel, rendered with a
+    /// transparent background so the wizard shows the real product instead of paragraphs of text.
+    /// </summary>
+    /// <summary>Height (DIPs) all carousel screenshots are padded to.</summary>
+    private const double AssetHeight = 252;
+
+    private async Task CaptureOnboardingAssets(string directory)
+    {
+        try
+        {
+            if (!Launcher.IsOpen) Launcher.Open();
+            Settings.FileSearchOnPlainQuery = false;
+
+            // The panel and pill carry drop shadows tuned for a desktop background. On the
+            // wizard's light card that shadow composites into a grey sheet around the artwork,
+            // so it is dropped for the capture and put back afterwards.
+            var pillShadow = Launcher.Pill.Effect;
+            var panelShadow = Launcher.Panel.Effect;
+            Launcher.Pill.Effect = null;
+            Launcher.Panel.Effect = null;
+
+            Launcher.Query.Text = string.Empty;
+            await Task.Delay(700);
+            RenderTransparent(Launcher.Stack, Path.Combine(directory, "asset-panel.png"), 2, AssetHeight);
+
+            Launcher.Query.Text = "vscode";
+            await Task.Delay(800);
+            RenderTransparent(Launcher.Stack, Path.Combine(directory, "asset-search.png"), 2, AssetHeight);
+
+            Launcher.Query.Text = "/s 季度";
+            await Task.Delay(900);
+            RenderTransparent(Launcher.Stack, Path.Combine(directory, "asset-files.png"), 2, AssetHeight);
+
+            Launcher.Query.Text = string.Empty;
+            Launcher.Pill.Effect = pillShadow;
+            Launcher.Panel.Effect = panelShadow;
+        }
+        catch (Exception ex) { Log(ex); }
+    }
+
+    /// <summary>
+    /// Like <see cref="RenderElement"/> but keeps the element's own transparency. <paramref name="padToHeight"/>
+    /// centres the element on a taller transparent canvas: all three carousel screenshots then
+    /// share one aspect ratio, so the wizard can show them in a fixed-size frame without the
+    /// picture jumping or floating in dead space.
+    /// </summary>
+    private static void RenderTransparent(FrameworkElement element, string path, double scale,
+        double padToHeight = 0)
+    {
+        element.UpdateLayout();
+        element.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+
+        var width = Math.Max(1, element.ActualWidth);
+        var height = Math.Max(1, element.ActualHeight);
+        var pixelWidth = Math.Max(1, (int)Math.Round(width * scale));
+        var pixelHeight = Math.Max(1, (int)Math.Round(height * scale));
+
+        var content = new RenderTargetBitmap(pixelWidth, pixelHeight, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        content.Render(element);
+
+        var canvasHeight = Math.Max(pixelHeight, (int)Math.Round(Math.Max(padToHeight, height) * scale));
+        var canvas = new RenderTargetBitmap(pixelWidth, canvasHeight, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            // Coordinates here are DIPs (the bitmap is at 96*scale dpi), not pixels.
+            var canvasDipHeight = canvasHeight / scale;
+            dc.DrawImage(content, new Rect(0, (canvasDipHeight - height) / 2.0, width, height));
+        }
+        canvas.Render(visual);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(canvas));
+        using var stream = File.Create(path);
+        encoder.Save(stream);
     }
 
     private static void RenderElement(FrameworkElement element, string path, double scale)

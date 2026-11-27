@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+    <!-- Onboarding artwork: real panel screenshots rendered by the preview hook. -->
+    <Resource Include="Assets\onboarding-*.png" />
   </ItemGroup>
 
   <!-- UseWindowsForms adds System.Drawing / System.Windows.Forms to implicit usings, which

@@ -63,8 +63,9 @@
         <Style x:Key="StepTitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="21" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
+        <!-- One short line under a title. Anything longer belongs in the UI itself, not in prose. -->
         <Style x:Key="StepBody" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12.5" />
             <Setter Property="Foreground" Value="{DynamicResource InkSubBrush}" />
@@ -87,14 +88,18 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <Border x:Name="Row" Background="Transparent" CornerRadius="10" Padding="12,9">
+                        <Border x:Name="Row" Background="Transparent" CornerRadius="10" Padding="12,9"
+                                BorderThickness="1" BorderBrush="Transparent">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,12,0"
+                                <!-- Checked state: accent box + white tick. A white tick on the neutral
+                                     grey box was invisible in the light theme, which read as "nothing
+                                     is selected" even though the drive was. -->
+                                <Border x:Name="Box" Width="20" Height="20" CornerRadius="6" Margin="0,0,12,0"
                                         Background="{DynamicResource SegmentBrush}"
                                         BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
                                     <Path x:Name="Check" Width="10" Height="8" Stretch="Uniform"
@@ -113,10 +118,63 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="Row" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Row" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Keycap: two keys and a plus stand in for the whole hotkey sentence. -->
+        <Style x:Key="KeyCap" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SegmentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1,1,1,3" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="26,14" />
+            <Setter Property="MinWidth" Value="86" />
+        </Style>
+        <Style x:Key="KeyCapText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="KeyCapPlus" TargetType="TextBlock">
+            <Setter Property="Text" Value="+" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="Foreground" Value="{DynamicResource InkFaintBrush}" />
+            <Setter Property="Margin" Value="16,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- Round arrow for the screenshot carousel. -->
+        <Style x:Key="CarouselArrow" TargetType="Button">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource InkSubBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{DynamicResource SegmentBrush}" CornerRadius="17"
+                                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.32" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -138,7 +196,7 @@
             <Grid Grid.Row="0" Margin="30,24,30,10">
                 <StackPanel>
                     <TextBlock x:Name="HeaderTitle" Text="欢迎使用 Jump" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock x:Name="HeaderSub" Text="三分钟完成设置，之后一切只需一键" Margin="1,4,0,0"
+                    <TextBlock x:Name="HeaderSub" Text="碰一下滑出，点一下打开" Margin="1,4,0,0"
                                FontSize="12" Foreground="{DynamicResource InkFaintBrush}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,6,0,2">
@@ -154,43 +212,43 @@
                 <Grid>
                     <!-- 第 0 页：欢迎 -->
                     <StackPanel x:Name="PageWelcome" Visibility="Visible">
-                        <TextBlock Style="{StaticResource StepTitle}" Text="一个悬浮球，收起所有常用入口" />
+                        <TextBlock Style="{StaticResource StepTitle}" Text="一个球，装下所有常用入口" />
                         <TextBlock Style="{StaticResource StepBody}"
-                                   Text="Jump 吸在你的屏幕边缘：平时是一个不起眼的小圆点，鼠标碰一下或按快捷键就滑出磁贴面板——常用的文件、文件夹、软件全在里面，点一下就开。" />
+                                   Text="平时是屏幕边缘的一条细线，鼠标碰到就滑出面板。" />
                         <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
                             <StackPanel>
-                                <TextBlock Text="它能做什么" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
-                                <TextBlock Style="{StaticResource StepBody}" LineHeight="22" Text="●  磁贴秒开常用项，支持最近使用排序&#x0a;●  搜索认拼音：敲几个首字母就能命中&#x0a;●  本地文件索引：像 Everything 一样全盘找文件&#x0a;●  拖文件到悬浮球即可收藏进面板" />
+                                <TextBlock Style="{StaticResource StepBody}" LineHeight="24"
+                                           Text="●  文件、文件夹、软件，点一下就开&#x0a;●  输入 wx 就能找到微信&#x0a;●  文件拖到球上就是收藏" />
                             </StackPanel>
                         </Border>
-                        <TextBlock Style="{StaticResource StepBody}" Margin="0,4,0,0"
-                                   Text="接下来几步会帮你把索引、快捷键和搜索方式一次配好。" />
+                        <TextBlock Style="{StaticResource StepBody}" Margin="0,2,0,0" Text="4 步配好。" />
                     </StackPanel>
 
                     <!-- 第 1 页：选择索引盘符 -->
                     <StackPanel x:Name="PageIndex" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepBody}"
-                                   Text="索引让「/s 关键词」能像 Everything 一样全盘秒搜文件。已默认选中所有磁盘，点击下方按钮开始建立；不想收录的目录，之后可在「设置 → 本地文件索引」的黑名单里排除。" />
-                        <Border Style="{StaticResource StepCard}" Margin="0,14,0,0" Padding="10,8">
+                        <Border Style="{StaticResource StepCard}" Margin="0,2,0,0" Padding="10,8">
                             <StackPanel x:Name="DriveList" />
                         </Border>
-                        <Grid Margin="0,10,0,0">
+                        <Grid Margin="0,6,0,0">
                             <Button x:Name="BuildButton" Style="{StaticResource PrimaryButton}"
                                     HorizontalAlignment="Left" Content="开始建立索引"
                                     Click="OnBuildIndexClick" />
                             <TextBlock x:Name="IndexProgress" VerticalAlignment="Center" HorizontalAlignment="Right"
                                        FontSize="11.5" Foreground="{DynamicResource InkFaintBrush}" />
                         </Grid>
-                        <TextBlock Style="{StaticResource StepBody}" Margin="0,8,0,0" FontSize="11"
-                                   Text="索引在后台完成，建立期间即可进入下一步；之后随时可在设置里增删盘符或重建。" />
                     </StackPanel>
 
                     <!-- 第 2 页：快捷键 -->
-                    <StackPanel x:Name="PageHotkey" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepBody}"
-                                   Text="快捷键在任何窗口下都能呼出/收起面板——窗口开得再多也不用手忙脚乱。推荐默认的 Ctrl + `（数字 1 左边那个键）。" />
-                        <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
+                    <!-- MinHeight = the scroll viewport, so the empty row below the card really is
+                         the remaining space and the keycaps can sit in the middle of it. -->
+                    <Grid x:Name="PageHotkey" Visibility="Collapsed"
+                          MinHeight="{Binding ActualHeight, ElementName=PageScroller}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Border Style="{StaticResource StepCard}" Margin="0,2,0,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -204,74 +262,69 @@
                                             Focusable="True" KeyboardNavigation.TabNavigation="None">
                                         <TextBlock x:Name="HotkeyText" FontSize="12.5" FontWeight="SemiBold" />
                                     </Border>
-                                    <CheckBox x:Name="HotkeySwitch" Content="启用" Margin="14,0,0,0" VerticalAlignment="Center"
-                                              Foreground="{DynamicResource InkSubBrush}" Checked="OnHotkeySwitchChanged"
-                                              Unchecked="OnHotkeySwitchChanged" />
+                                    <TextBlock Text="启用" Margin="14,0,6,0" VerticalAlignment="Center"
+                                               FontSize="11.5" Foreground="{DynamicResource InkSubBrush}" />
+                                    <CheckBox x:Name="HotkeySwitch" Style="{StaticResource Switch}"
+                                              VerticalAlignment="Center"
+                                              Checked="OnHotkeySwitchChanged" Unchecked="OnHotkeySwitchChanged" />
                                 </StackPanel>
                             </Grid>
                         </Border>
-                        <TextBlock x:Name="HotkeyHint" Style="{StaticResource StepBody}" Margin="0,8,0,0" FontSize="11"
-                                   Text="点击组合键框后按下新组合键；Esc 取消，至少需要一个修饰键。" />
-                    </StackPanel>
+                        <!-- 键帽图形：一眼看出是 Ctrl + ` 两个键，居中放在卡片下方的空白里 -->
+                        <StackPanel x:Name="KeycapRow" Grid.Row="1" Orientation="Horizontal"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <TextBlock x:Name="HotkeyHint" Grid.Row="2" Style="{StaticResource StepBody}"
+                                   Margin="0,0,0,2" FontSize="11"
+                                   TextAlignment="Center" Text="数字 1 左边那个键 · 点键框可更换" />
+                    </Grid>
 
                     <!-- 第 3 页：直接搜索 -->
                     <StackPanel x:Name="PagePlainSearch" Visibility="Collapsed">
-                        <TextBlock Style="{StaticResource StepBody}"
-                                   Text="「直接搜索」打开后，你在搜索栏输入任何词，结果里除了磁贴还会自动列出本地文件——不用再敲 /s 前缀。关闭则只在 /s 关键词 时检索文件，普通搜索更干净。" />
-                        <Border Style="{StaticResource StepCard}" Margin="0,14,0,0">
+                        <Border Style="{StaticResource StepCard}" Margin="0,2,0,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="普通搜索同时检索本地文件" FontSize="12.5" FontWeight="SemiBold" />
-                                    <TextBlock Text="输入即搜磁贴 + 文件，最快上手，推荐开启" FontSize="11"
+                                    <TextBlock Text="搜索时同时找本地文件" FontSize="12.5" FontWeight="SemiBold" />
+                                    <TextBlock Text="推荐开启" FontSize="11"
                                                Foreground="{DynamicResource InkFaintBrush}" Margin="0,2,0,0" />
                                 </StackPanel>
                                 <CheckBox x:Name="PlainSearchSwitch" Grid.Column="1" VerticalAlignment="Center"
-                                          IsChecked="True" Checked="OnPlainSearchChanged" Unchecked="OnPlainSearchChanged" />
+                                          Style="{StaticResource Switch}" IsChecked="True"
+                                          Checked="OnPlainSearchChanged" Unchecked="OnPlainSearchChanged" />
                             </Grid>
                         </Border>
-                        <TextBlock Style="{StaticResource StepBody}" Margin="0,8,0,0" FontSize="11"
-                                   Text="两种方式随时可在「设置 → 本地文件索引」里切换。" />
+                        <TextBlock Style="{StaticResource StepBody}" Margin="2,2,0,0" FontSize="11"
+                                   Text="关掉后只有 /s 关键词 才找文件。" />
                     </StackPanel>
 
-                    <!-- 第 4 页：教学 + 完成摘要 -->
+                    <!-- 第 4 页：一次一张图，左右翻看 -->
                     <StackPanel x:Name="PageTeach" Visibility="Collapsed">
-                        <Border Style="{StaticResource StepCard}">
+                        <Border Style="{StaticResource StepCard}" Margin="0,2,0,0" Padding="18,16">
                             <StackPanel>
-                                <TextBlock Text="搜索与打开" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
-                                <TextBlock Style="{StaticResource StepBody}" LineHeight="22"
-                                           Text="●  呼出面板后直接打字：中文、英文、拼音首字母都认，如输入「bj」找「壁纸」&#x0a;●  ↑/↓ 选择，Enter 打开；Esc 清空搜索，再按一次收起面板&#x0a;●  /s 关键词  = 全盘文件检索（如 /s 报告.xlsx）&#x0a;●  网页搜索：紧跟磁贴的「跳转」→ 选百度/谷歌/必应（在应用与本地文件之前）" />
+                                <!-- All three screenshots share one aspect ratio (padded when they
+                                     were rendered), so this frame never jumps between slides. -->
+                                <Image x:Name="SlideImage" Stretch="Uniform" HorizontalAlignment="Stretch"
+                                       RenderTransformOrigin="0.5,0.5">
+                                    <Image.RenderTransform>
+                                        <TranslateTransform x:Name="SlideShift" />
+                                    </Image.RenderTransform>
+                                </Image>
+                                <TextBlock x:Name="SlideCaption" FontSize="11.5" Margin="0,8,0,0"
+                                           HorizontalAlignment="Center" TextAlignment="Center"
+                                           Foreground="{DynamicResource InkSubBrush}" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
+                                    <Button x:Name="PrevSlideButton" Style="{StaticResource CarouselArrow}"
+                                            Content="◀" Click="OnPrevSlide" ToolTip="上一张" />
+                                    <StackPanel x:Name="SlideDots" Orientation="Horizontal"
+                                                Margin="14,0" VerticalAlignment="Center" />
+                                    <Button x:Name="NextSlideButton" Style="{StaticResource CarouselArrow}"
+                                            Content="▶" Click="OnNextSlide" ToolTip="下一张" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource StepCard}">
-                            <StackPanel>
-                                <TextBlock Text="重建索引（文件搜不到新东西时）" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
-                                <TextBlock Style="{StaticResource StepBody}" LineHeight="22"
-                                           Text="●  搜索框右侧的 ⟳ 按钮，一键重建&#x0a;●  或在面板里按 Ctrl + Enter&#x0a;●  或「设置 → 本地文件索引」里的重建按钮&#x0a;●  日常新增/改名/删除文件是增量自动同步的，无需手动" />
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource StepCard}">
-                            <StackPanel>
-                                <TextBlock Text="其他入口" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
-                                <TextBlock Style="{StaticResource StepBody}" LineHeight="22"
-                                           Text="●  拖文件到悬浮球 = 收藏进面板&#x0a;●  右键托盘图标 = 设置 / 重置 / 退出&#x0a;●  右键磁贴 = 打开 / 重命名 / 移动到分组" />
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource StepCard}" Margin="0,0,0,0">
-                            <StackPanel>
-                                <TextBlock Text="当前配置" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource InkSubBrush}" Margin="0,0,0,8" />
-                                <StackPanel x:Name="SummaryList" />
-                            </StackPanel>
-                        </Border>
-                        <TextBlock Style="{StaticResource StepBody}" Margin="0,4,0,0"
-                                   Text="全部就绪。点击「完成」关闭本窗口即可开始使用，之后随时可在设置里调整。" />
                     </StackPanel>
                 </Grid>
             </ScrollViewer>
@@ -280,12 +333,8 @@
             <Grid Grid.Row="2" Margin="30,10,30,22">
                 <Button x:Name="BackButton" Style="{StaticResource GhostButton}" Content="← 上一步"
                         HorizontalAlignment="Left" Click="OnBackClick" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="SkipButton" Style="{StaticResource GhostButton}" Content="跳过向导"
-                            Margin="0,0,10,0" Click="OnSkipClick" />
-                    <Button x:Name="NextButton" Style="{StaticResource PrimaryButton}" Content="下一步 →"
-                            Click="OnNextClick" />
-                </StackPanel>
+                <Button x:Name="NextButton" Style="{StaticResource PrimaryButton}" Content="下一步 →"
+                        HorizontalAlignment="Right" Click="OnNextClick" />
             </Grid>
         </Grid>
     </Border>
