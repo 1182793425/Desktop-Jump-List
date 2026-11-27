@@ -313,11 +313,11 @@ public sealed class FileIndex
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
         var needle = query.Trim().ToLowerInvariant();
-        var compact = needle.Replace(" ", string.Empty);
-        // Space-separated words are separate requirements, not one long string: "/s file 2026 11
-        // .csv" has to match a path like ...\Cache\File\2026-11\明细.csv, where no single
-        // substring contains all of it.
-        var tokens = needle.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        // Words are separate requirements, not one long string: "/s file 2026 11 .csv" has to match
+        // a path like ...\Cache\File\2026-11\明细.csv, where no single substring contains all of it.
+        // Path separators split too, so a pasted "Downloads\Hermes-Setup.exe" is read as the two
+        // things it is — a folder and a file name — instead of one needle nothing can match.
+        var tokens = needle.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries);
         var hits = new List<(FileEntry entry, int rank, int folderHits)>();
 
         List<FileEntry> snapshot;
@@ -325,9 +325,10 @@ public sealed class FileIndex
 
         foreach (var entry in snapshot)
         {
-            if (tokens.Length <= 1)
+            if (tokens.Length == 0) continue;
+            if (tokens.Length == 1)
             {
-                var single = Rank(entry, needle, compact);
+                var single = Rank(entry, tokens[0], tokens[0]);
                 if (single == int.MaxValue) continue;
                 hits.Add((entry, single, 0));
                 continue;
@@ -397,6 +398,9 @@ public sealed class FileIndex
 
     /// <summary>Rank of "only the folder path matched" — also marks a token as a folder hit.</summary>
     private const int FolderRank = 8;
+
+    /// <summary>Whitespace and both path separators; each piece becomes its own requirement.</summary>
+    private static readonly char[] TokenSeparators = { ' ', '\\', '/' };
 
     private static bool IsAsciiWord(string text)
     {
