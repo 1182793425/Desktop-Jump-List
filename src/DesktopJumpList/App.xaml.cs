@@ -1019,9 +1019,17 @@ public partial class App : Application
                 Infrastructure.Native.SetCursorPos((int)centre.X, (int)centre.Y);
                 window.Activate();
                 await Task.Delay(200);
+                // Back to the top first: the routed probes above may have already hit the end,
+                // which would make the real-wheel result meaningless.
+                scroll.ScrollToTop();
+                await Task.Delay(150);
                 var beforeReal = scroll.VerticalOffset;
                 report.Add($"   active={window.IsActive} foregroundIsWindow=" +
                            $"{Infrastructure.Native.GetForegroundWindow() == hwnd}");
+                // Would this point answer HTCAPTION? If it does, Windows treats it as the window's
+                // caption and the wheel never becomes a WPF mouse-wheel event — the real reason
+                // these lists "cannot scroll" while every Control on the page scrolls fine.
+                report.Add($"   captionAtListCentre={window.WouldDragAt(centre)}");
                 Infrastructure.Native.mouse_event(Infrastructure.Native.MOUSEEVENTF_WHEEL, 0, 0, -120, IntPtr.Zero);
                 await Task.Delay(250);
                 window.UpdateLayout();

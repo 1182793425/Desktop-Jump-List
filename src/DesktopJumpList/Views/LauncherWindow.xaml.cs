@@ -1593,17 +1593,27 @@ public partial class LauncherWindow : Window
 
             case Key.V when ctrl:
             {
-                // Empty search box → Ctrl+V adds from clipboard. Otherwise, only an
-                // Explorer file copy (unambiguous) is intercepted; plain text pastes normally.
-                bool tryAdd = Query.Text.Length == 0;
-                if (!tryAdd)
+                // Text always pastes into the search box: that is what Ctrl+V means everywhere
+                // else, and a copied path is more often something to search for than a tile to
+                // add. Only a file copy (Explorer's CF_HDROP) keeps the add-to-panel behaviour;
+                // adding a copied path text is still on the tile context menu.
+                bool hasFiles, hasText;
+                try
                 {
-                    try { tryAdd = Clipboard.ContainsFileDropList(); } catch { tryAdd = false; }
+                    hasFiles = Clipboard.ContainsFileDropList();
+                    hasText = Clipboard.ContainsText();
                 }
-                if (tryAdd)
+                catch { hasFiles = false; hasText = false; }
+
+                if (hasFiles)
                 {
                     if (TryPasteAdd(out var msg)) e.Handled = true;
                     else if (Query.Text.Length == 0 && msg is not null) { ShowMessage(msg); e.Handled = true; }
+                }
+                else if (!hasText && Query.Text.Length == 0)
+                {
+                    ShowMessage("剪贴板里没有可添加的路径或网址");
+                    e.Handled = true;
                 }
                 break;
             }

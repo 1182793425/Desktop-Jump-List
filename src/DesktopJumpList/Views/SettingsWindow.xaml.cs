@@ -51,6 +51,11 @@ public partial class SettingsWindow : Window
     {
         while (node is not null)
         {
+            // Scrollable zones (the bounded lists) must answer HTCLIENT, not HTCAPTION: Windows
+            // treats a caption-area point as title bar and swallows the mouse wheel entirely, so
+            // no WPF handler ever sees it — the reason those lists "could not scroll" while every
+            // Control around them scrolled fine.
+            if (node is FrameworkElement { Tag: "ScrollZone" }) return true;
             // Window derives from Control, so without this stop the walk always ends up
             // "interactive" and no point of the window is ever draggable. Reaching the window
             // means the cursor sits on plain background/card chrome, which should drag.
@@ -502,6 +507,7 @@ public partial class SettingsWindow : Window
     private void SetUpdateStatus(string text)
     {
         UpdateStatus.Text = text;
+        UpdateStatus.ToolTip = string.IsNullOrWhiteSpace(text) ? null : text;
         UpdateStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -761,16 +767,8 @@ public partial class SettingsWindow : Window
             DownloadChart.Children.Add(dot);
         }
 
-        // highlight the newest release's count so the total is readable without hovering
-        var last = new TextBlock
-        {
-            Text = $"{stats[^1].Tag} · {stats[^1].Downloads} 次",
-            Style = hint, FontSize = 10
-        };
-        last.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Canvas.SetLeft(last, Math.Max(2, w - right - last.DesiredSize.Width));
-        Canvas.SetTop(last, Math.Max(0, points[^1].Y - last.DesiredSize.Height - 8));
-        DownloadChart.Children.Add(last);
+        // No per-release count annotation on the plot: the shape of the line is the message,
+        // and a floating "v3.14.x · N 次" tag only crowded the newest point.
     }
 
     /// <summary>Smallest of 1/2/5×10^n keeping the y axis at ≤ 5 ticks.</summary>

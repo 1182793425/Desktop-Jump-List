@@ -542,21 +542,22 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="当前版本" Style="{StaticResource RowLabel}" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Column="1">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock x:Name="AboutVersion" Style="{StaticResource InlineHint}" Margin="0"
-                                                       VerticalAlignment="Center" />
-                                            <Button x:Name="CheckUpdateButton" Style="{StaticResource LinkButton}"
-                                                    Padding="8,4" Margin="12,0,0,0" Click="OnCheckUpdateClick" Content="检查更新" />
-                                            <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
-                                                    Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
-                                                    Content="下载安装包" Visibility="Collapsed" />
-                                            <Button x:Name="CancelUpdateButton" Style="{StaticResource LinkButton}"
-                                                    Padding="8,4" Margin="4,0,0,0" Click="OnCancelUpdateClick"
-                                                    Content="取消下载" Visibility="Collapsed" />
-                                        </StackPanel>
+                                    <!-- 版本、更新动作和结果都在同一行：结果换行会把整行撑高，
+                                         看起来像是排版错位。长文本用省略号收尾，完整内容放 ToolTip。 -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock x:Name="AboutVersion" Style="{StaticResource InlineHint}" Margin="0"
+                                                   VerticalAlignment="Center" />
+                                        <Button x:Name="CheckUpdateButton" Style="{StaticResource LinkButton}"
+                                                Padding="8,4" Margin="12,0,0,0" Click="OnCheckUpdateClick" Content="检查更新" />
+                                        <Button x:Name="DownloadUpdateButton" Style="{StaticResource LinkButton}"
+                                                Padding="8,4" Margin="8,0,0,0" Click="OnDownloadUpdateClick"
+                                                Content="下载安装包" Visibility="Collapsed" />
+                                        <Button x:Name="CancelUpdateButton" Style="{StaticResource LinkButton}"
+                                                Padding="8,4" Margin="4,0,0,0" Click="OnCancelUpdateClick"
+                                                Content="取消下载" Visibility="Collapsed" />
                                         <TextBlock x:Name="UpdateStatus" Style="{StaticResource InlineHint}"
-                                                   Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
+                                                   Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" Visibility="Collapsed" />
                                     </StackPanel>
                                 </Grid>
                                 <Grid Style="{StaticResource SettingsRow}">

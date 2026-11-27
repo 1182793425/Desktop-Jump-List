@@ -255,48 +255,48 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Border x:Name="IndexStatsHost" Margin="0,14,0,0" Padding="12,10" CornerRadius="11"
-                                        Background="{DynamicResource HoverBrush}"
-                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
-                                    <StackPanel>
-                                        <Grid>
-                                            <StackPanel>
-                                                <TextBlock Text="索引数据" Style="{StaticResource RowLabel}" />
-                                                <TextBlock x:Name="IndexStatsStatus" Style="{StaticResource Hint}"
-                                                           Margin="1,3,0,0" />
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                                                        VerticalAlignment="Center">
-                                                <Button x:Name="StatsAscButton" Content="数量 ↑"
-                                                        Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="30"
-                                                        Padding="8,3" Margin="0,0,6,0"
-                                                        ToolTip="按文件数量从少到多排序"
-                                                        Click="OnSortStatsAscending" />
-                                                <Button x:Name="StatsDescButton" Content="数量 ↓"
-                                                        Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="30"
-                                                        Padding="8,3" ToolTip="按文件数量从多到少排序"
-                                                        Click="OnSortStatsDescending" />
-                                            </StackPanel>
-                                        </Grid>
-                                        <Grid Margin="2,10,4,4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="84" />
-                                                <ColumnDefinition Width="26" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="扩展名" Style="{StaticResource Hint}" />
-                                            <TextBlock Grid.Column="1" Text="文件数量" Style="{StaticResource Hint}"
-                                                       TextAlignment="Right" />
-                                        </Grid>
-                                        <!-- Bounded height: the list fills the detail pane and scrolls
-                                             inside it instead of stretching the whole settings page. -->
-                                        <ScrollViewer x:Name="IndexStatsScroller" MaxHeight="340" Focusable="False"
-                                                      VerticalScrollBarVisibility="Auto"
-                                                      HorizontalScrollBarVisibility="Disabled">
-                                            <StackPanel x:Name="IndexStatsRows" Margin="0,0,8,0" />
-                                        </ScrollViewer>
-                                    </StackPanel>
-                                </Border>
+                                <!-- 索引数据：标题 + 表头 + 分隔线 + 列表，没有外层圆角容器。
+                                     整块挂 Tag="ScrollZone"：非控件区域若被判成标题栏(HTCAPTION)，
+                                     Windows 会直接吞掉鼠标滚轮，任何 WPF 处理器都收不到。 -->
+                                <StackPanel x:Name="IndexStatsHost" Tag="ScrollZone" Margin="0,16,10,0">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="索引数据" Style="{StaticResource RowLabel}" FontSize="12" />
+                                            <TextBlock x:Name="IndexStatsStatus" Style="{StaticResource Hint}"
+                                                       Margin="1,3,0,0" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center">
+                                            <Button x:Name="StatsAscButton" Content="数量 ↑"
+                                                    Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="28"
+                                                    Padding="8,3" Margin="0,0,6,0"
+                                                    ToolTip="按文件数量从少到多排序"
+                                                    Click="OnSortStatsAscending" />
+                                            <Button x:Name="StatsDescButton" Content="数量 ↓"
+                                                    Style="{StaticResource ActionButton}" MinWidth="66" MinHeight="28"
+                                                    Padding="8,3" ToolTip="按文件数量从多到少排序"
+                                                    Click="OnSortStatsDescending" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="2,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="84" />
+                                            <ColumnDefinition Width="26" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="扩展名" Style="{StaticResource Hint}" />
+                                        <TextBlock Grid.Column="1" Text="文件数量" Style="{StaticResource Hint}"
+                                                   TextAlignment="Right" />
+                                    </Grid>
+                                    <Border Height="1" Margin="0,4,0,0" Background="{DynamicResource CardBorderBrush}"
+                                            Opacity="0.6" />
+                                    <ScrollViewer x:Name="IndexStatsScroller" Tag="ScrollZone" MaxHeight="360"
+                                                  Focusable="False" Margin="0,2,0,0"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="IndexStatsRows" Margin="0,0,6,0" />
+                                    </ScrollViewer>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
@@ -325,36 +325,34 @@
                                            Text="条目可以是文件夹路径（支持 %环境变量%，整棵子树都不索引）、文件名（如 thumbs.db，全盘同名项都排除），也可以是通配符，例如 *.bak、~$*、*\cache\*。更改在下次手动重建索引时生效。" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="始终生效的内置排除：文件名以 ~$ 开头的 Office 临时文件；带「隐藏」或「系统」属性的文件与文件夹（回收站 $I/$R、系统元数据等）。" />
-                                <!-- 可增长列表放进固定高度的滚动容器（参考「索引数据」）：
-                                     页面本身不再上下滚动，列表在框内滚动。 -->
-                                <Border x:Name="ExcludeHost" Margin="2,10,0,0" Padding="10,8" CornerRadius="11"
-                                        Background="{DynamicResource HoverBrush}"
-                                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
-                                    <StackPanel>
-                                        <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="筛选" Style="{StaticResource Hint}"
-                                                       VerticalAlignment="Center" Margin="0,0,8,0" />
-                                            <TextBox x:Name="ExcludeFilterBox" Grid.Column="1" FontSize="11.5"
-                                                     Padding="6,4" VerticalContentAlignment="Center"
-                                                     Background="{DynamicResource PanelOpaqueBrush}"
-                                                     Foreground="{DynamicResource InkBrush}"
-                                                     BorderBrush="{DynamicResource CardBorderBrush}"
-                                                     ToolTip="模糊筛选排除项：按字符顺序匹配，空格分隔多个条件" />
-                                        </Grid>
-                                        <ScrollViewer x:Name="ExcludeScroller" MaxHeight="340" Focusable="False"
-                                                      VerticalScrollBarVisibility="Auto"
-                                                      HorizontalScrollBarVisibility="Disabled">
-                                            <StackPanel x:Name="ExcludeRows" Margin="0,0,8,0" />
-                                        </ScrollViewer>
-                                        <TextBlock x:Name="ExcludeFilterEmpty" Style="{StaticResource Hint}"
-                                                   Margin="2,4,0,0" Visibility="Collapsed"
-                                                   Text="没有匹配的排除项。" />
-                                    </StackPanel>
-                                </Border>
+                                <!-- 同结构：筛选 + 分隔线 + 列表 -->
+                                <StackPanel x:Name="ExcludeHost" Tag="ScrollZone" Margin="2,10,10,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="筛选" Style="{StaticResource Hint}"
+                                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox x:Name="ExcludeFilterBox" Grid.Column="1" FontSize="11.5"
+                                                 Padding="6,4" VerticalContentAlignment="Center"
+                                                 Background="{DynamicResource PanelOpaqueBrush}"
+                                                 Foreground="{DynamicResource InkBrush}"
+                                                 BorderBrush="{DynamicResource CardBorderBrush}"
+                                                 ToolTip="模糊筛选排除项：按字符顺序匹配，空格分隔多个条件" />
+                                    </Grid>
+                                    <Border Height="1" Margin="0,8,0,0" Background="{DynamicResource CardBorderBrush}"
+                                            Opacity="0.6" />
+                                    <ScrollViewer x:Name="ExcludeScroller" Tag="ScrollZone" MaxHeight="360"
+                                                  Focusable="False" Margin="0,2,0,0"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="ExcludeRows" Margin="0,0,6,0" />
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="ExcludeFilterEmpty" Style="{StaticResource Hint}"
+                                               Margin="2,4,0,0" Visibility="Collapsed"
+                                               Text="没有匹配的排除项。" />
+                                </StackPanel>
                                 <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -381,7 +379,8 @@
                                 </Grid>
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="每条规则可独立启用、编辑名称和 URL 模板。搜索词以 {input} 替换并自动编码，例如京东可用 https://search.jd.com/Search?keyword={input}。" />
-                                <Border x:Name="EngineHost" Background="{DynamicResource HoverBrush}" CornerRadius="10"
+                                <Border x:Name="EngineHost" Tag="ScrollZone" Background="{DynamicResource HoverBrush}"
+                                        CornerRadius="10"
                                         BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
                                         Padding="6">
                                     <StackPanel>
@@ -399,7 +398,7 @@
                                                      BorderBrush="{DynamicResource CardBorderBrush}"
                                                      ToolTip="模糊筛选跳转规则：匹配名称与 URL 模板，按字符顺序匹配，空格分隔多个条件" />
                                         </Grid>
-                                        <ScrollViewer x:Name="EngineScroller" MaxHeight="440" Focusable="False"
+                                        <ScrollViewer x:Name="EngineScroller" Tag="ScrollZone" MaxHeight="440" Focusable="False"
                                                       VerticalScrollBarVisibility="Auto"
                                                       HorizontalScrollBarVisibility="Disabled">
                                             <StackPanel x:Name="EngineRows" Margin="0,0,8,0" />
