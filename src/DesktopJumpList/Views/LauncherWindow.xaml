@@ -425,7 +425,7 @@
 
             <!-- ===== Pill: search query or a transient message. Invisible when idle. ===== -->
             <Border x:Name="Pill" Height="40" Width="340" Margin="0,0,0,10" CornerRadius="20" Opacity="0"
-                    IsHitTestVisible="False"
+                    IsHitTestVisible="False" ClipToBounds="True" UseLayoutRounding="True"
                     Background="{DynamicResource PillBrush}"
                     BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1"
                     RenderTransformOrigin="0.5,1">
@@ -457,14 +457,18 @@
                                        Foreground="{DynamicResource InkFaintBrush}" />
                             <!-- MDL2 refresh glyph: an icon-font glyph sits on the text baseline like
                                  the count beside it, which a unicode "⟳" did not — that one always
-                                 read a few pixels off. -->
-                            <Button x:Name="RebuildIndexButton" Margin="8,0,0,0" Padding="5,3"
+                                 read a few pixels off. Explicit width + Display formatting keeps
+                                 the glyph's right edge from being clipped at fractional DPI. -->
+                            <Button x:Name="RebuildIndexButton" Margin="8,0,0,0" Padding="5,3,3,3"
                                     Style="{StaticResource LinkButton}"
                                     VerticalAlignment="Center" Visibility="Collapsed" IsEnabled="False"
+                                    SnapsToDevicePixels="True" UseLayoutRounding="True"
                                     ToolTip="重建本地索引（Ctrl+Enter）"
                                     AutomationProperties.Name="重建本地索引"
                                     Click="OnRebuildIndexClick">
                                 <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                           Width="15" TextAlignment="Center"
+                                           TextOptions.TextFormattingMode="Display"
                                            VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Button>
                         </StackPanel>

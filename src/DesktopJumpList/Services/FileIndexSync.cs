@@ -181,7 +181,16 @@ public sealed class FileIndexSync : IDisposable
 
         if (!_index.HasIndex)
         {
-            // Nothing usable built yet: stay completely out of the way until the user asks.
+            // Startup policy: with roots configured but no usable index there is nothing to
+            // judge incrementally (no anchor, no rows), so build once automatically instead of
+            // waiting for a manual gesture. Roots already chosen by the onboarding wizard or
+            // settings drive this; an empty root list still stays out of the way.
+            if (!_index.IsBuilding && !_rebuildRequested && !_reconcileRequested
+                && _rules().Roots.Count > 0)
+            {
+                _rebuildRequested = true;
+                return 1000;
+            }
             DisposeWatchers();
             _source = SourceKind.None;
             return 8000;

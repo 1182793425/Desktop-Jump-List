@@ -1496,7 +1496,9 @@ public partial class LauncherWindow : Window
         if (_modalDepth > 0) return;
         var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
 
-        if (ctrl && e.Key == Key.Enter && LocalFileSurfaceActive)
+        // Ctrl+Enter rebuilds the local index from anywhere in the panel — tile grid, plain
+        // results, /s results or an empty search box — as long as file search is on.
+        if (ctrl && e.Key == Key.Enter && CurrentSettings.FileSearchEnabled)
         {
             RebuildFileIndexNow();
             e.Handled = true;
@@ -2082,57 +2084,9 @@ public partial class LauncherWindow : Window
             e.Handled = true;
             return;
         }
-        if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; ClearDropTile(); e.Handled = true; return; }
-
-        // Dropping files onto a tile means "open with this tile", not "add a shortcut".
-        // Only file drops get tile semantics; text always lands as a new entry.
-        if (e.Data.GetDataPresent(DataFormats.FileDrop) && ContainerFrom(e.OriginalSource) is { } c
-            && c.DataContext is ShortcutItem item)
-        {
-            var effect = TileDropEffect(item);
-            if (effect == DragDropEffects.None) ClearDropTile();
-            else SetDropTile(c);
-            e.Effects = effect;
-        }
-        else
-        {
-            ClearDropTile();
-            e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
-        }
+        if (!HasDroppable(e)) { e.Effects = DragDropEffects.None; e.Handled = true; return; }
+        e.Effects = DragDropEffects.Link | DragDropEffects.Copy;
         e.Handled = true;
-    }
-
-    /// <summary>What happens when files are dropped onto <paramref name="item"/>: apps open the
-    /// files, folders open themselves; URL / AppX tiles accept nothing.</summary>
-    private static DragDropEffects TileDropEffect(ShortcutItem item)
-    {
-        return item.Kind switch
-        {
-            ShortcutKind.Folder => DragDropEffects.Link,
-            ShortcutKind.App => DragDropEffects.Copy,
-            ShortcutKind.File when Path.GetExtension(item.Target).Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                => DragDropEffects.Copy,
-            _ => DragDropEffects.None,
-        };
-    }
-
-    private ListBoxItem? _dropTile;
-
-    private void SetDropTile(ListBoxItem c)
-    {
-        if (_dropTile == c) return;
-        ClearDropTile();
-        _dropTile = c;
-        if (c.Template.FindName("Highlight", c) is Border b)
-            b.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(90)));
-    }
-
-    private void ClearDropTile()
-    {
-        if (_dropTile is null) return;
-        if (_dropTile.Template.FindName("Highlight", _dropTile) is Border b)
-            b.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(140)));
-        _dropTile = null;
     }
 
     private void OnDragLeave(object sender, DragEventArgs e)
@@ -2141,7 +2095,6 @@ public partial class LauncherWindow : Window
         var p = e.GetPosition(Panel);
         if (p.X > 0 && p.Y > 0 && p.X < Panel.ActualWidth && p.Y < Panel.ActualHeight) return;
         _externalFileDrag = false;
-        ClearDropTile();
         SetDropOverlay(false);
         EndInternalDrag();
     }
@@ -2157,15 +2110,8 @@ public partial class LauncherWindow : Window
 
         _externalFileDrag = false;
         SetDropOverlay(false);
-        var dropTile = _dropTile;
-        ClearDropTile();
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
-        {
-            if (dropTile?.DataContext is ShortcutItem item && TileDropEffect(item) != DragDropEffects.None)
-                OpenFilesWith(item, files);
-            else
-                AddPaths(files);
-        }
+            AddPaths(files);
         else if (e.Data.GetData(DataFormats.UnicodeText) is string text)
         {
             var items = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -2182,27 +2128,6 @@ public partial class LauncherWindow : Window
     {
         if (!IsOpen || _closing) Open();
         AddPaths(paths);
-    }
-
-    private void OpenFilesWith(ShortcutItem item, string[] files)
-    {
-        try
-        {
-            if (item.Kind == ShortcutKind.Folder)
-            {
-                Process.Start("explorer.exe", $"\"{item.Target}\"");
-                ShowMessage($"已在「{item.Name}」中打开");
-                return;
-            }
-
-            var args = string.Join(" ", files.Select(f => $"\"{f}\""));
-            Process.Start(new ProcessStartInfo(item.Target) { Arguments = args, UseShellExecute = true });
-            ShowMessage(files.Length == 1 ? $"已用「{item.Name}」打开" : $"已用「{item.Name}」打开 {files.Length} 个文件");
-        }
-        catch (Exception ex)
-        {
-            ShowMessage($"打开失败：{ex.Message}");
-        }
     }
 
     private void SetDropOverlay(bool show)

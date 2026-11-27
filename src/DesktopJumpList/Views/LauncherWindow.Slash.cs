@@ -410,6 +410,12 @@ public partial class LauncherWindow
             ShowSlashRows(new List<ResultRow>(), "正在重建索引…");
             UpdateFileSearchCount();
         }
+        else
+        {
+            // Plain mode keeps its rows, so without an explicit note the rebuild would be
+            // completely invisible — the exact "Ctrl+Enter does nothing" report.
+            ShowMessage("正在重建本地索引…完成后结果会自动刷新");
+        }
         UpdateFileSearchChrome();
     }
 
@@ -420,12 +426,18 @@ public partial class LauncherWindow
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!IsOpen) return;
+            UpdateFileSearchChrome();
+            UpdateFileSearchCount();
             var q = CurrentQuery;
             if (q.Length == 0) return;
             var fileMode = q.StartsWith('/') && TryParseFileQuery(q, out _);
             var plainMode = !q.StartsWith('/') && CurrentSettings.FileSearchOnPlainQuery;
             // In place, so the rows (and the page the user scrolled to) survive the rebuild.
-            if (fileMode || plainMode) RefreshFileResults();
+            if (fileMode || plainMode)
+            {
+                RefreshFileResults();
+                ShowMessage($"索引已更新（{App.Current.Files.Count} 项）");
+            }
         }));
     }
 

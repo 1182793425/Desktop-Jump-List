@@ -153,14 +153,24 @@ public partial class App : Application
 
         if (!Settings.FirstRunDone)
         {
-            Settings.FirstRunDone = true;
-            SaveSettings();
-            // First run: show the panel so the empty state explains how to add things, and
-            // point out where the app now lives (there is deliberately no taskbar button).
+            // First run on this machine: the onboarding wizard walks the user through drive
+            // selection + first build, the hotkey, the plain-search switch and a usage crash
+            // course. FirstRunDone commits when the window closes, whatever the exit path.
             Dispatcher.BeginInvoke(() =>
             {
-                ShowLauncher();
-                Tray?.ShowBalloon("Jump 已在系统托盘运行：左键托盘图标打开面板，右键可设置。");
+                if (IsShuttingDown) return;
+                try
+                {
+                    var wizard = new OnboardingWindow();
+                    wizard.Show();
+                    wizard.Activate();
+                }
+                catch (Exception ex)
+                {
+                    Log(ex);
+                    Settings.FirstRunDone = true;
+                    SaveSettings();
+                }
             }, DispatcherPriority.ApplicationIdle);
         }
     }
