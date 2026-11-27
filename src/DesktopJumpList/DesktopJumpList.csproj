@@ -16,7 +16,11 @@
     <RootNamespace>DesktopJumpList</RootNamespace>
     <AssemblyTitle>Jump</AssemblyTitle>
     <Product>Jump · Desktop Jump List</Product>
-    <Version>3.14.25</Version>
+    <!-- Version single-sourced from the repo-root .env ([App] APP_VERSION=...) so the
+         assembly and the Inno Setup installer can never drift apart. Bump the version
+         ONLY in .env; the build fails loudly if that file is missing. -->
+    <RepoEnvFile>$(MSBuildThisFileDirectory)..\..\.env</RepoEnvFile>
+    <Version Condition="Exists('$(RepoEnvFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(RepoEnvFile)')), '(?m)^APP_VERSION=([0-9][0-9.]*)').Value.Replace('APP_VERSION=','').Trim())</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -34,5 +38,10 @@
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
   </ItemGroup>
+
+  <!-- Fail fast instead of silently building 0.0.0 when the version source is gone. -->
+  <Target Name="RequireEnvVersion" BeforeTargets="BeforeBuild" Condition="!Exists('$(RepoEnvFile)')">
+    <Error Text="Missing version source file: $(RepoEnvFile). The .env ([App] APP_VERSION) at the repo root is the single version source for the csproj and the installer." />
+  </Target>
 
 </Project>

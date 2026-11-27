@@ -30,7 +30,7 @@
 
 应用内置「检查更新」，规则如下，发布 Release 时必须遵守，否则检查更新会失灵：
 
-1. **版本号**：`v主.次.修订`（如 `v3.14.22`），对应 `src/DesktopJumpList/DesktopJumpList.csproj` 的 `<Version>` 与 `installer/DesktopJumpList.iss` 的 `MyAppVersion`，两处必须同步修改、与 tag 完全一致。
+1. **版本号**：`v主.次.修订`（如 `v3.14.22`）。**唯一来源是仓库根目录的 `.env`**（`[App]` 段的 `APP_VERSION=`），csproj 与安装脚本都自动读取它，不要手改代码里的版本号；tag 与资产名必须与该值完全一致。
 2. **Tag**：`v<版本号>` 打在 dev 分支的最新提交上；Release 的 target 分支为 `dev`。
 3. **资产命名**：每个 Release 必须携带且只携带一个名为 `Jump-<版本号>-setup.exe` 的安装包（Inno Setup 产物，自包含）。应用按这个后缀识别安装包，名字不符将无法下载更新。
 4. **Latest 标记**：应用通过 GitHub `releases/latest` 接口取最新版，该接口只返回**非草稿、非预发布**的最新 Release。所以正式发版不要勾选「pre-release」；替换已发布版本的安装包会清零其下载计数，推荐始终发新版本号。

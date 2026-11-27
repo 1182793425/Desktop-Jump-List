@@ -2,7 +2,10 @@
 ; Build with ISCC.exe against the published self-contained output.
 
 #define MyAppName "Jump"
-#define MyAppVersion "3.14.25"
+; Version single-sourced from the repo-root .env ([App] APP_VERSION=...), shared with the
+; csproj. ReadIni needs the [App] section header that .env carries. Bump the version ONLY
+; in .env — never edit MyAppVersion by hand.
+#define MyAppVersion ReadIni(SourcePath + "..\.env", "App", "APP_VERSION")
 #define MyAppPublisher "ShiPengbo"
 #define MyAppExeName "Jump.exe"
 
