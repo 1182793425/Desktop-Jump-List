@@ -337,7 +337,11 @@ public sealed class FileIndex
     /// pinyin-initial prefix ("sjg" → 设计稿), pinyin-initial substring, subsequence (3+ chars),
     /// and finally a folder-path match ("jdk" finds D:\jdk-17\bin\java.exe).
     /// </summary>
-    public List<FileEntry> Search(string query, int max, int skip = 0)
+    /// <param name="since">
+    /// When set, only entries written at or after this moment are considered. A short query uses it
+    /// to stay inside the last day of activity instead of walking the whole index.
+    /// </param>
+    public List<FileEntry> Search(string query, int max, int skip = 0, DateTime? since = null)
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
@@ -351,7 +355,8 @@ public sealed class FileIndex
         {
             version = _contentVersion;
             // A longer query against the previous result set is enough — see _narrowSet.
-            source = _narrowSet is { Count: > 0 } previous
+            source = since is null
+                     && _narrowSet is { Count: > 0 } previous
                      && tokens.Normalized.StartsWith(_narrowKey, StringComparison.Ordinal)
                 ? previous
                 : SnapshotLocked();
@@ -359,6 +364,7 @@ public sealed class FileIndex
 
         foreach (var entry in source)
         {
+            if (since is { } cutoff && entry.WriteTime < cutoff) continue;
             // Layer 1 — the path, in order, with the spaces acting as wildcards:
             // "download / set .exe" behaves like LIKE '%download%\%set%.exe%'.
             var rank = RankPath(entry, tokens, out var gap, out var nameHit);
@@ -392,7 +398,7 @@ public sealed class FileIndex
 
         // Remember this result set for the next keystroke — only while the index has not moved
         // (version) and only when it is small enough to be worth keeping.
-        if (ordered.Count <= NarrowCacheLimit)
+        if (since is null && ordered.Count <= NarrowCacheLimit)
         {
             lock (_gate)
             {

@@ -520,7 +520,7 @@ public partial class LauncherWindow : Window
             if (!string.Equals(_plainFileQuery, q, StringComparison.Ordinal)) ResetPlainFileResults(q);
             if (_plainFileRows.Count > 0)
             {
-                _plainFileDivider ??= new DividerRow("本地文件");
+                _plainFileDivider ??= new DividerRow(PlainFileSectionTitle(q));
                 next.Add(_plainFileDivider);
                 next.AddRange(_plainFileRows);
             }
@@ -628,8 +628,27 @@ public partial class LauncherWindow : Window
 
     /// <summary>True when a plain query should also read the local index.</summary>
     private static bool PlainFileSearchActive(string query) =>
-        query.Length >= Math.Max(1, CurrentSettings.FileSearchMinChars) && !query.StartsWith('/')
+        query.Length > 0 && !query.StartsWith('/')
         && CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery;
+
+    /// <summary>
+    /// Below the configured length a plain query stays inside the last day of activity instead of
+    /// walking the whole index: one or two characters match nearly everything, so a full scan buys
+    /// nothing but cost. Null means "search everything".
+    /// </summary>
+    /// <summary>
+    /// The file section says which mode it is in: a short query only looks at the last day, and
+    /// showing that beats leaving the user wondering why so few files are listed.
+    /// </summary>
+    private static string PlainFileSectionTitle(string query) =>
+        PlainFileSince(query) is null
+            ? "本地文件"
+            : $"本地文件 · 近 24 小时（输入 {Math.Max(1, CurrentSettings.FileSearchMinChars)} 个字符搜全部）";
+
+    private static DateTime? PlainFileSince(string query) =>
+        query.Length >= Math.Max(1, CurrentSettings.FileSearchMinChars)
+            ? null
+            : DateTime.UtcNow.AddHours(-24);
 
     /// <summary>Forgets the file section of the previous query (rows disappear next rebuild).</summary>
     private void DropPlainFileResults()
@@ -652,7 +671,7 @@ public partial class LauncherWindow : Window
     {
         DropPlainFileResults();
         _plainFileQuery = query;
-        _plainFileDivider = new DividerRow("本地文件");
+        _plainFileDivider = new DividerRow(PlainFileSectionTitle(query));
         LoadPlainFilePage(query, replace: true);
     }
 
@@ -675,7 +694,8 @@ public partial class LauncherWindow : Window
         _plainFileLoading = true;
 
         List<FileEntry> matches;
-        try { matches = await Task.Run(() => index.Search(query, PlainFilePageSize + 1, skip)); }
+        var since = PlainFileSince(query);
+        try { matches = await Task.Run(() => index.Search(query, PlainFilePageSize + 1, skip, since)); }
         catch
         {
             if (generation == _plainFileGeneration) _plainFileLoading = false;
@@ -806,7 +826,7 @@ public partial class LauncherWindow : Window
         _plainFileLoading = true;
 
         List<FileEntry> matches;
-        try { matches = await Task.Run(() => index.Search(query, want + 1, 0)); }
+        try { matches = await Task.Run(() => index.Search(query, want + 1, 0, PlainFileSince(query))); }
         catch
         {
             if (generation == _plainFileGeneration) _plainFileLoading = false;
