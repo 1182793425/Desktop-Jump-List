@@ -45,8 +45,30 @@ internal static class IndexSelfTest
             File.WriteAllText(Path.Combine(root, "a", "skipme.docx"), "x");
             File.WriteAllText(Path.Combine(root, "a", "skipbyname.docx"), "x");
 
+            // ── Ranking sandbox ────────────────────────────────────────────────
+            // Deliberately shaped like the real complaints: a folder that shares the query, a
+            // name that matches only through a folder above it, a file literally named after the
+            // query sitting under such a folder, a "…-asset" folder, Chinese words in the two
+            // possible orders, and a file whose letters happen to spell an abbreviation.
+            var rank = Path.Combine(root, "rank");
+            Directory.CreateDirectory(Path.Combine(rank, "code3"));
+            Directory.CreateDirectory(Path.Combine(rank, "docs"));
+            Directory.CreateDirectory(Path.Combine(rank, "bower-asset"));
+            Directory.CreateDirectory(Path.Combine(rank, "archive", "2026"));
+            Directory.CreateDirectory(Path.Combine(rank, "x"));
+            Directory.CreateDirectory(Path.Combine(rank, "y"));
+            Directory.CreateDirectory(Path.Combine(rank, "code"));
+            File.WriteAllText(Path.Combine(rank, "code3", "code.txt"), "1");   // name starts with the query, folder too
+            File.WriteAllText(Path.Combine(rank, "docs", "code.md"), "2");     // query starts a word inside the name
+            File.WriteAllText(Path.Combine(rank, "setup.exe"), "3");
+            File.WriteAllText(Path.Combine(rank, "archive", "2026", "季度报告.docx"), "4");
+            File.WriteAllText(Path.Combine(rank, "sticker18-CJ6dyGZ3.png"), "5"); // "sjg" is a subsequence, not a word
+            File.WriteAllText(Path.Combine(rank, "设计稿-v3.png"), "6");
+            File.WriteAllText(Path.Combine(rank, "x", "dup.txt"), "7");
+            File.WriteAllText(Path.Combine(rank, "y", "dup.txt"), "8");
+
             var rules = new IndexRules(new[] { root }, new Dictionary<string, RootLimitSetting>(),
-                new[] { ".txt", ".docx", ".png" }, new[] { "*skipme*", "skipbyname.docx" }, 0,
+                new[] { ".txt", ".docx", ".png", ".md", ".exe" }, new[] { "*skipme*", "skipbyname.docx" }, 0,
                 discoverDriveRoots: false);
 
             var data = Path.Combine(sandbox, "data");
@@ -72,6 +94,70 @@ internal static class IndexSelfTest
             Check("skips hidden folder subtree", !index.Search("inside-hidden", 10).Any());
             Check("manual wildcard exclude", !index.Search("skipme", 10).Any(entry => entry.Name == "skipme.docx"));
             Check("manual name-only exclude", !index.Search("skipbyname", 10).Any(entry => entry.Name == "skipbyname.docx"));
+
+            // ── Ranking ────────────────────────────────────────────────────────
+            // These are the assertions the module never had: every earlier check asked "can it be
+            // found", none asked "is the right thing first", which is exactly why a folder called
+            // "doc" could bury a file called "doc.md" without anyone noticing.
+            static string Top(FileIndex idx, string query) =>
+                idx.Search(query, 12).FirstOrDefault()?.Name ?? "<none>";
+
+            static int At(FileIndex idx, string query, Func<FileEntry, bool> match) =>
+                idx.Search(query, 40).ToList().FindIndex(entry => match(entry));
+
+            Check("order-free: 2026 报告 finds the file", At(index, "2026 报告", e => e.Name.StartsWith("季度报告")) >= 0,
+                Top(index, "2026 报告"));
+            Check("order-free: 报告 2026 finds the same file", At(index, "报告 2026", e => e.Name.StartsWith("季度报告")) >= 0,
+                Top(index, "报告 2026"));
+            Check("order-free: both orders agree on the winner",
+                string.Equals(Top(index, "2026 报告"), Top(index, "报告 2026"), StringComparison.Ordinal),
+                $"{Top(index, "2026 报告")} vs {Top(index, "报告 2026")}");
+
+            // A file whose name starts with the query must beat a folder that merely contains it.
+            var codeAt = At(index, "code", e => e.Name == "code.txt");
+            var codeDirAt = At(index, "code", e => e.IsDirectory && e.Name == "code3");
+            Check("name match outranks folder match", codeAt >= 0 && (codeDirAt < 0 || codeAt < codeDirAt),
+                $"code.txt@{codeAt} code3@{codeDirAt}");
+
+            // A folder that ends with the word no longer outranks a file that starts with it.
+            var setupAt = At(index, "set", e => e.Name == "setup.exe");
+            var assetAt = At(index, "set", e => e.Name == "bower-asset");
+            Check("file prefix beats folder tail", setupAt >= 0 && (assetAt < 0 || setupAt < assetAt),
+                $"setup@{setupAt} bower-asset@{assetAt}");
+
+            // "sjg" is 设计稿 by initials; it must not drag in scattered letters.
+            Check("initials win, subsequence noise stays out",
+                Top(index, "sjg") == "设计稿-v3.png"
+                && !index.Search("sjg", 40).Any(entry => entry.Name.StartsWith("sticker18")),
+                string.Join('|', index.Search("sjg", 40).Select(entry => entry.Name)));
+
+            // Two files with the same name and the same score: the one the user actually opens wins.
+            var usage = new UsageStore();
+            index.Usage = usage;
+            for (var i = 0; i < 3; i++) usage.Record(Path.Combine(rank, "x", "dup.txt"));
+            var boosted = index.Search("dup", 4).FirstOrDefault();
+            Check("usage breaks the tie", boosted is not null
+                && boosted.Path.EndsWith(@"x\dup.txt", StringComparison.OrdinalIgnoreCase),
+                string.Join('|', index.Search("dup", 4).Select(entry => entry.Path)));
+            index.Usage = null;
+
+            // Every root reports what it contributed, so an empty drive can be explained.
+            Check("build report names each root",
+                index.RootCounts.TryGetValue(rules.Roots[0], out var rootCount) && rootCount > 0,
+                string.Join('|', index.RootCounts.Select(pair => $"{pair.Key}={pair.Value}")));
+
+            // ── Blacklist upgrade ──────────────────────────────────────────────
+            // A release that ships new junk-folder patterns edits the user's config on startup.
+            // It must only ever append: a list the user pruned stays exactly as they left it.
+            var mine = AppSettings.PreviousDefaultIndexExcludes.Concat(new[] { @"*Mine*" }).ToList();
+            Check("excludes: new shipped patterns are appended",
+                AppSettings.TryMergeDefaultExcludes(mine, out var mergedExcludes)
+                && mergedExcludes.Contains(@"*\*cache*\*") && mergedExcludes.Contains(@"*Mine*")
+                && mine.All(mergedExcludes.Contains),
+                $"{mine.Count} -> {mergedExcludes.Count}");
+            var pruned = AppSettings.PreviousDefaultIndexExcludes.Where(entry => entry != @"*\.git\*").ToList();
+            Check("excludes: a pruned list is left alone", !AppSettings.TryMergeDefaultExcludes(pruned, out _));
+            Check("excludes: an empty list is left alone", !AppSettings.TryMergeDefaultExcludes(new List<string>(), out _));
 
             // The two id sources (directory listing vs handle) must agree, or every watcher
             // upsert would create a second row for a file the walk already indexed.

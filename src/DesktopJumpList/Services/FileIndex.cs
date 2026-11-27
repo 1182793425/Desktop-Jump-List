@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.Json;
 using DesktopJumpList.Infrastructure;
@@ -36,12 +36,6 @@ public sealed class FileEntry
     /// "xinjianwenjianjia" and mixtures of the two.
     /// </summary>
     public string PathSearch { get; set; } = string.Empty;
-
-    /// <summary>
-    /// How long this entry's own segment is inside <see cref="PathSearch"/>. Cached because the
-    /// ranking needs it for every candidate and recomputing it means lower-casing the name.
-    /// </summary>
-    public int SearchNameLength { get; set; }
 
     public string Folder { get; set; } = string.Empty;
     public string Lower { get; set; } = string.Empty;
@@ -126,6 +120,7 @@ public sealed class IndexRules
         var normalized = Environment.ExpandEnvironmentVariables(path.Trim()).Replace('/', '\\');
         // A drive root keeps its separator: trimming "C:\" down to "C:" would make it a
         // *relative* path, and Path.Combine("C:", "Users") is "C:Users".
+        if (normalized.Length == 2 && normalized[1] == ':') return normalized + "\\";
         return normalized.Length > 3 ? normalized.TrimEnd('\\') : normalized;
     }
 
@@ -232,6 +227,12 @@ public sealed class IndexMeta
 
     /// <summary>volume root ("C:\") → journal anchor after the last successfully applied batch.</summary>
     public Dictionary<string, VolumeAnchor> Volumes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>root path → how many rows the last walk took from it (build report).</summary>
+    public Dictionary<string, int> RootCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>root path → why it contributed nothing, when it did. Empty is the normal case.</summary>
+    public Dictionary<string, string> RootNotes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class VolumeAnchor
@@ -254,6 +255,10 @@ public sealed class FileIndex
     private readonly Dictionary<ulong, string> _rootSeeds = new();
 
     private List<FileEntry> _searchList = new();
+
+    /// <summary>Newest-first order for the "/s" empty query, rebuilt only when the contents move.</summary>
+    private List<FileEntry>? _newest;
+    private int _newestVersion = -1;
     // Typing narrows: a longer query can only return fewer entries, so the previous result set is
     // the only thing the next keystroke has to look at. Sound because every added character either
     // extends a token or adds one, and both can only remove matches.
@@ -271,6 +276,12 @@ public sealed class FileIndex
     private bool _dirty;
     private int _dirtyBatches;
 
+    /// <summary>Bumped by <see cref="MarkStale"/>; a walk that started before it is discarded.</summary>
+    private int _staleStamp;
+
+    /// <summary>The rule set the current rows are supposed to honour.</summary>
+    private string? _activeRuleKey;
+
     public FileIndex(string? directory = null) => _directory = directory;
 
     public IndexMeta Meta { get; private set; } = new();
@@ -287,8 +298,33 @@ public sealed class FileIndex
 
     public DateTime LastBuilt { get; private set; } = DateTime.MinValue;
 
+    /// <summary>
+    /// Human-readable result of the last rebuild: why a root stayed empty, or that the walk was
+    /// discarded because the rules changed under it. Empty when everything went normally.
+    /// </summary>
+    public string LastBuildNote { get; private set; } = string.Empty;
+
+    /// <summary>Per-root row counts of the last build, for the "索引已更新" report.</summary>
+    public IReadOnlyDictionary<string, int> RootCounts
+    {
+        get { lock (_gate) return new Dictionary<string, int>(Meta.RootCounts, StringComparer.OrdinalIgnoreCase); }
+    }
+
+    /// <summary>Roots that contributed nothing and why — a drive that quietly indexes nothing.</summary>
+    public IReadOnlyDictionary<string, string> RootNotes
+    {
+        get { lock (_gate) return new Dictionary<string, string>(Meta.RootNotes, StringComparer.OrdinalIgnoreCase); }
+    }
+
     /// <summary>Raised after any change to the contents, from whichever thread made it.</summary>
     public event Action? Changed;
+
+    /// <summary>
+    /// What the user has actually opened from the search box. Optional: without it the ranking
+    /// falls back to "newest first" like before, but with it a file you launch every day stops
+    /// hiding behind yesterday's download.
+    /// </summary>
+    public UsageStore? Usage { get; set; }
 
     public bool HasIndex
     {
@@ -435,25 +471,32 @@ public sealed class FileIndex
     public List<FileEntry> Take(int max, int skip = 0)
     {
         if (max <= 0) return new List<FileEntry>();
-        List<FileEntry> snapshot;
-        lock (_gate) snapshot = SnapshotLocked();
-        return snapshot
-            .OrderByDescending(entry => entry.WriteTime)
-            .Skip(Math.Max(0, skip))
-            .Take(max)
-            .ToList();
+        List<FileEntry> newest;
+        lock (_gate)
+        {
+            // "/s" pages once per scroll; re-sorting 100k rows on every page was pure waste.
+            if (_newest is null || _newestVersion != _contentVersion)
+            {
+                _newest = new List<FileEntry>(_byId.Count);
+                _newest.AddRange(_byId.Values);
+                _newest.Sort((a, b) => b.WriteTime.CompareTo(a.WriteTime));
+                _newestVersion = _contentVersion;
+            }
+            newest = _newest;
+        }
+
+        var start = Math.Clamp(skip, 0, newest.Count);
+        return newest.GetRange(start, Math.Min(max, newest.Count - start));
     }
 
     /// <summary>
-    /// Ranking ladder, most to least specific: exact name match, name prefix, name substring,
-    /// pinyin-initial prefix ("sjg" → 设计稿), pinyin-initial substring, subsequence (3+ chars),
-    /// and finally a folder-path match ("jdk" finds D:\jdk-17\bin\java.exe).
+    /// Scores every entry against the query. Words are AND-ed but **order-free**: "2026 报告" and
+    /// "报告 2026" are the same question, and a launcher has to answer both. The previous version
+    /// scanned the path left to right, which silently demanded that the words appear in path order
+    /// — the same two words found 14 files one way and 1 the other.
     /// </summary>
-    /// <param name="since">
-    /// When set, only entries written at or after this moment are considered. A short query uses it
-    /// to stay inside the last day of activity instead of walking the whole index.
-    /// </param>
-    public List<FileEntry> Search(string query, int max, int skip = 0, DateTime? since = null)
+    /// <param name="cancellation">Checked every 1024 entries; a superseded keystroke stops early.</param>
+    public List<FileEntry> Search(string query, int max, int skip = 0, CancellationToken cancellation = default)
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
@@ -467,107 +510,223 @@ public sealed class FileIndex
         {
             version = _contentVersion;
             // A longer query against the previous result set is enough — see _narrowSet.
-            source = since is null
-                     && _narrowSet is { Count: > 0 } previous
+            source = _narrowSet is { Count: > 0 } previous
                      && tokens.Normalized.StartsWith(_narrowKey, StringComparison.Ordinal)
                 ? previous
                 : SnapshotLocked();
         }
 
+        var usage = Usage;
+        var scanned = 0;
         foreach (var entry in source)
         {
-            if (since is { } cutoff && entry.WriteTime < cutoff) continue;
-            if (!TryMatch(entry, tokens, out var rank, out var gap)) continue;
-            hits.Add(new Hit(entry, rank, gap));
+            // Throw instead of returning a short list: "cancelled" must never be mistaken for
+            // "no hits", or a superseded keystroke would truncate the list on screen.
+            if ((++scanned & 0x3FF) == 0) cancellation.ThrowIfCancellationRequested();
+            if (!TryMatch(entry, tokens, out var score, out var position)) continue;
+            hits.Add(new Hit(entry, score, position, usage?.Boost(entry.Path) ?? 0));
         }
 
-        // In-place sort instead of LINQ: on a query like "f" this is 200k hits, and OrderBy's
-        // iterator plus the key extraction costs more than the scan itself.
+        var start = Math.Max(0, skip);
+
+        // A query like "e" matches half the disk: keeping every hit for the next keystroke and
+        // sorting all of them is wasted work when the caller only ever looks at one page.
+        if (hits.Count > NarrowCacheLimit)
+            return SelectBest(hits, start + max, start, max);
+
         hits.Sort(HitOrder);
         var ordered = new List<FileEntry>(hits.Count);
         foreach (var hit in hits) ordered.Add(hit.Entry);
 
-        // Remember this result set for the next keystroke — only while the index has not moved
-        // (version) and only when it is small enough to be worth keeping.
-        if (since is null && ordered.Count <= NarrowCacheLimit)
+        // Remember this result set for the next keystroke — only while the index has not moved.
+        lock (_gate)
         {
-            lock (_gate)
+            if (_contentVersion == version)
             {
-                if (_contentVersion == version)
-                {
-                    _narrowKey = tokens.Normalized;
-                    _narrowSet = ordered;
-                    _narrowTokens = tokens;
-                }
+                _narrowKey = tokens.Normalized;
+                _narrowSet = ordered;
+                _narrowTokens = tokens;
             }
         }
 
-        return ordered.Skip(Math.Max(0, skip)).Take(max).ToList();
+        if (start >= ordered.Count) return new List<FileEntry>();
+        return ordered.GetRange(start, Math.Min(max, ordered.Count - start));
+    }
+
+    /// <summary>
+    /// The best <paramref name="k"/> hits without sorting the rest: a small sorted window where
+    /// the last slot is the worst kept hit, so a candidate that loses to it costs one comparison.
+    /// </summary>
+    private static List<FileEntry> SelectBest(List<Hit> hits, int k, int skip, int max)
+    {
+        if (k <= 0 || max <= 0) return new List<FileEntry>();
+
+        var window = new Hit[Math.Min(k, hits.Count)];
+        var filled = 0;
+        foreach (var hit in hits)
+        {
+            if (filled == window.Length)
+            {
+                // A full window only changes when the candidate beats the worst one in it.
+                if (HitOrder(hit, window[filled - 1]) >= 0) continue;
+            }
+
+            var at = filled < window.Length ? filled++ : window.Length - 1;
+            while (at > 0 && HitOrder(hit, window[at - 1]) < 0)
+            {
+                window[at] = window[at - 1];
+                at--;
+            }
+            window[at] = hit;
+        }
+
+        var rows = new List<FileEntry>(Math.Min(max, Math.Max(0, filled - skip)));
+        for (var i = skip; i < filled && rows.Count < max; i++) rows.Add(window[i].Entry);
+        return rows;
     }
 
     /// <summary>Above this many matches, keeping the set for the next keystroke is not worth it.</summary>
     private const int NarrowCacheLimit = 50_000;
 
-    /// <summary>Everything after this is a name-only hit, so path hits always come first.</summary>
-    private const int NameLayerRank = 100;
+    // ───────────────────────────── Score ladder ─────────────────────────────
 
-    private readonly record struct Hit(FileEntry Entry, int Rank, int Gap);
+    // Lower is better. The *name* owns 0–6 and everything that only matched through a folder
+    // starts at 7: that single split is what stops a folder called "doc" from burying every file
+    // whose name contains "doc", and what stops "…\bower-asset" from outranking "setup.exe".
+    private const int ScoreNameExact = 0;
+    private const int ScoreNamePrefix = 1;
+    private const int ScoreNameWord = 2;
+    private const int ScoreNameContains = 3;
+    private const int ScoreInitialsPrefix = 4;
+    private const int ScoreInitialsContains = 5;
+    private const int ScoreSubsequence = 6;
+    private const int ScorePathSegment = 7;
+    private const int ScorePathAnywhere = 8;
+
+    /// <summary>A file is the better answer than a folder for the same text.</summary>
+    private const int ScoreDirectory = 1;
+
+    /// <summary>One scored row: <see cref="Score"/> ascending, <see cref="Boost"/> is usage weight.</summary>
+    private readonly record struct Hit(FileEntry Entry, int Score, int Position, int Boost);
 
     private static readonly Comparison<Hit> HitOrder = (a, b) =>
     {
-        var byRank = a.Rank.CompareTo(b.Rank);
-        if (byRank != 0) return byRank;
-        var byGap = a.Gap.CompareTo(b.Gap);
-        if (byGap != 0) return byGap;
+        var byScore = a.Score.CompareTo(b.Score);
+        if (byScore != 0) return byScore;
+        // What the user actually opens wins a tie — this is the only memory the index has of
+        // "mine", and it is what makes a frequently used file float above its neighbours.
+        var byUse = b.Boost.CompareTo(a.Boost);
+        if (byUse != 0) return byUse;
+        var byPosition = a.Position.CompareTo(b.Position);
+        if (byPosition != 0) return byPosition;
         var byTime = b.Entry.WriteTime.CompareTo(a.Entry.WriteTime);
         return byTime != 0 ? byTime : a.Entry.Name.Length.CompareTo(b.Entry.Name.Length);
     };
 
     /// <summary>
-    /// One entry against one prepared query. Layer 1 is the ordered path scan ("download / set
-    /// .exe" ≈ LIKE '%download%\%set%.exe%'); layer 2 is the name alone (pinyin, initials,
-    /// subsequence) — "weiguimingxi" is in no path, so it can only be answered from the name, and
-    /// those hits always rank behind path hits.
+    /// One entry against one prepared query: every word has to be accounted for, in any order,
+    /// and the score of a word is the best place it was found (its own name beats a folder above
+    /// it). <paramref name="position"/> sums the offsets so a shallower match wins a tie.
     /// </summary>
-    private static bool TryMatch(FileEntry entry, in QueryTokens tokens, out int rank, out int gap)
+    private static bool TryMatch(FileEntry entry, in QueryTokens tokens, out int score, out int position)
     {
-        var pathRank = RankPath(entry, tokens, out gap, out _);
-        if (pathRank != int.MaxValue)
-        {
-            rank = pathRank;
-            return true;
-        }
-
-        var nameRank = 0;
+        score = 0;
+        position = 0;
         foreach (var token in tokens.All)
         {
-            var one = Rank(entry, token.Text, token.Text);
-            if (one == int.MaxValue) { rank = 0; gap = 0; return false; }
-            nameRank += one;
+            if (!ScoreToken(entry, token, out var one, out var at)) return false;
+            score += one;
+            position += at;
         }
 
-        rank = NameLayerRank + nameRank;
-        gap = 0;
+        if (entry.IsDirectory) score += ScoreDirectory;
         return true;
     }
 
     /// <summary>
+    /// How well one word fits one entry. The name is asked first and in full (exact, prefix, word
+    /// start, substring, initials/pinyin, abbreviation); only when the name says nothing do the
+    /// folders above it get a say.
+    /// </summary>
+    private static bool ScoreToken(FileEntry entry, in QueryTokens.Token token, out int score, out int position)
+    {
+        score = 0;
+        position = 0;
+
+        var needle = token.Text;
+        var name = entry.Lower;
+        if (name.Length > 0)
+        {
+            // One IndexOf answers three questions: prefix, word start, plain substring. Doing it
+            // twice (once for "starts a word", once for "is in there") doubled the scan cost.
+            var at = name.IndexOf(needle, StringComparison.Ordinal);
+            if (at == 0) { score = name.Length == needle.Length ? ScoreNameExact : ScoreNamePrefix; return true; }
+            if (at > 0)
+            {
+                var wordStart = !char.IsLetterOrDigit(name[at - 1]);
+                score = wordStart ? ScoreNameWord : ScoreNameContains;
+                position = at;
+                return true;
+            }
+
+            // Compact forms: "vsc" from initials, "weixin" from full pinyin, "sjg" from 设计稿.
+            if (entry.Initials.Length > 0)
+            {
+                if (entry.Initials.StartsWith(needle, StringComparison.Ordinal)) { score = ScoreInitialsPrefix; return true; }
+                if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal))
+                {
+                    score = ScoreInitialsContains;
+                    return true;
+                }
+            }
+
+            // Full pinyin only exists for Han names; for ASCII the field *is* the lower name
+            // (same instance), so this branch costs one reference check.
+            if (!ReferenceEquals(entry.Pinyin, name) && entry.Pinyin.Length > 0)
+            {
+                if (entry.Pinyin.StartsWith(needle, StringComparison.Ordinal)) { score = ScoreInitialsPrefix; return true; }
+                if (needle.Length >= 2 && entry.Pinyin.Contains(needle, StringComparison.Ordinal))
+                {
+                    score = ScoreInitialsContains;
+                    return true;
+                }
+            }
+
+            // Abbreviations typed as one word ("vscode"); short ones would match everything, and
+            // the density floor in TextMatch keeps scattered letters out.
+            if (needle.Length >= 3 && TextMatch.IsSubsequence(name, needle, out var gap))
+            {
+                score = ScoreSubsequence;
+                position = Math.Min(gap, 4096);
+                return true;
+            }
+        }
+
+        // The folders above it: still a hit ("jdk" finds D:\jdk-17\bin\java.exe), just a worse one.
+        var path = entry.PathSearch;
+        if (path.Length == 0) return false;
+
+        var segment = path.IndexOf("\\" + needle, StringComparison.Ordinal);
+        if (segment >= 0) { score = ScorePathSegment; position = segment; return true; }
+
+        var anywhere = path.IndexOf(needle, StringComparison.Ordinal);
+        if (anywhere >= 0) { score = ScorePathAnywhere; position = anywhere; return true; }
+
+        return false;
+    }
+
+    /// <summary>
     /// One query, prepared once per keystroke instead of once per entry: lower-case, '/' folded to
-    /// '\\', split on whitespace, and for each piece the "\piece" form used to prefer a match
-    /// that starts a path segment.
+    /// '\\', split on whitespace and on the path separator, so "download/set", "download\set" and
+    /// "download set" all become the same two-requirement query.
     /// </summary>
     private readonly struct QueryTokens
     {
         public readonly struct Token
         {
             public readonly string Text;
-            public readonly string? Boundary;   // "\" + Text, when Text does not start with a separator
 
-            public Token(string text)
-            {
-                Text = text;
-                Boundary = text.Length > 0 && text[0] != '\\' ? "\\" + text : null;
-            }
+            public Token(string text) => Text = text;
         }
 
         public readonly Token[] All;
@@ -593,126 +752,7 @@ public sealed class FileIndex
             return new QueryTokens(tokens, normalized);
         }
 
-        // Whitespace and the path separator both split: "download/set", "download\set" and
-        // "download set" are the same three-requirement query, and each piece still prefers to
-        // start on a segment boundary when the path offers one.
         private static readonly char[] Separators = { ' ', '\t', '\r', '\n', '\\' };
-    }
-
-    /// <summary>
-    /// Matches the tokens in order anywhere along the full path — the LIKE '%a%b%c%' shape — and
-    /// scores how much of the query the *end* of the path explains:
-    /// 0 the whole tail matches and starts on a segment boundary, 1 it matches the end,
-    /// 2 it starts at the file name, 3 it lands inside the file name, 4 only the folders matched.
-    /// Greedy left-to-right matching is exact for this pattern shape: '%' never needs backtracking.
-    /// </summary>
-    private static int RankPath(FileEntry entry, in QueryTokens tokens, out int gap, out bool nameHit)
-    {
-        var haystack = entry.PathSearch;
-        // The tail of the haystack is this entry's own segment (literal form, plus its pinyin form
-        // for Han names) — see SearchNameLength.
-        return RankAgainst(haystack, Math.Max(0, haystack.Length - entry.SearchNameLength),
-            tokens, out gap, out nameHit);
-    }
-
-    /// <summary>The greedy in-order scan itself, over one haystack.</summary>
-    private static int RankAgainst(string path, int nameStart, in QueryTokens tokens,
-        out int gap, out bool nameHit)
-    {
-        gap = 0;
-        nameHit = false;
-        if (path.Length == 0) return int.MaxValue;
-
-        var from = 0;
-        var lastStart = 0;
-        var firstAtBoundary = false;
-
-        for (var i = 0; i < tokens.Length; i++)
-        {
-            var token = tokens.All[i];
-            var found = IndexOfToken(path, token, from);
-            if (found < 0) return int.MaxValue;
-            if (i == 0) firstAtBoundary = found == 0 || path[found - 1] == '\\';
-            lastStart = found;
-            gap += found - from;
-            from = found + token.Text.Length;
-        }
-
-        nameHit = lastStart >= nameStart;
-        var atEnd = from == path.Length;
-
-        if (atEnd && firstAtBoundary && nameHit) return 0;
-        if (atEnd) return 1;
-        if (nameHit) return lastStart == nameStart ? 2 : 3;
-        return 4;
-    }
-
-    /// <summary>
-    /// First occurrence at or after <paramref name="from"/>, preferring one that starts a path
-    /// segment: "h" should find …\hermes-setup.exe, not the h of …\shi.pengbo\…
-    /// </summary>
-    private static int IndexOfToken(string path, in QueryTokens.Token token, int from)
-    {
-        if (token.Boundary is { } boundary)
-        {
-            var at = path.IndexOf(boundary, Math.Max(0, from - 1), StringComparison.Ordinal);
-            if (at >= 0) return at + 1;
-        }
-        return path.IndexOf(token.Text, from, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Name-only relevance, used when the path scan found nothing: the pinyin of "违规明细" is not
-    /// part of any path, so "weiguimingxi" can only be answered here. The folder is deliberately
-    /// not consulted — that is what the path layer is for.
-    /// </summary>
-    private static int Rank(FileEntry entry, string needle, string compact)
-    {
-        if (string.Equals(entry.Lower, needle, StringComparison.Ordinal)) return 0;
-        if (entry.Lower.StartsWith(needle, StringComparison.Ordinal)) return 1;
-        if (entry.Lower.Contains(needle, StringComparison.Ordinal)) return 2;
-        if (entry.Initials.Length >= needle.Length && entry.Initials.StartsWith(needle, StringComparison.Ordinal)) return 3;
-        if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 4;
-
-        // Full pinyin: "shejigao" → 设计稿. Only for letter queries, and only when the name really
-        // has Han characters (Pinyin equals Lower for ASCII names).
-        if (IsAsciiWord(needle) && entry.Pinyin.Length > 0
-            && !string.Equals(entry.Pinyin, entry.Lower, StringComparison.Ordinal))
-        {
-            if (entry.Pinyin.StartsWith(needle, StringComparison.Ordinal)) return 5;
-            if (needle.Length >= 3 && entry.Pinyin.Contains(needle, StringComparison.Ordinal)) return 6;
-        }
-
-        if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 7;
-        if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 7;
-        return int.MaxValue;
-    }
-
-    private static bool IsAsciiWord(string text)
-    {
-        if (text.Length == 0) return false;
-        foreach (var ch in text)
-            if (ch is < 'a' or > 'z') return false;
-        return true;
-    }
-
-    private static bool IsSubsequence(string text, string query)
-    {
-        var from = 0;
-        var first = true;
-        foreach (var ch in query)
-        {
-            if (ch == ' ') continue;
-            var found = text.IndexOf(ch, from);
-            if (first)
-            {
-                while (found > 0 && char.IsLetterOrDigit(text[found - 1])) found = text.IndexOf(ch, found + 1);
-            }
-            if (found < 0) return false;
-            from = found + 1;
-            first = false;
-        }
-        return true;
     }
 
     public List<(string Extension, int Count)> GetExtensionStats()
@@ -782,12 +822,19 @@ public sealed class FileIndex
         var token = cancellation.Token;
         IsBuilding = true;
         IconsWarm = false;
+        _activeRuleKey = rules.Key;
+
+        // The rules this walk is honouring. If they are replaced while the walk is in flight the
+        // result must be thrown away: publishing it would mark an index of the *old* roots as
+        // complete, wipe the "stale" flag and persist rows the next startup has to reject.
+        var stamp = _staleStamp;
 
         Task.Run(() =>
         {
             UsnApi.EnterBackgroundMode();
             var built = Build(rules, token, out var meta, out var cancelled);
-            if (!cancelled)
+            var superseded = stamp != _staleStamp;
+            if (!cancelled && !superseded)
             {
                 lock (_gate) ReplaceAllLocked(built, rules, meta);
 
@@ -814,16 +861,25 @@ public sealed class FileIndex
                 }
 
                 lock (_gate) LastBuilt = DateTime.Now;
+                LastBuildNote = meta.RootNotes.Count == 0
+                    ? string.Empty
+                    : string.Join("；", meta.RootNotes.Select(pair => $"{pair.Key} {pair.Value}"));
                 Save();
             }
 
             if (ReferenceEquals(_cancellation, cancellation)) IsBuilding = false;
 
-            if (!cancelled)
+            if (!cancelled && !superseded)
             {
                 IconsWarm = true;
                 Changed?.Invoke();
                 onDone?.Invoke();
+            }
+            else if (superseded)
+            {
+                // The rules moved under us: leave the old rows searchable and let the rebuild the
+                // caller already asked for replace them.
+                LastBuildNote = "规则已变更，本次构建结果被丢弃";
             }
 
             UsnApi.LeaveBackgroundMode();
@@ -854,13 +910,27 @@ public sealed class FileIndex
             {
                 token.ThrowIfCancellationRequested();
                 if (found.Count >= cap) break;
-                if (!Directory.Exists(root)) continue;
-                if (rules.IsExcluded(root)) continue;
+
+                // A root that contributes nothing must say so: a silently empty drive looks
+                // exactly like "the feature is broken", and that is what the user reports.
+                if (!Directory.Exists(root))
+                {
+                    meta.RootNotes[root] = "目录不存在";
+                    continue;
+                }
+                if (rules.IsExcluded(root))
+                {
+                    meta.RootNotes[root] = "被黑名单排除";
+                    continue;
+                }
 
                 rules.PerRoot.TryGetValue(root, out var cfg);
                 var depthCap = cfg is null || cfg.MaxDepth <= 0 ? int.MaxValue : cfg.MaxDepth;
                 var entryCap = cfg is null || cfg.MaxEntries <= 0 ? int.MaxValue : cfg.MaxEntries;
-                WalkRoot(root, rules, depthCap, entryCap, cap, found, seeds, token);
+                var before = found.Count;
+                var note = WalkRoot(root, rules, depthCap, entryCap, cap, found, seeds, token);
+                meta.RootCounts[root] = found.Count - before;
+                if (note is not null) meta.RootNotes[root] = note;
             }
 
             if (rules.DiscoverDriveRoots && !token.IsCancellationRequested)
@@ -893,21 +963,34 @@ public sealed class FileIndex
         return volumes;
     }
 
-    private void WalkRoot(string root, IndexRules rules, int depthCap, int entryCap, int globalLimit,
+    /// <summary>
+    /// Walks one root. Returns a note when the root was skipped outright (so the build report can
+    /// explain an empty drive instead of leaving the user guessing), null when it walked.
+    /// </summary>
+    private string? WalkRoot(string root, IndexRules rules, int depthCap, int entryCap, int globalLimit,
         List<FileEntry> into, Dictionary<ulong, string> seeds, CancellationToken token)
     {
         // A root that is itself a junction must be validated before anything under it is added.
         var realRoot = UsnApi.TryGetFinalPath(root);
         if (realRoot is not null && !string.Equals(realRoot, root, StringComparison.OrdinalIgnoreCase)
-            && rules.IsExcluded(realRoot)) return;
+            && rules.IsExcluded(realRoot)) return "真实路径被黑名单排除";
 
         using var rootHandle = UsnApi.OpenDirectory(root);
-        if (rootHandle.IsInvalid) return;
-        if (!UsnApi.TryGetIdentity(rootHandle, out var rootId, out _, out _)) return;
-        seeds[rootId] = root;
+        if (rootHandle.IsInvalid) return "无法打开目录";
+        if (!UsnApi.TryGetIdentity(rootHandle, out var rootId, out _, out _)) return "无法读取目录标识";
+
+        // The id is what a child's chain resolves against, and the *root directory of every
+        // volume is MFT record 5* — so "C:\" and "D:\" routinely carry the same file reference
+        // number. Without this guard the second walk steals the first root's seed and every
+        // child of the first drive resolves its path against the wrong letter.
+        var seedKey = rootId;
+        while (seeds.TryGetValue(seedKey, out var claimed)
+               && !string.Equals(claimed, root, StringComparison.OrdinalIgnoreCase))
+            seedKey = NextSeedId();
+        seeds[seedKey] = root;
 
         var pending = new Stack<(string Path, ulong Id, int Depth)>();
-        pending.Push((root, rootId, 0));
+        pending.Push((root, seedKey, 0));
         var counted = 0;
 
         while (pending.Count > 0 && counted < entryCap && into.Count < globalLimit)
@@ -948,6 +1031,8 @@ public sealed class FileIndex
                 if (child.IsDirectory && depth < depthCap) pending.Push((path, child.Id, depth + 1));
             }
         }
+
+        return null;
     }
 
     /// <summary>
@@ -967,7 +1052,7 @@ public sealed class FileIndex
                 if (rules.Roots.Any(root => string.Equals(Path.GetPathRoot(root), path, StringComparison.OrdinalIgnoreCase)))
                     continue;
                 if (rules.IsExcluded(path)) continue;
-                WalkRoot(path, rules, depthCap: 0, entryCap: int.MaxValue, globalLimit, into, seeds, token);
+                _ = WalkRoot(path, rules, depthCap: 0, entryCap: int.MaxValue, globalLimit, into, seeds, token);
             }
             catch { /* an unavailable drive is skipped */ }
         }
@@ -998,7 +1083,6 @@ public sealed class FileIndex
     {
         entry.Path = path;
         entry.PathSearch = Pinyin.SearchForm(path);
-        entry.SearchNameLength = Pinyin.SearchFormLength(entry.Lower, entry.Pinyin);
         entry.Folder = Path.GetDirectoryName(path) ?? string.Empty;
         return entry;
     }
@@ -1019,6 +1103,7 @@ public sealed class FileIndex
 
     private int ApplyJournal(IReadOnlyList<UsnRecord> records, IndexRules rules)
     {
+        if (!AcceptsDeltasLocked(rules)) return 0;
         var changed = ApplyLocked(records, rules);
         if (changed > 0)
         {
@@ -1026,6 +1111,17 @@ public sealed class FileIndex
             Changed?.Invoke();
         }
         return changed;
+    }
+
+    /// <summary>
+    /// A delta is only meaningful for the rule set the rows were built with. Applying watcher
+    /// notifications that belong to *new* rules (a root the walk has not visited yet) is what
+    /// created rows whose parent was never indexed: searchable once, gone after a restart.
+    /// The pending rebuild is what covers that window instead.
+    /// </summary>
+    private bool AcceptsDeltasLocked(IndexRules rules)
+    {
+        lock (_gate) return Meta.Complete && string.Equals(Meta.RuleKey, rules.Key, StringComparison.Ordinal);
     }
 
     private int ApplyLocked(IReadOnlyList<UsnRecord> records, IndexRules rules)
@@ -1114,6 +1210,8 @@ public sealed class FileIndex
     /// <summary>Watcher-sourced change: the path is known, the IDs come from the file itself.</summary>
     public int ApplyPathChanges(IReadOnlyList<PathChange> changes, IndexRules rules)
     {
+        if (!AcceptsDeltasLocked(rules)) return 0;
+
         var changed = 0;
         lock (_gate)
         {
@@ -1150,7 +1248,15 @@ public sealed class FileIndex
                     if (!string.Equals(existing.Path, change.Path, StringComparison.OrdinalIgnoreCase))
                     {
                         var parentPath = Path.GetDirectoryName(change.Path) ?? string.Empty;
-                        ReparentLocked(existing, ParentIdForPathLocked(parentPath), name, change.Path);
+                        var parentId = ParentIdForPathLocked(parentPath);
+                        if (parentId == 0)
+                        {
+                            // Moved somewhere the index does not reach: drop it instead of
+                            // reparenting it onto id 0, which no chain can ever resolve again.
+                            changed += RemoveSubtreeLocked(id);
+                            continue;
+                        }
+                        ReparentLocked(existing, parentId, name, change.Path);
                         changed++;
                     }
                     else
@@ -1162,7 +1268,12 @@ public sealed class FileIndex
                 }
 
                 var folder = Path.GetDirectoryName(change.Path) ?? string.Empty;
-                var entry = MakeEntry(id, ParentIdForPathLocked(folder), change.Path, name, isDirectory, FileTime(ticks));
+                var newParentId = ParentIdForPathLocked(folder);
+                // Without an indexed parent this row would carry a path nothing can rebuild: it
+                // would answer one search and be dropped as an orphan on the next restart.
+                if (newParentId == 0) continue;
+
+                var entry = MakeEntry(id, newParentId, change.Path, name, isDirectory, FileTime(ticks));
                 AddLocked(entry);
                 changed++;
                 if (isDirectory) changed += PopulateSubtreeLocked(entry, rules);
@@ -1351,10 +1462,10 @@ public sealed class FileIndex
         }
 
         Meta = meta;
+        _activeRuleKey = rules.Key;
         ResolvePathsLocked();
         MarkSearchDirtyLocked();
         RebuildStatsLocked();
-        _ = rules;
     }
 
     /// <summary>
@@ -1427,6 +1538,11 @@ public sealed class FileIndex
 
     private ulong _syntheticId = ulong.MaxValue;
     private ulong NextSyntheticId() => _syntheticId--;
+
+    // Root seeds get their own id range: an app row (above) and a disambiguated root seed must
+    // never be able to collide, or a root's children resolve against an app's row.
+    private ulong _seedId = ulong.MaxValue - 0x100000;
+    private ulong NextSeedId() => _seedId--;
 
     /// <summary>
     /// Drops every file of one extension from the index and from the stats. The settings list's
@@ -1572,7 +1688,12 @@ public sealed class FileIndex
         IndexMeta meta;
         lock (_gate)
         {
+            // The rows must belong to the rule set we were last asked to honour. Persisting a
+            // build that lost the race against a config change is how an index ends up on disk
+            // that the very next startup has to throw away — and how the watched deltas that
+            // arrived in between become parentless ghosts.
             if (!Meta.Complete || _byId.Count == 0) return;
+            if (_activeRuleKey is { } active && !string.Equals(Meta.RuleKey, active, StringComparison.Ordinal)) return;
             rows = new List<FileEntry>(_byId.Count);
             // App rows have no file id and no on-disk path: they are re-merged on load.
             foreach (var entry in _byId.Values)
@@ -1641,6 +1762,7 @@ public sealed class FileIndex
         lock (_gate)
         {
             Meta.Complete = false;
+            _staleStamp++;
             _dirty = true;
         }
     }

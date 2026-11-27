@@ -180,11 +180,27 @@ public partial class App : Application
         EnsureSearchJumpRules();
         // The shipped blacklist used to list drive letters; it is pattern-based now. Upgrade a
         // list nobody touched, and leave an edited one exactly as the user left it.
+        var excludesChanged = false;
         if (AppSettings.IsLegacyDefaultExcludes(Settings.FileIndexExcludes))
         {
             Settings.FileIndexExcludes = new List<string>(AppSettings.DefaultIndexExcludes);
-            Storage.SaveSettings(Settings);
+            excludesChanged = true;
         }
+        else if (Settings.IndexExcludesVersion < AppSettings.CurrentExcludesVersion
+                 && AppSettings.TryMergeDefaultExcludes(Settings.FileIndexExcludes, out var mergedExcludes))
+        {
+            // A newer release knows about more junk folders (caches, build output, IM caches).
+            // Append them so nobody has to hand-edit the list, without touching entries the user
+            // added themselves or resurrecting one they deleted.
+            Settings.FileIndexExcludes = mergedExcludes;
+            excludesChanged = true;
+        }
+        if (Settings.IndexExcludesVersion != AppSettings.CurrentExcludesVersion)
+        {
+            Settings.IndexExcludesVersion = AppSettings.CurrentExcludesVersion;
+            excludesChanged = true;
+        }
+        if (excludesChanged) Storage.SaveSettings(Settings);
         Settings.PanelOpacity = Math.Clamp(Settings.PanelOpacity, 0.0, 1.0);
         if (!IsHexColor(Settings.DockColor)) Settings.DockColor = "#FFFFFF";
         if (!HotkeyService.TryParse(Settings.Hotkey, out _, out _)) Settings.Hotkey = "Ctrl+Alt+J";
@@ -230,6 +246,8 @@ public partial class App : Application
         // is missing (first run, or another rule set) does an explicit rebuild create it.
         Files = new FileIndex(Storage.Directory);
         Files.Changed += OnFileIndexChanged;
+        Usage = new UsageStore(Storage.Directory);
+        Files.Usage = Usage;
         FileSync = new FileIndexSync(Files, BuildIndexRules, () => Settings.FileSearchEnabled);
         var rules = BuildIndexRules();
         Task.Run(() =>
@@ -245,6 +263,10 @@ public partial class App : Application
                     if (!IsShuttingDown && Launcher.IsOpen) Launcher.RefreshFileResults();
                 }, DispatcherPriority.Background);
             }
+
+            // Opening history only ever shrinks in value: forget the paths that moved away, and
+            // leave the write to the idle moment.
+            try { Usage.Prune(); } catch (Exception ex) { Log(ex); }
 
             FileSync.Start();
         });
@@ -297,6 +319,9 @@ public partial class App : Application
 
     /// <summary>Keeps <see cref="Files"/> current through the USN journal or directory watchers.</summary>
     public FileIndexSync FileSync { get; private set; } = null!;
+
+    /// <summary>Which files the user actually opens from the panel — the ranking's only "mine" signal.</summary>
+    public UsageStore Usage { get; private set; } = new();
 
     /// <summary>Registry-backed index of installed applications (independent of the file index).</summary>
     public AppIndex Apps { get; } = new();
@@ -486,6 +511,9 @@ public partial class App : Application
             .Where(e => e.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        // The user now owns this list: a future release may still append what it newly excludes,
+        // but it must never re-add something removed here.
+        Settings.IndexExcludesVersion = AppSettings.CurrentExcludesVersion;
         SaveSettings();
         MarkIndexRulesChanged();
     }
@@ -963,6 +991,8 @@ public partial class App : Application
 
             var report =
                 $"roots ({roots.Count}):\n  " + string.Join("\n  ", roots) +
+                $"\nper root: " + string.Join(", ", index.RootCounts.Select(pair => $"{pair.Key}={pair.Value}")) +
+                (index.LastBuildNote.Length > 0 ? $"\nnotes: {index.LastBuildNote}" : string.Empty) +
                 $"\nrows: {index.Count}\nbuild: {watch.ElapsedMilliseconds} ms" +
                 $"\nmemory: {index.MemoryBytes / 1024 / 1024} MB" +
                 $"\nextensions: {index.GetExtensionStats().Count}" +
@@ -1148,8 +1178,11 @@ public partial class App : Application
             Settings.FileSearchRootsCustomized = true;
             Files = new FileIndex(data);
             Files.Start(BuildIndexRules());
-            for (var i = 0; i < 400 && Files.IsBuilding; i++) await Task.Delay(50);
+            // A whole-drive probe needs longer than a folder one; 900 × 200 ms ≈ 3 minutes.
+            for (var i = 0; i < 900 && Files.IsBuilding; i++) await Task.Delay(200);
             lines.Add($"index: {Files.Count} entries building={Files.IsBuilding}");
+            lines.Add("roots: " + string.Join(", ", Files.RootCounts.Select(pair => $"{pair.Key}={pair.Value}"))
+                      + (Files.LastBuildNote.Length > 0 ? "  |  " + Files.LastBuildNote : string.Empty));
             lines.Add("extensions: " + string.Join(" ", Settings.FileIndexExtensions.Take(20)));
 
             foreach (var query in queries)

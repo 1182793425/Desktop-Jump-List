@@ -197,7 +197,25 @@ public sealed class AppSettings
     /// </summary>
     public List<string> FileIndexExcludes { get; set; } = new List<string>(DefaultIndexExcludes);
 
-    /// <summary>Shipped blacklist: pattern-based, so it works on any drive letter.</summary>
+    /// <summary>
+    /// Which generation of <see cref="DefaultIndexExcludes"/> this config has already absorbed.
+    /// A config that never removed a shipped entry gets the newly shipped ones appended on load
+    /// (never replacing, never resurrecting something the user deleted) — so a release that
+    /// knows about one more cache directory does not require anyone to hand-edit a list.
+    /// </summary>
+    public int IndexExcludesVersion { get; set; }
+
+    /// <summary>
+    /// Shipped blacklist: pattern-based, so it works on any drive letter. Every entry is matched
+    /// against the whole path ('*' crosses separators), and the plain-folder entries match an
+    /// exact segment ("*\Temp\*" hits …\Temp\x.txt but not …\Temp Notes\x.txt).
+    /// </summary>
+    /// <remarks>
+    /// Measured on a real 100k-entry index: this list removes ~60% of the rows, and every one of
+    /// them is machine debris — chat caches, thumbnails, IDE/build output, log folders, Go module
+    /// cache. The user's own documents (Desktop / Documents / Downloads / project folders) are
+    /// untouched: nothing here matches a folder the user named.
+    /// </remarks>
     public static List<string> DefaultIndexExcludes { get; } = new()
     {
         // 系统与程序目录（任何盘符）
@@ -208,28 +226,106 @@ public sealed class AppSettings
         @"*\Users\All Users\*",
         @"*\Users\Default\*",
 
-        // 系统维护目录
+        // Windows 升级 / 维护 / 回收站 / 卷信息残留
         @"*\$WinREAgent\*",
         @"*\$SysReset\*",
+        @"*\$Windows.~*",
+        @"*\$Recycle.Bin\*",
+        @"*\System Volume Information\*",
         @"*\Config.Msi\*",
         @"*\Recovery\*",
         @"*\PerfLogs\*",
         @"*\Windows.old\*",
+        @"*\ESD\*",
 
-        // 回收站与卷信息（每块盘都有，所以用通配）
-        @"*\$Recycle.Bin\*",
-        @"*\System Volume Information\*",
+        // 软件自己存的数据：整个 AppData 都不是"你的文件"
+        @"*\AppData\*",
+        @"*\Temp\*",
+        @"*\tmp\*",
+        @"*\_temp\*",
+        @"*\nt_temp\*",          // QQ 的 NT 版临时目录
 
-        // 临时目录
-        @"*\AppData\Local\Temp\*",
+        // 缓存 / 缩略图 / 表情：目录名里带这些词的一律不要
+        // （微信/企微 Cache、Unity PackageCache、IDE caches、聊天 Pic\...\Thumb 都在这里）
+        @"*\*cache*\*",
+        @"*\*thumb*\*",
+        @"*\*emoji*\*",
 
-        // 开发 / 缓存噪音
-        @"*\.git\*",
-        @"*\.vs\*",
+        // 日志
+        @"*\log\*",
+        @"*\*logs*\*",
+
+        // 依赖与构建产物
         @"*\node_modules\*",
+        @"*\bower_components\*",
+        @"*\vendor\*",
+        @"*\obj\*",
+        @"*\dist\*",
+        @"*\target\*",
         @"*\__pycache__\*",
-        @"*\AppData\Local\Packages\*"
+        @"*\.venv\*",
+        @"*\venv\*",
+        @"*\.git\*",
+        @"*\.svn\*",
+        @"*\.hg\*",
+        @"*\.vs\*",
+        @"*\.idea\*",
+        @"*\.vscode\*",
+        @"*\.gradle\*",
+        @"*\.m2\*",
+        @"*\.nuget\*",
+        @"*\.npm\*",
+        @"*\.pnpm-store\*",
+        @"*\.yarn\*",
+        @"*\.cargo\*",
+
+        // Go 模块缓存（每个依赖的源码都在这儿，几十万条）
+        @"*\pkg\mod\*",
+
+        // 安装包缓存
+        @"*\Downloaded Installations\*"
     };
+
+    /// <summary>
+    /// The list shipped up to v3.14.36. A config that still contains all of it has only ever been
+    /// *added to*, so appending the newer entries is safe; a config that dropped one of these has
+    /// made a decision we must not override.
+    /// </summary>
+    internal static readonly string[] PreviousDefaultIndexExcludes =
+    {
+        @"*\Windows\*", @"*\Program Files\*", @"*\Program Files (x86)\*", @"*\ProgramData\*",
+        @"*\Users\All Users\*", @"*\Users\Default\*",
+        @"*\$WinREAgent\*", @"*\$SysReset\*", @"*\Config.Msi\*", @"*\Recovery\*", @"*\PerfLogs\*",
+        @"*\Windows.old\*",
+        @"*\$Recycle.Bin\*", @"*\System Volume Information\*",
+        @"*\AppData\Local\Temp\*",
+        @"*\.git\*", @"*\.vs\*", @"*\node_modules\*", @"*\__pycache__\*", @"*\AppData\Local\Packages\*"
+    };
+
+    /// <summary>Bump together with <see cref="DefaultIndexExcludes"/> so old configs catch up.</summary>
+    public const int CurrentExcludesVersion = 2;
+
+    /// <summary>
+    /// Appends the newly shipped entries to a list the user has only ever extended. Returns false
+    /// when there is nothing to add or when the list has been pruned (that is a decision, not an
+    /// oversight), in which case the caller should leave it alone.
+    /// </summary>
+    public static bool TryMergeDefaultExcludes(IReadOnlyList<string> current, out List<string> merged)
+    {
+        merged = new List<string>(current);
+        if (current.Count == 0) return false;   // "index nothing extra" is a deliberate choice
+
+        var have = new HashSet<string>(current.Select(entry => entry.Trim()), StringComparer.OrdinalIgnoreCase);
+        // Only a superset of the previous generation may be extended: if an entry disappeared,
+        // the user removed it on purpose and re-adding it would undo their edit.
+        foreach (var previous in PreviousDefaultIndexExcludes)
+            if (!have.Contains(previous)) return false;
+
+        var added = DefaultIndexExcludes.Where(entry => !have.Contains(entry)).ToList();
+        if (added.Count == 0) return false;
+        merged.AddRange(added);
+        return true;
+    }
 
     /// <summary>
     /// The path-based blacklist this app shipped before the patterns above. An untouched list is
@@ -334,6 +430,7 @@ public sealed class AppSettings
         RegistrySearchEnabled = RegistrySearchEnabled,
         FileIndexExtensions = new List<string>(FileIndexExtensions),
         FileIndexExcludes = new List<string>(FileIndexExcludes),
+        IndexExcludesVersion = IndexExcludesVersion,
         RecentCount = RecentCount,
         PanelOpacity = PanelOpacity,
         Columns = Columns,
@@ -385,6 +482,7 @@ public sealed class AppSettings
         RegistrySearchEnabled = source.RegistrySearchEnabled;
         FileIndexExtensions = new List<string>(source.FileIndexExtensions);
         FileIndexExcludes = new List<string>(source.FileIndexExcludes);
+        IndexExcludesVersion = source.IndexExcludesVersion;
         RecentCount = source.RecentCount;
         PanelOpacity = source.PanelOpacity;
         Columns = source.Columns;

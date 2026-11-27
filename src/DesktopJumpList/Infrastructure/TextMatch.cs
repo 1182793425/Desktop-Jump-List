@@ -56,7 +56,13 @@ public static class TextMatch
     /// character must sit on a word boundary, so "ode" does not pile up noise, and
     /// <paramref name="gap"/> (the number of skipped characters) orders the surviving hits.
     /// </summary>
-    public static bool IsSubsequence(string text, string query, out int gap)
+    /// <remarks>
+    /// A hit must also contain at least <paramref name="minAdjacent"/> run of two neighbouring
+    /// characters ("vscode" carries "od"/"de", "visual studio code" is a real abbreviation). Without
+    /// that floor, any three letters scattered across a long file name matched — "sjg" used to
+    /// return "sticker18-CJ6dyGZ3.png" — and the list drowned in noise.
+    /// </remarks>
+    public static bool IsSubsequence(string text, string query, out int gap, int minAdjacent = 1)
     {
         gap = 0;
         if (query.Length == 0 || text.Length < query.Length) return false;
@@ -64,6 +70,7 @@ public static class TextMatch
         var from = 0;
         var previous = -1;
         var first = true;
+        var adjacent = 0;
 
         foreach (var ch in query)
         {
@@ -74,13 +81,17 @@ public static class TextMatch
                 found = text.IndexOf(ch, found + 1);
 
             if (found < 0) { gap = 0; return false; }
-            if (previous >= 0) gap += found - previous - 1;
+            if (previous >= 0)
+            {
+                gap += found - previous - 1;
+                if (found == previous + 1) adjacent++;
+            }
             previous = found;
             from = found + 1;
             first = false;
         }
 
-        return true;
+        return adjacent >= minAdjacent;
     }
 
     /// <summary>True when some word of <paramref name="text"/> starts with <paramref name="query"/>.</summary>

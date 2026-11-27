@@ -222,8 +222,8 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- 全局（全量）搜索的触发门槛：不到这个长度只搜最近 24 小时改过的文件，
-                                     到了才全盘扫。结构照「索引条目上限」那一行来：输入框 → 单位 → ⓘ 结尾。 -->
+                                <!-- 全局（全量）搜索的触发门槛：不到这个长度就不检索本地文件，
+                                     到了才扫整个索引。结构照「索引条目上限」那一行来：输入框 → 单位 → ⓘ 结尾。 -->
                                 <Grid Margin="0,10,0,0">
                                     <TextBlock Text="全局搜索触发字符数" Style="{StaticResource RowLabel}"
                                                VerticalAlignment="Center" />
@@ -240,7 +240,7 @@
                                         <TextBlock Text=" 字符" Style="{StaticResource Hint}"
                                                    VerticalAlignment="Center" Margin="6,0,0,0" />
                                         <TextBlock Style="{StaticResource InfoDot}"
-                                                   ToolTip="普通搜索（不写 /s）输入到这个长度才做全量检索；不足这个长度时只检索最近 24 小时内修改过的文件，速度更快。默认 3。/s 是手写的，直接全量检索，不带关键词时按最近修改排序。" />
+                                                   ToolTip="普通搜索（不写 /s）输入到这个长度才开始检索本地文件；不足这个长度时列表里不出现「本地文件」一段，并在没有其它命中时提示还差几个字符。默认 3。/s 是手写的，直接从第一个字符开始检索，不带关键词时按最近修改排序。" />
                                     </StackPanel>
                                 </Grid>
 
@@ -346,7 +346,7 @@
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
                                            Text="条目可以是文件夹路径（支持 %环境变量%，整棵子树都不索引）、文件名（如 thumbs.db，全盘同名项都排除），也可以是通配符，例如 *.bak、~$*、*\cache\*。更改在下次手动重建索引时生效。" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="2,0,0,8"
-                                           Text="始终生效的内置排除：文件名以 ~$ 开头的 Office 临时文件；带「隐藏」或「系统」属性的文件与文件夹（回收站 $I/$R、系统元数据等）。" />
+                                           Text="内置默认已经排掉系统与程序目录、AppData、临时目录、名字带 cache / thumb / emoji 的目录、log、依赖与构建产物（node_modules、vendor、obj、dist、target、.git 等）。始终生效的还有：以 ~$ 开头的 Office 临时文件、以 . 开头的名字、带「隐藏」或「系统」属性的文件与文件夹。" />
                                 <!-- 同结构：筛选 + 分隔线 + 列表 -->
                                 <StackPanel x:Name="ExcludeHost" Tag="ScrollZone" Margin="2,10,10,0">
                                     <Grid>

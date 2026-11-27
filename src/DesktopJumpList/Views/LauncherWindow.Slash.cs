@@ -109,7 +109,10 @@ public partial class LauncherWindow
         }
         else if (index.Count == 0)
         {
-            emptyText = "索引中没有可搜索的项目，可检查索引目录与白名单后重建";
+            // Say *why* a configured drive came back empty instead of the generic hint.
+            emptyText = index.LastBuildNote.Length > 0
+                ? $"索引中没有可搜索的项目：{index.LastBuildNote}"
+                : "索引中没有可搜索的项目，可检查索引目录与白名单后重建";
         }
         else
         {
@@ -141,11 +144,12 @@ public partial class LauncherWindow
     private async void LoadInitialFileResults(string terms, int generation, FileIndex index)
     {
         List<FileEntry> matches;
+        var token = NextFileSearchToken();
         try
         {
             matches = await Task.Run(() => terms.Length == 0
                 ? index.Take(FileResultPageSize + 1)
-                : index.Search(terms, FileResultPageSize + 1));
+                : index.Search(terms, FileResultPageSize + 1, 0, token));
         }
         catch { return; }
 
@@ -215,11 +219,12 @@ public partial class LauncherWindow
         var skip = _fileResultsSkip;
         _fileLoadingMore = true;
         List<FileEntry> matches;
+        var token = NextFileSearchToken();
         try
         {
             matches = await Task.Run(() => query.Length == 0
                 ? App.Current.Files.Take(FileResultPageSize + 1, skip)
-                : App.Current.Files.Search(query, FileResultPageSize + 1, skip));
+                : App.Current.Files.Search(query, FileResultPageSize + 1, skip, token));
         }
         catch
         {
@@ -305,11 +310,12 @@ public partial class LauncherWindow
         _fileLoadingMore = true;
 
         List<FileEntry> matches;
+        var token = NextFileSearchToken();
         try
         {
             matches = await Task.Run(() => terms.Length == 0
                 ? index.Take(want + 1)
-                : index.Search(terms, want + 1));
+                : index.Search(terms, want + 1, 0, token));
         }
         catch
         {
@@ -507,7 +513,10 @@ public partial class LauncherWindow
             if (fileMode || plainMode)
             {
                 RefreshFileResults();
-                ShowMessage($"索引已更新（{App.Current.Files.Count} 项）");
+                var note = App.Current.Files.LastBuildNote;
+                ShowMessage(note.Length > 0
+                    ? $"索引已更新（{App.Current.Files.Count} 项）· {note}"
+                    : $"索引已更新（{App.Current.Files.Count} 项）");
             }
         }));
     }

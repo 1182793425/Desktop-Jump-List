@@ -84,13 +84,6 @@ public static class Pinyin
         return string.Join('\\', segments);
     }
 
-    /// <summary>Length this segment occupies inside <see cref="SearchForm"/>, for name-boundary math.</summary>
-    public static int SearchFormLength(string segment, string compactPinyin)
-    {
-        if (string.IsNullOrEmpty(segment)) return 0;
-        return HasHan(segment) ? segment.Length + 1 + compactPinyin.Length : segment.Length;
-    }
-
     /// <summary>
     /// Full pinyin, lower-case and compact: 设计稿 → "shejigao", 违规明细_qsi.csv →
     /// "weiguimingxi_qsi.csv". Pure-ASCII text is returned lower-cased untouched, which both keeps

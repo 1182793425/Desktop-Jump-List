@@ -1,4 +1,4 @@
- ﻿using System.Collections.ObjectModel;
+﻿ ﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Collections.Specialized;
@@ -520,7 +520,7 @@ public partial class LauncherWindow : Window
             if (!string.Equals(_plainFileQuery, q, StringComparison.Ordinal)) ResetPlainFileResults(q);
             if (_plainFileRows.Count > 0)
             {
-                _plainFileDivider ??= new DividerRow(PlainFileSectionTitle(q));
+                _plainFileDivider ??= new DividerRow(PlainFileSectionText);
                 next.Add(_plainFileDivider);
                 next.AddRange(_plainFileRows);
             }
@@ -573,7 +573,7 @@ public partial class LauncherWindow : Window
 
         bool noMatch = q.Length > 0 && next.Count == 0;
         NoMatch.Visibility = noMatch ? Visibility.Visible : Visibility.Collapsed;
-        NoMatch.Text = noMatch ? $"没有找到 “{q}”" : string.Empty;
+        NoMatch.Text = noMatch ? NoMatchText(q) : string.Empty;
         ResultCount.Text = q.Length > 0 && items.Count > 0 ? items.Count.ToString() : string.Empty;
 
         if (q.Length > 0)
@@ -626,29 +626,46 @@ public partial class LauncherWindow : Window
     /// <summary>Pages pulled automatically because the loaded ones fit on screen (bounded).</summary>
     private int _plainAutoPages;
 
+    /// <summary>
+    /// Cancels the file search that the previous keystroke started. The generation counter already
+    /// throws its result away, but nothing stopped it from scanning 100k entries to completion.
+    /// </summary>
+    private CancellationTokenSource? _fileSearchCts;
+
+    private CancellationToken NextFileSearchToken()
+    {
+        var previous = _fileSearchCts;
+        var next = new CancellationTokenSource();
+        _fileSearchCts = next;
+        try { previous?.Cancel(); } catch { /* already finished */ }
+        return next.Token;
+    }
+
+    /// <summary>
+    /// How many characters a plain query needs before the index joins in — the user's setting,
+    /// applied honestly. A short query used to be quietly narrowed to "the last 24 hours", which
+    /// made a file the user could see in Explorer simply not exist; below the threshold the
+    /// section now stays away and says why instead.
+    /// </summary>
+    private static int PlainFileMinChars => Math.Max(1, CurrentSettings.FileSearchMinChars);
+
+    /// <summary>The empty-list line: be specific about a query that is simply too short.</summary>
+    private static string NoMatchText(string query) =>
+        PlainFileSearchTooShort(query)
+            ? $"「{query}」太短：本地文件检索需要至少 {PlainFileMinChars} 个字符"
+            : $"没有找到 “{query}”";
+
     /// <summary>True when a plain query should also read the local index.</summary>
     private static bool PlainFileSearchActive(string query) =>
-        query.Length > 0 && !query.StartsWith('/')
+        query.Length > 0 && query.Length >= PlainFileMinChars && !query.StartsWith('/')
         && CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery;
 
-    /// <summary>
-    /// Below the configured length a plain query stays inside the last day of activity instead of
-    /// walking the whole index: one or two characters match nearly everything, so a full scan buys
-    /// nothing but cost. Null means "search everything".
-    /// </summary>
-    /// <summary>
-    /// The file section says which mode it is in: a short query only looks at the last day, and
-    /// showing that beats leaving the user wondering why so few files are listed.
-    /// </summary>
-    private static string PlainFileSectionTitle(string query) =>
-        PlainFileSince(query) is null
-            ? "本地文件"
-            : $"本地文件 · 近 24 小时（输入 {Math.Max(1, CurrentSettings.FileSearchMinChars)} 个字符搜全部）";
+    /// <summary>True while the query is too short for the local index to answer it.</summary>
+    private static bool PlainFileSearchTooShort(string query) =>
+        query.Length > 0 && query.Length < PlainFileMinChars && !query.StartsWith('/')
+        && CurrentSettings.FileSearchEnabled && CurrentSettings.FileSearchOnPlainQuery;
 
-    private static DateTime? PlainFileSince(string query) =>
-        query.Length >= Math.Max(1, CurrentSettings.FileSearchMinChars)
-            ? null
-            : DateTime.UtcNow.AddHours(-24);
+    private const string PlainFileSectionText = "本地文件";
 
     /// <summary>Forgets the file section of the previous query (rows disappear next rebuild).</summary>
     private void DropPlainFileResults()
@@ -657,6 +674,7 @@ public partial class LauncherWindow : Window
         // The in-flight page of the old query is now orphaned: its result is discarded by the
         // generation check, so the loading flag must not block the new query's own search.
         // Typing cancels the running search instead of queueing behind it.
+        try { _fileSearchCts?.Cancel(); } catch { /* already finished */ }
         _plainFileLoading = false;
         _plainFileQuery = null;
         _plainFileDivider = null;
@@ -671,7 +689,7 @@ public partial class LauncherWindow : Window
     {
         DropPlainFileResults();
         _plainFileQuery = query;
-        _plainFileDivider = new DividerRow(PlainFileSectionTitle(query));
+        _plainFileDivider = new DividerRow(PlainFileSectionText);
         LoadPlainFilePage(query, replace: true);
     }
 
@@ -694,8 +712,8 @@ public partial class LauncherWindow : Window
         _plainFileLoading = true;
 
         List<FileEntry> matches;
-        var since = PlainFileSince(query);
-        try { matches = await Task.Run(() => index.Search(query, PlainFilePageSize + 1, skip, since)); }
+        var token = NextFileSearchToken();
+        try { matches = await Task.Run(() => index.Search(query, PlainFilePageSize + 1, skip, token)); }
         catch
         {
             if (generation == _plainFileGeneration) _plainFileLoading = false;
@@ -826,7 +844,8 @@ public partial class LauncherWindow : Window
         _plainFileLoading = true;
 
         List<FileEntry> matches;
-        try { matches = await Task.Run(() => index.Search(query, want + 1, 0, PlainFileSince(query))); }
+        var token = NextFileSearchToken();
+        try { matches = await Task.Run(() => index.Search(query, want + 1, 0, token)); }
         catch
         {
             if (generation == _plainFileGeneration) _plainFileLoading = false;
@@ -1321,6 +1340,10 @@ public partial class LauncherWindow : Window
     /// </summary>
     private void RecordFileUse(FileEntry file)
     {
+        // Remember the open for ranking: this is what lifts a file the user works with every day
+        // above the noise, without needing a frequency pass over the whole index.
+        if (!FileIndex.IsAppEntry(file)) App.Current.Usage.Record(file.Path);
+
         if (FileIndex.IsAppEntry(file))
             _library.RecordRecent(file.Name, FileIndex.AppAumId(file), ShortcutKind.AppX);
         else
