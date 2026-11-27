@@ -355,8 +355,11 @@
 
                                     <TextBlock Grid.Row="4" Text="搜索框" Style="{StaticResource GridLabel}"
                                                VerticalAlignment="Center" />
+                                    <!-- 开关只有 22 高、输入框 26 高：各补一点外边距，两行的行高
+                                         和上下间距才和上面那三行数值一模一样（30 / 4）。 -->
                                     <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="8"
-                                                Orientation="Horizontal" VerticalAlignment="Center">
+                                                Orientation="Horizontal" VerticalAlignment="Center"
+                                                Margin="0,4">
                                         <CheckBox x:Name="SearchBoxSwitch" Style="{StaticResource Switch}"
                                                   VerticalAlignment="Center" Click="OnSearchBoxVisibleClick" />
                                         <TextBlock Style="{StaticResource InlineHint}" Text="默认显示" />
@@ -365,7 +368,8 @@
                                     <TextBlock Grid.Row="5" Text="宽度" Style="{StaticResource GridLabel}"
                                                VerticalAlignment="Center" />
                                     <StackPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="8"
-                                                Orientation="Horizontal" VerticalAlignment="Center">
+                                                Orientation="Horizontal" VerticalAlignment="Center"
+                                                Margin="0,2">
                                         <TextBox x:Name="SearchWidthBox" Style="{StaticResource SettingsNumber}"
                                                  VerticalAlignment="Center" />
                                         <TextBlock Text="px" Style="{StaticResource Unit}" />
