@@ -534,8 +534,8 @@ public sealed class FileIndex
             // Throw instead of returning a short list: "cancelled" must never be mistaken for
             // "no hits", or a superseded keystroke would truncate the list on screen.
             if ((++scanned & 0x3FF) == 0) cancellation.ThrowIfCancellationRequested();
-            if (!TryMatch(entry, tokens, out var score, out var position)) continue;
-            hits.Add(new Hit(entry, score, position, usage?.Boost(entry.Path) ?? 0));
+            if (!TryMatch(entry, tokens, out var score, out var tail)) continue;
+            hits.Add(new Hit(entry, score, tail, usage?.Boost(entry.Path) ?? 0));
         }
 
         var start = Math.Max(0, skip);
@@ -617,52 +617,59 @@ public sealed class FileIndex
     /// <summary>A file is the better answer than a folder for the same text.</summary>
     private const int ScoreDirectory = 1;
 
-    /// <summary>One scored row: <see cref="Score"/> ascending, <see cref="Boost"/> is usage weight.</summary>
-    private readonly record struct Hit(FileEntry Entry, int Score, int Position, int Boost);
+    /// <summary>
+    /// One scored row. <see cref="Score"/> is what kind of hit it is (see the ladder below),
+    /// <see cref="Tail"/> is how many characters sit between the match and the end of the path —
+    /// the closer to the end, the better. <see cref="Boost"/> is usage.
+    /// </summary>
+    private readonly record struct Hit(FileEntry Entry, int Score, int Tail, int Boost);
 
     private static readonly Comparison<Hit> HitOrder = (a, b) =>
     {
         var byScore = a.Score.CompareTo(b.Score);
         if (byScore != 0) return byScore;
-        // What the user actually opens wins a tie — this is the only memory the index has of
-        // "mine", and it is what makes a frequently used file float above its neighbours.
+        // Within one kind of hit, the match closest to the end of the path wins: "报告" prefers
+        // …\季度报告.docx over …\报告\readme.txt, and every ".png" hit ties here (the extension
+        // *is* the end), so an extension query falls straight through to recency.
+        var byTail = a.Tail.CompareTo(b.Tail);
+        if (byTail != 0) return byTail;
         var byUse = b.Boost.CompareTo(a.Boost);
         if (byUse != 0) return byUse;
-        var byPosition = a.Position.CompareTo(b.Position);
-        if (byPosition != 0) return byPosition;
         var byTime = b.Entry.WriteTime.CompareTo(a.Entry.WriteTime);
         return byTime != 0 ? byTime : a.Entry.Name.Length.CompareTo(b.Entry.Name.Length);
     };
 
     /// <summary>
-    /// One entry against one prepared query: every word has to be accounted for, in any order,
-    /// and the score of a word is the best place it was found (its own name beats a folder above
-    /// it). <paramref name="position"/> sums the offsets so a shallower match wins a tie.
+    /// One entry against one prepared query: every word has to be accounted for, in any order.
+    /// The score is the sum of the per-word kinds; the tail is the *smallest* of the per-word
+    /// distances, i.e. the word that landed closest to the end of the path decides the ordering.
     /// </summary>
-    private static bool TryMatch(FileEntry entry, in QueryTokens tokens, out int score, out int position)
+    private static bool TryMatch(FileEntry entry, in QueryTokens tokens, out int score, out int tail)
     {
         score = 0;
-        position = 0;
+        tail = int.MaxValue;
         foreach (var token in tokens.All)
         {
-            if (!ScoreToken(entry, token, out var one, out var at)) return false;
+            if (!ScoreToken(entry, token, out var one, out var distance)) return false;
             score += one;
-            position += at;
+            if (distance < tail) tail = distance;
         }
 
         if (entry.IsDirectory) score += ScoreDirectory;
+        if (tail == int.MaxValue) tail = 0;
         return true;
     }
 
     /// <summary>
-    /// How well one word fits one entry. The name is asked first and in full (exact, prefix, word
-    /// start, substring, initials/pinyin, abbreviation); only when the name says nothing do the
-    /// folders above it get a say.
+    /// How well one word fits one entry, and how far it landed from the end.
+    /// The name is asked first and in full (exact, prefix, word start, substring,
+    /// initials/pinyin, abbreviation); only when the name says nothing do the folders above it
+    /// get a say.
     /// </summary>
-    private static bool ScoreToken(FileEntry entry, in QueryTokens.Token token, out int score, out int position)
+    private static bool ScoreToken(FileEntry entry, in QueryTokens.Token token, out int score, out int tail)
     {
         score = 0;
-        position = 0;
+        tail = 0;
 
         var needle = token.Text;
         var name = entry.Lower;
@@ -671,16 +678,22 @@ public sealed class FileIndex
             // One IndexOf answers three questions: prefix, word start, plain substring. Doing it
             // twice (once for "starts a word", once for "is in there") doubled the scan cost.
             var at = name.IndexOf(needle, StringComparison.Ordinal);
-            if (at == 0) { score = name.Length == needle.Length ? ScoreNameExact : ScoreNamePrefix; return true; }
+            if (at == 0)
+            {
+                score = name.Length == needle.Length ? ScoreNameExact : ScoreNamePrefix;
+                tail = name.Length - needle.Length;
+                return true;
+            }
             if (at > 0)
             {
-                var wordStart = !char.IsLetterOrDigit(name[at - 1]);
-                score = wordStart ? ScoreNameWord : ScoreNameContains;
-                // ".png" matches every file of that type at *its own* offset, so the offset
-                // only says "shorter name wins" — which puts 0.png, 1.png, 2.png above the
-                // screenshot the user just saved. An extension carries no position signal;
-                // let the tie fall through to recency.
-                position = needle[0] == '.' ? 0 : at;
+                // A "word start" needs a word on both sides: the needle has to begin with a
+                // letter or digit, and the character before the match must not be one. Without
+                // the first half, ".png" scored better after a bracket ("（demo数据）.png") than
+                // after a letter ("settings.png") — purely because of the character in front of
+                // it, not because the match was any better.
+                var startsWord = char.IsLetterOrDigit(needle[0]) && !char.IsLetterOrDigit(name[at - 1]);
+                score = startsWord ? ScoreNameWord : ScoreNameContains;
+                tail = name.Length - at - needle.Length;
                 return true;
             }
 
@@ -696,7 +709,8 @@ public sealed class FileIndex
             }
 
             // Full pinyin only exists for Han names; for ASCII the field *is* the lower name
-            // (same instance), so this branch costs one reference check.
+            // (same instance), so this branch costs one reference check. The stored string also
+            // carries the alternate readings of polyphones after a separator.
             if (!ReferenceEquals(entry.Pinyin, name) && entry.Pinyin.Length > 0)
             {
                 if (entry.Pinyin.StartsWith(needle, StringComparison.Ordinal)) { score = ScoreInitialsPrefix; return true; }
@@ -712,7 +726,7 @@ public sealed class FileIndex
             if (needle.Length >= 3 && TextMatch.IsSubsequence(name, needle, out var gap))
             {
                 score = ScoreSubsequence;
-                position = Math.Min(gap, 4096);
+                tail = Math.Min(gap, 4096);
                 return true;
             }
         }
@@ -722,10 +736,20 @@ public sealed class FileIndex
         if (path.Length == 0) return false;
 
         var segment = path.IndexOf("\\" + needle, StringComparison.Ordinal);
-        if (segment >= 0) { score = ScorePathSegment; position = segment; return true; }
+        if (segment >= 0)
+        {
+            score = ScorePathSegment;
+            tail = path.Length - segment - needle.Length;
+            return true;
+        }
 
         var anywhere = path.IndexOf(needle, StringComparison.Ordinal);
-        if (anywhere >= 0) { score = ScorePathAnywhere; position = anywhere; return true; }
+        if (anywhere >= 0)
+        {
+            score = ScorePathAnywhere;
+            tail = path.Length - anywhere - needle.Length;
+            return true;
+        }
 
         return false;
     }
@@ -1085,7 +1109,7 @@ public sealed class FileIndex
             WriteTime = writeTime,
             Lower = lower,
             Initials = Pinyin.Initials(name),
-            Pinyin = Pinyin.HasHan(name) ? Pinyin.Full(name) : lower
+            Pinyin = Pinyin.HasHan(name) ? Pinyin.FullSearch(name) : lower
         };
         return WithPath(entry, path);
     }
@@ -1669,7 +1693,7 @@ public sealed class FileIndex
                     Folder = string.Empty,
                     Lower = lower,
                     Initials = Pinyin.Initials(name),
-                    Pinyin = Pinyin.HasHan(name) ? Pinyin.Full(name) : lower
+                    Pinyin = Pinyin.HasHan(name) ? Pinyin.FullSearch(name) : lower
                 };
                 entries.Add(entry);
             }

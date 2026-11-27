@@ -57,7 +57,7 @@ public sealed class ShortcutItem : ObservableObject
     public string SearchWordInitials => _searchWordInitials ??= TextMatch.WordInitials(_name);
 
     /// <summary>Full pinyin of the name ("shejigao"), so typing syllables works like initials.</summary>
-    public string SearchPinyin => _searchPinyin ??= Infrastructure.Pinyin.Full(_name ?? string.Empty);
+    public string SearchPinyin => _searchPinyin ??= Infrastructure.Pinyin.FullSearch(_name ?? string.Empty);
 
     /// <summary>Name with spaces and punctuation dropped, so "vs code" matches "Visual Studio Code".</summary>
     public string SearchCompact => _searchCompact ??= TextMatch.Compact(_name);

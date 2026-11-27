@@ -100,7 +100,14 @@ public partial class App : Application
         if (e.Args.Length > 1 && e.Args[0].Equals("--pinyin-probe", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var word in e.Args[1].Split(';', StringSplitOptions.RemoveEmptyEntries))
-                Console.WriteLine($"{word} -> full=[{TinyPinyin.PinyinHelper.GetPinyin(word)}] initials=[{TinyPinyin.PinyinHelper.GetPinyinInitials(word)}]");
+            {
+                // "search" is what the index stores: the primary spelling plus the alternates of
+                // any polyphone, separated by '|' here so they are readable on a console.
+                var search = Infrastructure.Pinyin.FullSearch(word)
+                    .Replace(Infrastructure.Pinyin.VariantSeparator, '|');
+                Console.WriteLine($"{word} -> full=[{Infrastructure.Pinyin.Full(word)}] " +
+                                  $"initials=[{TinyPinyin.PinyinHelper.GetPinyinInitials(word)}] search=[{search}]");
+            }
             Shutdown();
             return;
         }

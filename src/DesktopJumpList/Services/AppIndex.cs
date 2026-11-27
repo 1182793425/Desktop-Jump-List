@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -240,7 +240,7 @@ public sealed class AppIndex : IDisposable
                         Compact = TextMatch.Compact(name),
                         Initials = Pinyin.Initials(name.Trim()),
                         WordInitials = TextMatch.WordInitials(name.Trim()),
-                        Pinyin = Pinyin.Full(name.Trim()),
+                        Pinyin = Pinyin.FullSearch(name.Trim()),
                         ExeStem = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant(),
                         PublisherLower = publisher.ToLowerInvariant(),
                     };

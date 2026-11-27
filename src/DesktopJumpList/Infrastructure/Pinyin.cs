@@ -102,6 +102,111 @@ public static class Pinyin
         catch { return text.ToLowerInvariant(); }
     }
 
+    /// <summary>
+    /// What search actually stores: <see cref="Full"/> plus the alternate readings of any
+    /// polyphone, joined by <see cref="VariantSeparator"/>.
+    /// </summary>
+    /// <remarks>
+    /// TinyPinyin gives one reading per character and often picks the wrong one for names:
+    /// 音乐 came back as "yin le", so "qqyinyue" never found 「QQ音乐」. The variants are appended
+    /// rather than kept in a second field so a plain <c>Contains</c> over this string already
+    /// answers the alternate spellings — no caller has to know about them.
+    /// </remarks>
+    public static string FullSearch(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        var primary = Full(text);
+        if (!HasHan(text)) return primary;
+        var variants = Variants(text, primary);
+        return variants.Length == 0 ? primary : primary + VariantSeparator + variants;
+    }
+
+    /// <summary>Separates the primary spelling from its alternates inside the search string.</summary>
+    public const char VariantSeparator = '\u0001';
+
+    /// <summary>At most this many alternates per name; a name with more is already unusual.</summary>
+    private const int MaxVariants = 3;
+
+    /// <summary>
+    /// Alternate spellings, one per polyphone in the name (each flipped on its own, which is what
+    /// covers 音乐 → yinyue and 重庆 → chongqing). Returns "" when nothing is ambiguous.
+    /// </summary>
+    private static string Variants(string text, string primary)
+    {
+        var syllables = Syllables(text);
+        if (syllables is null) return string.Empty;
+
+        var variants = new List<string>(MaxVariants);
+        for (var i = 0; i < text.Length && variants.Count < MaxVariants; i++)
+        {
+            if (!Polyphones.TryGetValue(text[i], out var readings)) continue;
+
+            var chosen = syllables[i];
+            foreach (var reading in readings)
+            {
+                if (string.Equals(reading, chosen, StringComparison.OrdinalIgnoreCase)) continue;
+                syllables[i] = reading;
+                var variant = string.Concat(syllables).ToLowerInvariant();
+                if (!string.Equals(variant, primary, StringComparison.Ordinal)) variants.Add(variant);
+                break;
+            }
+            syllables[i] = chosen;
+        }
+
+        return string.Join(VariantSeparator, variants);
+    }
+
+    /// <summary>Per-character syllables of <paramref name="text"/>, or null when a call fails.</summary>
+    private static string[]? Syllables(string text)
+    {
+        var result = new string[text.Length];
+        try
+        {
+            for (var i = 0; i < text.Length; i++)
+            {
+                var ch = text[i];
+                result[i] = ch < 0x80
+                    ? ch.ToString()
+                    : TinyPinyin.PinyinHelper.GetPinyin(ch.ToString()).Replace(" ", string.Empty);
+            }
+            return result;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Characters whose reading depends on the word, with every common reading. The primary is
+    /// whatever TinyPinyin returns; these are used to build the alternates.
+    /// </summary>
+    private static readonly Dictionary<char, string[]> Polyphones = new()
+    {
+        // 只收两个读音确实不同、且常见于文件名/软件名的字。
+        ['乐'] = new[] { "le", "yue" }, ['行'] = new[] { "xing", "hang" },
+        ['重'] = new[] { "zhong", "chong" }, ['长'] = new[] { "chang", "zhang" },
+        ['传'] = new[] { "chuan", "zhuan" }, ['调'] = new[] { "diao", "tiao" },
+        ['会'] = new[] { "hui", "kuai" }, ['觉'] = new[] { "jue", "jiao" },
+        ['角'] = new[] { "jiao", "jue" }, ['强'] = new[] { "qiang", "jiang" },
+        ['省'] = new[] { "sheng", "xing" }, ['系'] = new[] { "xi", "ji" },
+        ['种'] = new[] { "zhong", "chong" }, ['着'] = new[] { "zhe", "zhao" },
+        ['都'] = new[] { "dou", "du" }, ['还'] = new[] { "hai", "huan" },
+        ['得'] = new[] { "de", "dei" }, ['差'] = new[] { "cha", "chai" },
+        ['便'] = new[] { "bian", "pian" }, ['给'] = new[] { "gei", "ji" },
+        ['落'] = new[] { "luo", "la" }, ['说'] = new[] { "shuo", "shui" },
+        ['择'] = new[] { "ze", "zhai" }, ['朝'] = new[] { "chao", "zhao" },
+        ['称'] = new[] { "cheng", "chen" }, ['乘'] = new[] { "cheng", "sheng" },
+        ['恶'] = new[] { "e", "wu" }, ['和'] = new[] { "he", "huo" },
+        ['解'] = new[] { "jie", "xie" }, ['屏'] = new[] { "ping", "bing" },
+        ['亲'] = new[] { "qin", "qing" }, ['识'] = new[] { "shi", "zhi" },
+        ['似'] = new[] { "si", "shi" }, ['血'] = new[] { "xue", "xie" },
+        ['仔'] = new[] { "zai", "zi" }, ['地'] = new[] { "di", "de" },
+        ['大'] = new[] { "da", "dai" }, ['石'] = new[] { "shi", "dan" },
+        ['宿'] = new[] { "su", "xiu" }, ['提'] = new[] { "ti", "di" },
+        ['扎'] = new[] { "zha", "za" }, ['曾'] = new[] { "zeng", "ceng" },
+        ['车'] = new[] { "che", "ju" }, ['没'] = new[] { "mei", "mo" },
+        ['归'] = new[] { "gui", "kui" }
+    };
+
+
     private static char Initial(char ch)
     {
         if (Gb2312 is null || ch < 0x4E00 || ch > 0x9FA5) return '\0';

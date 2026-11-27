@@ -43,6 +43,11 @@ public sealed class UsageStore
     /// Ranking bonus, 0..3: two steps for repeat use and one for a recent open. Deliberately
     /// small — it settles ties, it never promotes a vague match over an exact one.
     /// </summary>
+    /// <remarks>
+    /// A single open earns nothing. One accidental launch used to pin that file to the top of
+    /// every query it appeared in for two weeks ("那两个 png 永远排最前面"), which is not what a
+    /// preference is supposed to feel like.
+    /// </remarks>
     public int Boost(string path)
     {
         if (path.Length == 0) return 0;
@@ -53,6 +58,7 @@ public sealed class UsageStore
             // The index stores '\' paths; a caller may still hand us a pasted '/' one.
             if (!map.TryGetValue(path.Replace('/', '\\'), out record)) return 0;
         }
+        if (record.Count < 2) return 0;
         return Math.Min(2, record.Count) + (IsRecent(record) ? 1 : 0);
     }
 

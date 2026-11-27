@@ -79,10 +79,24 @@ internal static class IndexSelfTest
             // A minute into the future so it is the newest row no matter how fast the setup runs.
             File.SetLastWriteTime(longNewPng, DateTime.Now.AddMinutes(1));
 
+            // ".png" after a bracket used to score better than ".png" after a letter, so an old
+            // "（demo数据）.png" sat above today's files on every ".png" search. Same quality of
+            // hit, so only recency may separate them — this one is the oldest, so it comes last.
+            var bracketPng = Path.Combine(rank, "（demo数据）.png");
+            File.WriteAllText(bracketPng, "g");
+            File.SetLastWriteTime(bracketPng, DateTime.Now.AddDays(-60));
+
+            // Same tier, different distance to the end of the name: the closer one wins.
+            File.WriteAllText(Path.Combine(rank, "报告.txt"), "c");
+            File.WriteAllText(Path.Combine(rank, "报告-附件与会议记录.txt"), "d");
+            // Polyphones: TinyPinyin reads 音乐 as "yin le", 重庆 as "zhong qing".
+            File.WriteAllText(Path.Combine(rank, "QQ音乐.txt"), "e");
+            File.WriteAllText(Path.Combine(rank, "重庆火锅.txt"), "f");
+
             // An excluded folder must not appear as a row either (only its contents used to be).
             var cacheDir = Path.Combine(rank, "cache");
             Directory.CreateDirectory(cacheDir);
-            File.WriteAllText(Path.Combine(cacheDir, "inside.png"), "b");
+            File.WriteAllText(Path.Combine(cacheDir, "inside.png"), "h");
 
             var rules = new IndexRules(new[] { root }, new Dictionary<string, RootLimitSetting>(),
                 new[] { ".txt", ".docx", ".png", ".md", ".exe" },
@@ -157,6 +171,15 @@ internal static class IndexSelfTest
             Check("usage breaks the tie", boosted is not null
                 && boosted.Path.EndsWith(@"x\dup.txt", StringComparison.OrdinalIgnoreCase),
                 string.Join('|', index.Search("dup", 4).Select(entry => entry.Path)));
+
+            // One accidental open must not pin a file to the top of every query it appears in.
+            var once = new UsageStore();
+            once.Record(Path.Combine(rank, "y", "dup.txt"));
+            Check("a single open is not a preference", once.Boost(Path.Combine(rank, "y", "dup.txt")) == 0,
+                once.Boost(Path.Combine(rank, "y", "dup.txt")).ToString());
+            once.Record(Path.Combine(rank, "y", "dup.txt"));
+            Check("a second open becomes a preference", once.Boost(Path.Combine(rank, "y", "dup.txt")) >= 3,
+                once.Boost(Path.Combine(rank, "y", "dup.txt")).ToString());
             index.Usage = null;
 
             // Every root reports what it contributed, so an empty drive can be explained.
@@ -171,6 +194,12 @@ internal static class IndexSelfTest
                 Top(index, ".png") == "企业微信截图_17957763501157.png",
                 string.Join('|', index.Search(".png", 6).Select(entry => entry.Name)));
 
+            // Same quality of hit, so only recency separates them: the bracket one is the oldest.
+            var pngs = index.Search(".png", 40).ToList();
+            Check("a bracket before the extension is not a better hit",
+                pngs.Count > 3 && pngs[^1].Name == "（demo数据）.png",
+                string.Join('|', pngs.Select(entry => entry.Name)));
+
             var newestRows = index.Take(6);
             Check("newest list is files only, newest first",
                 newestRows.Count > 0
@@ -184,6 +213,17 @@ internal static class IndexSelfTest
                     string.Equals(entry.Name, "cache", StringComparison.OrdinalIgnoreCase)
                     || entry.Path.Contains(@"\cache\", StringComparison.OrdinalIgnoreCase)),
                 string.Join('|', index.Search("cache", 50).Select(entry => entry.Name + "|" + entry.Path)));
+
+            // ── Ordering by distance to the end of the path ────────────────────
+            Check("tail: the match closest to the end wins",
+                Top(index, "报告") == "报告.txt",
+                string.Join('|', index.Search("报告", 5).Select(entry => entry.Name)));
+
+            // ── Polyphone pinyin ───────────────────────────────────────────────
+            // "qqyinyue" and "chongqing" are the readings a person types; TinyPinyin stores the
+            // other one (yin le / zhong qing), so the index has to carry the alternates too.
+            Check("pinyin: qqyinyue finds QQ音乐", Top(index, "qqyinyue") == "QQ音乐.txt", Top(index, "qqyinyue"));
+            Check("pinyin: chongqing finds 重庆火锅", Top(index, "chongqing") == "重庆火锅.txt", Top(index, "chongqing"));
 
             // ── Blacklist upgrade ──────────────────────────────────────────────
             // A release that ships new junk-folder patterns edits the user's config on startup.
