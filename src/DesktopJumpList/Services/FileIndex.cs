@@ -24,6 +24,14 @@ public sealed class FileEntry
     public DateTime WriteTime { get; set; }
 
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Lower-case full path with backslash separators — the string every search scans. Storing it
+    /// (instead of lower-casing Path on each keystroke) is the space-for-time trade: ~2 bytes per
+    /// character per entry, and the scan becomes a few IndexOf calls on an existing string.
+    /// </summary>
+    public string PathLow { get; set; } = string.Empty;
+
     public string Folder { get; set; } = string.Empty;
     public string Lower { get; set; } = string.Empty;
     public string Initials { get; set; } = string.Empty;
@@ -270,8 +278,9 @@ public sealed class FileIndex
             {
                 long bytes = 0;
                 foreach (var entry in _byId.Values)
-                    bytes += (entry.Path.Length + entry.Name.Length + entry.Folder.Length
-                              + entry.Lower.Length + entry.Initials.Length + entry.Pinyin.Length) * 2 + 180;
+                    bytes += (entry.Path.Length + entry.PathLow.Length + entry.Name.Length
+                              + entry.Folder.Length + entry.Lower.Length + entry.Initials.Length
+                              + entry.Pinyin.Length) * 2 + 180;
                 return bytes;
             }
         }
@@ -312,66 +321,153 @@ public sealed class FileIndex
     {
         if (string.IsNullOrWhiteSpace(query) || max <= 0) return new List<FileEntry>();
 
-        var needle = query.Trim().ToLowerInvariant();
-        // Words are separate requirements, not one long string: "/s file 2026 11 .csv" has to match
-        // a path like ...\Cache\File\2026-11\明细.csv, where no single substring contains all of it.
-        // Path separators split too, so a pasted "Downloads\Hermes-Setup.exe" is read as the two
-        // things it is — a folder and a file name — instead of one needle nothing can match.
-        var tokens = needle.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries);
-        var hits = new List<(FileEntry entry, int rank, int folderHits)>();
+        var tokens = QueryTokens.Parse(query);
+        if (tokens.Length == 0) return new List<FileEntry>();
 
+        var hits = new List<Hit>();
         List<FileEntry> snapshot;
         lock (_gate) snapshot = SnapshotLocked();
 
         foreach (var entry in snapshot)
         {
-            if (tokens.Length == 0) continue;
-            if (tokens.Length == 1)
+            // Layer 1 — the path, in order, with the spaces acting as wildcards:
+            // "download / set .exe" behaves like LIKE '%download%\%set%.exe%'.
+            var rank = RankPath(entry, tokens, out var gap, out var nameHit);
+            if (rank != int.MaxValue)
             {
-                var single = Rank(entry, tokens[0], tokens[0]);
-                if (single == int.MaxValue) continue;
-                hits.Add((entry, single, 0));
+                hits.Add(new Hit(entry, rank, gap, nameHit));
                 continue;
             }
 
-            var rank = RankAllTokens(entry, tokens, out var folderHits);
-            if (rank == int.MaxValue) continue;
-            hits.Add((entry, rank, folderHits));
+            // Layer 2 — the name alone (pinyin, initials, subsequence). Path matching cannot see
+            // "weiguimingxi" because the pinyin is not in the path; these hits rank behind every
+            // path hit, which is what "search the path first" means.
+            var nameRank = 0;
+            foreach (var token in tokens.All)
+            {
+                var one = Rank(entry, token.Text, token.Text);
+                if (one == int.MaxValue) { nameRank = int.MaxValue; break; }
+                nameRank += one;
+            }
+            if (nameRank != int.MaxValue)
+                hits.Add(new Hit(entry, NameLayerRank + nameRank, 0, true));
         }
 
         return hits
-            // Name relevance first. Ranking the folder hits above that was wrong: with "h exe" the
-            // "h" of a path like …\Users\shi.pengbo\… counted as a directory hit and pushed
-            // Hermes-Setup.exe out of the results entirely. A directory hit is only a bonus between
-            // otherwise equally good name matches.
-            .OrderBy(hit => hit.rank)
-            .ThenByDescending(hit => hit.folderHits)
-            .ThenByDescending(hit => hit.entry.WriteTime)
-            .ThenBy(hit => hit.entry.Name.Length)
+            .OrderBy(hit => hit.Rank)
+            .ThenBy(hit => hit.Gap)
+            .ThenByDescending(hit => hit.Entry.WriteTime)
+            .ThenBy(hit => hit.Entry.Name.Length)
             .Skip(Math.Max(0, skip))
             .Take(max)
-            .Select(hit => hit.entry)
+            .Select(hit => hit.Entry)
             .ToList();
     }
 
+    /// <summary>Everything after this is a name-only hit, so path hits always come first.</summary>
+    private const int NameLayerRank = 100;
+
+    private readonly record struct Hit(FileEntry Entry, int Rank, int Gap, bool NameHit);
+
     /// <summary>
-    /// Every token must hit somewhere (name, pinyin, or the folder path); ranks add up and the
-    /// number of tokens that matched the folder comes back for the sort.
+    /// One query, prepared once per keystroke instead of once per entry: lower-case, '/' folded to
+    /// '\\', split on whitespace, and for each piece the "\piece" form used to prefer a match
+    /// that starts a path segment.
     /// </summary>
-    private static int RankAllTokens(FileEntry entry, string[] tokens, out int folderHits)
+    private readonly struct QueryTokens
     {
-        var total = 0;
-        folderHits = 0;
-        foreach (var token in tokens)
+        public readonly struct Token
         {
-            var rank = Rank(entry, token, token);
-            if (rank == int.MaxValue) return int.MaxValue;
-            total += rank;
-            if (rank >= FolderRank) folderHits++;
+            public readonly string Text;
+            public readonly string? Boundary;   // "\" + Text, when Text does not start with a separator
+
+            public Token(string text)
+            {
+                Text = text;
+                Boundary = text.Length > 0 && text[0] != '\\' ? "\\" + text : null;
+            }
         }
-        return total;
+
+        public readonly Token[] All;
+
+        private QueryTokens(Token[] all) => All = all;
+
+        public int Length => All.Length;
+
+        public static QueryTokens Parse(string query)
+        {
+            // A pasted "C:/Users/…" and a typed "downloads\hermes.exe" have to mean the same thing.
+            var normalized = query.Replace('/', '\\').Trim().ToLowerInvariant();
+            var pieces = normalized.Split(Separators, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = new Token[pieces.Length];
+            for (var i = 0; i < pieces.Length; i++) tokens[i] = new Token(pieces[i]);
+            return new QueryTokens(tokens);
+        }
+
+        // Whitespace and the path separator both split: "download/set", "download\set" and
+        // "download set" are the same three-requirement query, and each piece still prefers to
+        // start on a segment boundary when the path offers one.
+        private static readonly char[] Separators = { ' ', '\t', '\r', '\n', '\\' };
     }
 
+    /// <summary>
+    /// Matches the tokens in order anywhere along the full path — the LIKE '%a%b%c%' shape — and
+    /// scores how much of the query the *end* of the path explains:
+    /// 0 the whole tail matches and starts on a segment boundary, 1 it matches the end,
+    /// 2 it starts at the file name, 3 it lands inside the file name, 4 only the folders matched.
+    /// Greedy left-to-right matching is exact for this pattern shape: '%' never needs backtracking.
+    /// </summary>
+    private static int RankPath(FileEntry entry, in QueryTokens tokens, out int gap, out bool nameHit)
+    {
+        gap = 0;
+        nameHit = false;
+        var path = entry.PathLow;
+        if (path.Length == 0) return int.MaxValue;
+
+        var from = 0;
+        var lastStart = 0;
+        var firstAtBoundary = false;
+
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var token = tokens.All[i];
+            var found = IndexOfToken(path, token, from);
+            if (found < 0) return int.MaxValue;
+            if (i == 0) firstAtBoundary = found == 0 || path[found - 1] == '\\';
+            lastStart = found;
+            gap += found - from;
+            from = found + token.Text.Length;
+        }
+
+        var nameStart = path.Length - entry.Name.Length;
+        nameHit = lastStart >= nameStart;
+        var atEnd = from == path.Length;
+
+        if (atEnd && firstAtBoundary && nameHit) return 0;
+        if (atEnd) return 1;
+        if (nameHit) return lastStart == nameStart ? 2 : 3;
+        return 4;
+    }
+
+    /// <summary>
+    /// First occurrence at or after <paramref name="from"/>, preferring one that starts a path
+    /// segment: "h" should find …\hermes-setup.exe, not the h of …\shi.pengbo\…
+    /// </summary>
+    private static int IndexOfToken(string path, in QueryTokens.Token token, int from)
+    {
+        if (token.Boundary is { } boundary)
+        {
+            var at = path.IndexOf(boundary, Math.Max(0, from - 1), StringComparison.Ordinal);
+            if (at >= 0) return at + 1;
+        }
+        return path.IndexOf(token.Text, from, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Name-only relevance, used when the path scan found nothing: the pinyin of "违规明细" is not
+    /// part of any path, so "weiguimingxi" can only be answered here. The folder is deliberately
+    /// not consulted — that is what the path layer is for.
+    /// </summary>
     private static int Rank(FileEntry entry, string needle, string compact)
     {
         if (string.Equals(entry.Lower, needle, StringComparison.Ordinal)) return 0;
@@ -381,8 +477,7 @@ public sealed class FileIndex
         if (entry.Initials.Length > needle.Length && entry.Initials.Contains(needle, StringComparison.Ordinal)) return 4;
 
         // Full pinyin: "shejigao" → 设计稿. Only for letter queries, and only when the name really
-        // has Han characters (Pinyin equals Lower for ASCII names, where the rules above already
-        // covered the same ground).
+        // has Han characters (Pinyin equals Lower for ASCII names).
         if (IsAsciiWord(needle) && entry.Pinyin.Length > 0
             && !string.Equals(entry.Pinyin, entry.Lower, StringComparison.Ordinal))
         {
@@ -392,15 +487,8 @@ public sealed class FileIndex
 
         if (compact.Length >= 3 && IsSubsequence(entry.Lower, compact)) return 7;
         if (compact.Length >= 3 && IsSubsequence(entry.Initials, compact)) return 7;
-        if (entry.Folder.Contains(needle, StringComparison.OrdinalIgnoreCase)) return FolderRank;
         return int.MaxValue;
     }
-
-    /// <summary>Rank of "only the folder path matched" — also marks a token as a folder hit.</summary>
-    private const int FolderRank = 8;
-
-    /// <summary>Whitespace and both path separators; each piece becomes its own requirement.</summary>
-    private static readonly char[] TokenSeparators = { ' ', '\\', '/' };
 
     private static bool IsAsciiWord(string text)
     {
@@ -692,6 +780,7 @@ public sealed class FileIndex
             IsDirectory = isDirectory,
             WriteTime = writeTime,
             Path = path,
+            PathLow = path.ToLowerInvariant(),
             Folder = folder,
             Lower = lower,
             Initials = Pinyin.Initials(name),
@@ -986,6 +1075,7 @@ public sealed class FileIndex
             if (!string.Equals(entry.Path, newPath, StringComparison.OrdinalIgnoreCase))
             {
                 entry.Path = newPath;
+                entry.PathLow = newPath.ToLowerInvariant();
                 entry.Folder = Path.GetDirectoryName(newPath) ?? string.Empty;
                 CascadePathsLocked(entry);
             }
@@ -1010,6 +1100,7 @@ public sealed class FileIndex
             {
                 _byPath.Remove(node.Path);
                 node.Path = newPath;
+                node.PathLow = newPath.ToLowerInvariant();
                 node.Folder = parentPath;
                 _byPath[newPath] = node;
             }
@@ -1080,6 +1171,7 @@ public sealed class FileIndex
             {
                 var node = chain[i];
                 node.Path = Path.Combine(basePath, node.Name);
+                node.PathLow = node.Path.ToLowerInvariant();
                 node.Folder = basePath;
                 basePath = node.Path;
                 node.Lower = node.Name.ToLowerInvariant();
@@ -1209,6 +1301,7 @@ public sealed class FileIndex
                     IsDirectory = (flags & 1) != 0,
                     WriteTime = FileTime(ticks),
                     Path = string.Empty,
+                    PathLow = string.Empty,
                     Folder = string.Empty,
                     Lower = lower,
                     Initials = Pinyin.Initials(name),
